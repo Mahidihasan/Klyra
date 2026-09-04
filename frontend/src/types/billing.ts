@@ -1,0 +1,85 @@
+// Mirrors the invoice_status enum in infrastructure/database/schema.sql.
+export type InvoiceStatus = 'DRAFT' | 'SENT' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID';
+
+// Mirrors the payment_status enum.
+export type PaymentStatus = 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
+
+export type InvoiceFilter = 'all' | 'paid' | 'unpaid' | 'void';
+
+export type PaymentFilter = 'all' | 'succeeded' | 'pending' | 'failed' | 'refunded';
+
+export interface InvoiceSubscription {
+  id: string;
+  status: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  api: { id: string; name: string };
+  plan: { id: string; name: string };
+}
+
+export interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  subscription: InvoiceSubscription | null;
+  amount: number;
+  currency: string;
+  status: InvoiceStatus;
+  pdfUrl: string | null;
+  dueDate: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface InvoicePayment {
+  id: string;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  paymentMethod: string | null;
+  paymentMethodDetails: Record<string, unknown> | null;
+  failureReason: string | null;
+  createdAt: string;
+}
+
+export interface InvoiceDetail extends Invoice {
+  payments: InvoicePayment[];
+  amountPaid: number;
+  amountDue: number;
+}
+
+export interface Payment extends InvoicePayment {
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+  } | null;
+  apiName: string | null;
+}
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface InvoiceListResult {
+  invoices: Invoice[];
+  meta: PaginationMeta;
+}
+
+export interface PaymentListResult {
+  payments: Payment[];
+  meta: PaginationMeta;
+}
+
+export interface GetInvoicesQuery {
+  page?: number;
+  limit?: number;
+  status?: Exclude<InvoiceFilter, 'all'>;
+}
+
+export interface GetPaymentsQuery {
+  page?: number;
+  limit?: number;
+  status?: Exclude<PaymentFilter, 'all'>;
+}
