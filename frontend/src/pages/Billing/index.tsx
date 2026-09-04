@@ -2,42 +2,82 @@ import { RefreshCw } from 'lucide-react';
 import React, { useCallback, useState } from 'react';
 
 import { getDevUserId } from '../../config/devAuth';
+import { NavigationTab } from '../../types/api';
 
 import { InvoicesTab } from './InvoicesTab';
+import { OverviewTab } from './OverviewTab';
 import { PaymentsTab } from './PaymentsTab';
+import { PendingTab } from './PendingTab';
 
-type BillingSection = 'invoices' | 'payments';
+interface BillingPageProps {
+  /** Which billing screen the sidebar has selected. */
+  activeTab: NavigationTab;
+  /** Lets in-page links move the sidebar selection too. */
+  onNavigate: (tab: NavigationTab) => void;
+}
 
-const SECTIONS: { id: BillingSection; label: string }[] = [
-  { id: 'invoices', label: 'Invoices' },
-  { id: 'payments', label: 'Payment history' },
-];
+const TITLES: Record<string, { title: string; subtitle: string }> = {
+  billing: {
+    title: 'Billing',
+    subtitle: 'Invoices, payments and spending for your API subscriptions.',
+  },
+  'billing-invoices': {
+    title: 'Invoices',
+    subtitle: 'Every invoice raised against your account.',
+  },
+  'billing-payments': {
+    title: 'Payment history',
+    subtitle: 'Every charge attempted on your payment methods.',
+  },
+  'billing-methods': {
+    title: 'Payment methods',
+    subtitle: 'Cards and other methods used to pay invoices.',
+  },
+  'billing-info': {
+    title: 'Billing information',
+    subtitle: 'Details that appear on your invoices.',
+  },
+};
 
-export const BillingPage: React.FC = () => {
-  const [section, setSection] = useState<BillingSection>('invoices');
+/** Screens that load their own data and so need the Refresh button. */
+const REFRESHABLE = ['billing', 'billing-invoices', 'billing-payments'];
+
+export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate }) => {
   const [refreshToken, setRefreshToken] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Each tab reports its own loading state so the Refresh button can disable.
+  // Each screen reports its own loading state so Refresh can disable.
   const handleLoadingChange = useCallback((next: boolean) => {
     setIsLoading(next);
   }, []);
 
+  const copy = TITLES[activeTab] ?? TITLES.billing;
   const devUserId = getDevUserId();
 
-  // Auth middleware isn't built yet, so the page needs a user id to query with.
-  if (!devUserId) {
+  const header = (
+    <div className="billing-header">
+      <div>
+        <h1 className="billing-title">{copy.title}</h1>
+        <p className="billing-subtitle">{copy.subtitle}</p>
+      </div>
+      {REFRESHABLE.includes(activeTab) && devUserId && (
+        <button
+          className="billing-refresh-btn"
+          onClick={() => setRefreshToken((prev) => prev + 1)}
+          disabled={isLoading}
+        >
+          <RefreshCw size={14} className={isLoading ? 'spinning' : ''} />
+          <span>Refresh</span>
+        </button>
+      )}
+    </div>
+  );
+
+  // Auth middleware isn't built yet, so these screens need a user id to query.
+  if (!devUserId && REFRESHABLE.includes(activeTab)) {
     return (
       <div className="billing-page">
-        <div className="billing-header">
-          <div>
-            <h1 className="billing-title">Billing</h1>
-            <p className="billing-subtitle">
-              Invoices and payment history for your API subscriptions.
-            </p>
-          </div>
-        </div>
-
+        {header}
         <div className="billing-notice card-base">
           <h3>No user selected</h3>
           <p>
@@ -50,7 +90,6 @@ export const BillingPage: React.FC = () => {
             reload.
           </p>
         </div>
-
         <BillingStyles />
       </div>
     );
@@ -58,41 +97,23 @@ export const BillingPage: React.FC = () => {
 
   return (
     <div className="billing-page">
-      <div className="billing-header">
-        <div>
-          <h1 className="billing-title">Billing</h1>
-          <p className="billing-subtitle">
-            Invoices and payment history for your API subscriptions.
-          </p>
-        </div>
-        <button
-          className="billing-refresh-btn"
-          onClick={() => setRefreshToken((prev) => prev + 1)}
-          disabled={isLoading}
-        >
-          <RefreshCw size={14} className={isLoading ? 'spinning' : ''} />
-          <span>Refresh</span>
-        </button>
-      </div>
+      {header}
 
-      <div className="billing-tabs" role="tablist">
-        {SECTIONS.map((item) => (
-          <button
-            key={item.id}
-            role="tab"
-            aria-selected={section === item.id}
-            className={`billing-tab ${section === item.id ? 'active' : ''}`}
-            onClick={() => setSection(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
-      {section === 'invoices' ? (
+      {activeTab === 'billing-invoices' ? (
         <InvoicesTab refreshToken={refreshToken} onLoadingChange={handleLoadingChange} />
-      ) : (
+      ) : activeTab === 'billing-payments' ? (
         <PaymentsTab refreshToken={refreshToken} onLoadingChange={handleLoadingChange} />
+      ) : activeTab === 'billing-methods' ? (
+        <PendingTab kind="methods" />
+      ) : activeTab === 'billing-info' ? (
+        <PendingTab kind="info" />
+      ) : (
+        <OverviewTab
+          refreshToken={refreshToken}
+          onLoadingChange={handleLoadingChange}
+          onViewInvoices={() => onNavigate('billing-invoices')}
+          onViewPayments={() => onNavigate('billing-payments')}
+        />
       )}
 
       <BillingStyles />
@@ -164,43 +185,6 @@ const BillingStyles: React.FC = () => (
 
     @media (prefers-reduced-motion: reduce) {
       .spinning { animation: none; }
-    }
-
-    .billing-tabs {
-      display: flex;
-      gap: 22px;
-      border-bottom: 1px solid var(--border-card);
-    }
-
-    .billing-tab {
-      position: relative;
-      padding: 0 2px 11px 2px;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: color 0.15s ease;
-    }
-
-    .billing-tab:hover {
-      color: var(--text-secondary);
-    }
-
-    .billing-tab.active {
-      color: var(--text-primary);
-    }
-
-    .billing-tab.active::after {
-      content: '';
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: -1px;
-      height: 2px;
-      background: var(--accent-purple);
-      border-radius: 2px 2px 0 0;
     }
 
     .billing-filters {

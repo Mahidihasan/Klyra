@@ -62,6 +62,10 @@ export type NavigationTab =
   | 'usage'
   | 'wallet'
   | 'billing'
+  | 'billing-invoices'
+  | 'billing-payments'
+  | 'billing-methods'
+  | 'billing-info'
   | 'settings'
   | 'api-build'
   | 'api-builder';

@@ -306,9 +306,9 @@ export function App() {
             </div>
 
           </main>
-        ) : activeTab === 'billing' ? (
+        ) : activeTab.startsWith('billing') ? (
           <main className="content-page-wrapper">
-            <BillingPage />
+            <BillingPage activeTab={activeTab} onNavigate={setActiveTab} />
           </main>
         ) : (
           <main className="content-page-wrapper">

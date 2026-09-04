@@ -4,6 +4,7 @@ import {
   getUserInvoices,
   getInvoiceById,
   getUserPayments,
+  getBillingOverview,
   isValidStatusFilter,
   isValidPaymentStatusFilter,
   isUuid,
@@ -125,6 +126,32 @@ router.get('/payments', async (req: RequestWithUser, res: Response) => {
     res.status(500).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: 'Failed to get payments' },
+    });
+  }
+});
+
+// ============ Billing Overview (dashboard) ============
+// GET /api/billing/overview
+router.get('/overview', async (req: RequestWithUser, res: Response) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) {
+      return unauthorized(res);
+    }
+
+    const overview = await getBillingOverview(userId);
+
+    res.json({
+      success: true,
+      data: overview,
+      message: 'Billing overview retrieved successfully',
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to get billing overview', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to get billing overview' },
     });
   }
 });

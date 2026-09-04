@@ -1,5 +1,6 @@
 import { getDevUserId } from '../../config/devAuth';
 import {
+  BillingOverview,
   GetInvoicesQuery,
   GetPaymentsQuery,
   InvoiceDetail,
@@ -65,6 +66,11 @@ function pagedParams(query: { page?: number; limit?: number; status?: string }) 
 }
 
 export const billingApi = {
+  async fetchOverview(): Promise<BillingOverview> {
+    const res = await fetch(`${API_BASE_URL}/overview${withDevUserId(new URLSearchParams())}`);
+    return handleResponse<BillingOverview>(res);
+  },
+
   async fetchInvoices(query: GetInvoicesQuery = {}): Promise<InvoiceListResult> {
     const res = await fetch(`${API_BASE_URL}/invoices${withDevUserId(pagedParams(query))}`);
     return handleResponse<InvoiceListResult>(res);
