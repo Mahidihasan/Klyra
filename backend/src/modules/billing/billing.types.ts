@@ -78,6 +78,29 @@ export interface GetPaymentsQuery {
   status?: PaymentStatusFilter;
 }
 
+/** One currency's slice of a money total — amounts can't be summed across currencies. */
+export interface CurrencyTotal {
+  currency: string;
+  amount: number;
+  count: number;
+}
+
+export interface BillingOverview {
+  outstanding: CurrencyTotal[];
+  paidThisMonth: CurrencyTotal[];
+  paidLastMonth: CurrencyTotal[];
+  nextPayment: {
+    invoiceId: string;
+    invoiceNumber: string;
+    amount: number;
+    currency: string;
+    dueDate: string;
+    isOverdue: boolean;
+  } | null;
+  recentInvoices: Invoice[];
+  recentPayments: Payment[];
+}
+
 export interface PaymentMethod {
   id: string;
   brand: string;

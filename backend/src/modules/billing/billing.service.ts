@@ -1,6 +1,8 @@
 import { pool } from '../../services/database.service';
 
 import {
+  BillingOverview,
+  CurrencyTotal,
   Invoice,
   InvoiceDetail,
   InvoicePayment,
@@ -123,6 +125,12 @@ interface PaymentRow {
   invoice_id?: string | null;
   invoice_number?: string | null;
   api_name?: string | null;
+}
+
+interface CurrencyTotalRow {
+  currency: string;
+  amount: number | string;
+  count: number | string;
 }
 
 function mapInvoice(row: InvoiceRow): Invoice {
@@ -313,5 +321,104 @@ export async function getUserPayments(userId: string, query: GetPaymentsQuery) {
   return {
     payments,
     meta: buildMeta(page, limit, total),
+  };
+}
+
+function mapCurrencyTotals(rows: CurrencyTotalRow[]): CurrencyTotal[] {
+  return rows.map((row) => ({
+    currency: row.currency,
+    amount: Number(row.amount),
+    count: Number(row.count),
+  }));
+}
+
+/**
+ * Everything the billing dashboard shows, in one round trip.
+ *
+ * Money is grouped by currency rather than summed into a single figure —
+ * invoices can be raised in more than one currency, and adding those together
+ * would produce a number that means nothing.
+ */
+export async function getBillingOverview(userId: string): Promise<BillingOverview> {
+  const unpaidStatuses = INVOICE_STATUS_MAP.unpaid;
+
+  const [outstandingResult, thisMonthResult, lastMonthResult, nextPaymentResult] =
+    await Promise.all([
+      // Outstanding is the invoice total minus whatever already succeeded
+      // against it, so a partially paid invoice only counts for the remainder.
+      pool.query(
+        `SELECT
+           i.currency,
+           SUM(GREATEST(i.amount - COALESCE(paid.total, 0), 0)) AS amount,
+           COUNT(*)::int AS count
+         FROM invoices i
+         LEFT JOIN (
+           SELECT invoice_id, SUM(amount) AS total
+           FROM payments
+           WHERE status = 'SUCCEEDED' AND invoice_id IS NOT NULL
+           GROUP BY invoice_id
+         ) paid ON paid.invoice_id = i.id
+         WHERE i.user_id = $1 AND i.status = ANY($2::invoice_status[])
+         GROUP BY i.currency
+         HAVING SUM(GREATEST(i.amount - COALESCE(paid.total, 0), 0)) > 0
+         ORDER BY 2 DESC`,
+        [userId, unpaidStatuses],
+      ),
+      pool.query(
+        `SELECT currency, SUM(amount) AS amount, COUNT(*)::int AS count
+         FROM payments
+         WHERE user_id = $1
+           AND status = 'SUCCEEDED'
+           AND created_at >= date_trunc('month', NOW())
+         GROUP BY currency
+         ORDER BY SUM(amount) DESC`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT currency, SUM(amount) AS amount, COUNT(*)::int AS count
+         FROM payments
+         WHERE user_id = $1
+           AND status = 'SUCCEEDED'
+           AND created_at >= date_trunc('month', NOW()) - INTERVAL '1 month'
+           AND created_at < date_trunc('month', NOW())
+         GROUP BY currency
+         ORDER BY SUM(amount) DESC`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT id, invoice_number, amount, currency, due_date
+         FROM invoices
+         WHERE user_id = $1
+           AND status = ANY($2::invoice_status[])
+           AND due_date IS NOT NULL
+         ORDER BY due_date ASC
+         LIMIT 1`,
+        [userId, unpaidStatuses],
+      ),
+    ]);
+
+  const [{ invoices: recentInvoices }, { payments: recentPayments }] = await Promise.all([
+    getUserInvoices(userId, { limit: 4 }),
+    getUserPayments(userId, { limit: 3 }),
+  ]);
+
+  const nextRow = nextPaymentResult.rows[0];
+
+  return {
+    outstanding: mapCurrencyTotals(outstandingResult.rows),
+    paidThisMonth: mapCurrencyTotals(thisMonthResult.rows),
+    paidLastMonth: mapCurrencyTotals(lastMonthResult.rows),
+    nextPayment: nextRow
+      ? {
+          invoiceId: nextRow.id,
+          invoiceNumber: nextRow.invoice_number,
+          amount: Number(nextRow.amount),
+          currency: nextRow.currency,
+          dueDate: nextRow.due_date,
+          isOverdue: new Date(nextRow.due_date).getTime() < Date.now(),
+        }
+      : null,
+    recentInvoices,
+    recentPayments,
   };
 }

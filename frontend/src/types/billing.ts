@@ -55,6 +55,42 @@ export interface Payment extends InvoicePayment {
   apiName: string | null;
 }
 
+export interface CurrencyTotal {
+  currency: string;
+  amount: number;
+  count: number;
+}
+
+export interface SubscriptionSummary {
+  id: string;
+  status: string;
+  amount: number | null;
+  currency: string | null;
+  interval: string | null;
+  periodEnd: string | null;
+  autoRenew: boolean;
+  api: { id: string; name: string };
+  plan: { id: string; name: string };
+}
+
+export interface BillingOverview {
+  currentPlan: SubscriptionSummary | null;
+  subscriptions: SubscriptionSummary[];
+  outstanding: CurrencyTotal[];
+  paidThisMonth: CurrencyTotal[];
+  paidLastMonth: CurrencyTotal[];
+  nextPayment: {
+    invoiceId: string;
+    invoiceNumber: string;
+    amount: number;
+    currency: string;
+    dueDate: string;
+    isOverdue: boolean;
+  } | null;
+  recentInvoices: Invoice[];
+  recentPayments: Payment[];
+}
+
 export interface PaginationMeta {
   page: number;
   limit: number;
