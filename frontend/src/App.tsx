@@ -12,6 +12,7 @@ import { TabViews } from './components/TabViews';
 import { PlaygroundPage } from './pages/Playground/index';
 import { ApiBuildEntry } from './components/ApiBuildEntry';
 import { ApiBuilder } from './pages/ApiBuilder/index';
+import { RepositoriesPage } from './pages/Repositories/index';
 import './pages/Playground/styles.css';
 
 import {
@@ -110,6 +111,8 @@ export function App() {
           onBack={() => setActiveTab('home')}
           onOpenProject={(project) => { setActiveApiProject(project); setActiveTab('api-builder'); }}
         />
+      ) : activeTab === 'repositories' ? (
+        <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
       ) : (
       <>
       {/* Top Header Bar - Full Width */}
