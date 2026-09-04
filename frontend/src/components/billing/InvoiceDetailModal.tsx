@@ -166,17 +166,15 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
                 )}
               </section>
 
-              {invoice.pdfUrl && (
-                <a
-                  className="invoice-pdf-btn"
-                  href={invoice.pdfUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <Download size={15} />
-                  <span>Download PDF</span>
-                </a>
-              )}
+              <a
+                className="invoice-pdf-btn"
+                href={billingApi.invoicePdfUrl(invoice.id)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Download size={15} />
+                <span>Download PDF</span>
+              </a>
             </>
           ) : null}
         </div>

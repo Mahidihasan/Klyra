@@ -8,13 +8,22 @@ import {
   isValidStatusFilter,
   isValidPaymentStatusFilter,
   isUuid,
+  getBillingInformation,
+  saveBillingInformation,
+  validateBillingInformation,
 } from './billing.service';
+import {
+  isCloudinaryConfigured,
+  renderInvoicePdf,
+  storeInvoicePdf,
+} from './billing.pdf.service';
 import {
   isStripeConfigured,
   listPaymentMethods,
   createSetupSession,
   setDefaultPaymentMethod,
   removePaymentMethod,
+  syncCustomerBillingDetails,
 } from './stripe.service';
 
 const router = Router();
@@ -139,6 +148,19 @@ router.get('/overview', async (req: RequestWithUser, res: Response) => {
     if (!userId) return unauthorized(res);
 
     const overview = await getBillingOverview(userId);
+
+    // Stripe lives outside the service layer, so the default card is attached
+    // here — and a Stripe outage shouldn't take the whole dashboard down.
+    if (isStripeConfigured()) {
+      try {
+        const methods = await listPaymentMethods(userId);
+        overview.defaultPaymentMethod =
+          methods.find((method) => method.isDefault) ?? methods[0] ?? null;
+      } catch (stripeError) {
+        // eslint-disable-next-line no-console
+        console.error('Could not attach default payment method to overview', stripeError);
+      }
+    }
 
     res.json({
       success: true,
@@ -310,6 +332,85 @@ router.delete(
   },
 );
 
+// ============ Get Billing Information ============
+// GET /api/billing/information
+router.get('/information', async (req: RequestWithUser, res: Response) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return unauthorized(res);
+
+    const information = await getBillingInformation(userId);
+
+    res.json({
+      success: true,
+      data: { information },
+      message: 'Billing information retrieved successfully',
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to get billing information', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to get billing information' },
+    });
+  }
+});
+
+// ============ Save Billing Information ============
+// PUT /api/billing/information
+router.put('/information', async (req: RequestWithUser, res: Response) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return unauthorized(res);
+
+    const { values, errors } = validateBillingInformation(req.body);
+
+    if (!values) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Some fields need attention',
+          fields: errors,
+        },
+      });
+    }
+
+    const information = await saveBillingInformation(userId, values);
+
+    // Keep Stripe in step when it's configured, but never fail the save
+    // because of it — the details are stored either way.
+    if (isStripeConfigured()) {
+      try {
+        await syncCustomerBillingDetails(userId, information);
+      } catch (stripeError) {
+        // eslint-disable-next-line no-console
+        console.error('Saved billing information but Stripe sync failed', stripeError);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: { information },
+      message: 'Billing information saved successfully',
+    });
+  } catch (error) {
+    if ((error as Error & { code?: string }).code === 'NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+      });
+    }
+
+    // eslint-disable-next-line no-console
+    console.error('Failed to save billing information', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to save billing information' },
+    });
+  }
+});
+
 // ============ Get Single Invoice ============
 // GET /api/billing/invoices/:invoiceId
 router.get('/invoices/:invoiceId', async (req: RequestWithUser, res: Response) => {
@@ -347,6 +448,69 @@ router.get('/invoices/:invoiceId', async (req: RequestWithUser, res: Response) =
     res.status(500).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: 'Failed to get invoice' },
+    });
+  }
+});
+
+// ============ Download Invoice PDF ============
+// GET /api/billing/invoices/:invoiceId/pdf
+//
+// Registered after /invoices/:invoiceId, which is fine — Express matches on the
+// full path, and this one is more specific.
+router.get('/invoices/:invoiceId/pdf', async (req: RequestWithUser, res: Response) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return unauthorized(res);
+
+    const invoiceId = String(req.params.invoiceId);
+    if (!isUuid(invoiceId)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_INVOICE_ID', message: 'invoiceId must be a UUID' },
+      });
+    }
+
+    const invoice = await getInvoiceById(userId, invoiceId);
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'INVOICE_NOT_FOUND', message: 'Invoice not found' },
+      });
+    }
+
+    // Already uploaded once — send the person to the stored copy.
+    if (invoice.pdfUrl) {
+      return res.redirect(302, invoice.pdfUrl);
+    }
+
+    const billing = await getBillingInformation(userId);
+    const buffer = await renderInvoicePdf(invoice, billing);
+
+    // Cache to Cloudinary when it's configured, but never fail the download
+    // because the upload did — the bytes are ready either way.
+    if (isCloudinaryConfigured()) {
+      try {
+        const stored = await storeInvoicePdf(invoice.id, invoice.invoiceNumber, buffer);
+        return res.redirect(302, stored.url);
+      } catch (uploadError) {
+        // eslint-disable-next-line no-console
+        console.error('Generated invoice PDF but could not store it', uploadError);
+      }
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${invoice.invoiceNumber}.pdf"`,
+    );
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to build invoice PDF', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to build invoice PDF' },
     });
   }
 });

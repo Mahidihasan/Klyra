@@ -84,20 +84,29 @@ export interface SubscriptionSummary {
   plan: { id: string; name: string };
 }
 
+export interface DueInvoiceSummary {
+  invoiceId: string;
+  invoiceNumber: string;
+  amount: number;
+  currency: string;
+  dueDate: string;
+  /** Negative when the due date has already passed. */
+  daysFromNow: number;
+}
+
 export interface BillingOverview {
-  currentPlan: SubscriptionSummary | null;
-  subscriptions: SubscriptionSummary[];
   outstanding: CurrencyTotal[];
+  overdue: CurrencyTotal[];
   paidThisMonth: CurrencyTotal[];
   paidLastMonth: CurrencyTotal[];
-  nextPayment: {
-    invoiceId: string;
-    invoiceNumber: string;
-    amount: number;
-    currency: string;
-    dueDate: string;
-    isOverdue: boolean;
-  } | null;
+  nextPayment: DueInvoiceSummary | null;
+  oldestOverdue: DueInvoiceSummary | null;
+  failedPayments: {
+    count: number;
+    latest: Payment | null;
+  };
+  defaultPaymentMethod: PaymentMethod | null;
+  billingInformation: BillingInformation;
   recentInvoices: Invoice[];
   recentPayments: Payment[];
 }
@@ -118,6 +127,27 @@ export interface PaymentListResult {
   payments: Payment[];
   meta: PaginationMeta;
 }
+
+/**
+ * Details that appear on invoices. Nullable fields mirror the backend, where a
+ * blank input is stored as null rather than an empty string.
+ */
+export interface BillingInformation {
+  billingName: string;
+  companyName: string | null;
+  invoiceEmail: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  /** ISO 3166-1 alpha-2, uppercase. */
+  country: string | null;
+  taxId: string | null;
+  updatedAt: string | null;
+}
+
+export type BillingInformationField = Exclude<keyof BillingInformation, 'updatedAt'>;
 
 export interface PaymentMethod {
   id: string;
