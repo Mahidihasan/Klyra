@@ -1,4 +1,6 @@
 import express from 'express';
+
+import billingRouter from './modules/billing/billing.routes';
 import playgroundRouter from './modules/playground/playground.routes';
 
 const app = express();
@@ -7,7 +9,10 @@ const app = express();
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization',
+  );
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -24,5 +29,8 @@ app.get('/api/health', (_req, res) => {
 
 // Playground routes
 app.use('/api/playground', playgroundRouter);
+
+// Billing routes
+app.use('/api/billing', billingRouter);
 
 export default app;
