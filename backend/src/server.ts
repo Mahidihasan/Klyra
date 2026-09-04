@@ -2,14 +2,15 @@ import path from 'path';
 
 import dotenv from 'dotenv';
 
-import app from './app';
-
-// Load environment variables - prefer .env.development in dev mode
+// Load environment variables before anything imports the database pool —
+// database.service.ts builds its Pool at module load, so process.env must
+// already be populated. Keep the './app' import below this call.
 const envFile = process.env.ENV_FILE || '.env.development';
 dotenv.config({ path: path.resolve(__dirname, '../../', envFile) });
-
-// Also try the default .env for fallback
 dotenv.config();
+
+// eslint-disable-next-line import/first
+import app from './app';
 
 const PORT = process.env.PORT || 4000;
 

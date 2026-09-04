@@ -1,8 +1,19 @@
 // Mirrors the invoice_status enum in infrastructure/database/schema.sql.
-export type InvoiceStatus = 'DRAFT' | 'SENT' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID';
+export type InvoiceStatus =
+  | 'DRAFT'
+  | 'SENT'
+  | 'PARTIALLY_PAID'
+  | 'PAID'
+  | 'OVERDUE'
+  | 'VOID';
 
 // Mirrors the payment_status enum.
-export type PaymentStatus = 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
+export type PaymentStatus =
+  | 'PENDING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'CANCELLED';
 
 export type InvoiceFilter = 'all' | 'paid' | 'unpaid' | 'void';
 
@@ -106,6 +117,16 @@ export interface InvoiceListResult {
 export interface PaymentListResult {
   payments: Payment[];
   meta: PaginationMeta;
+}
+
+export interface PaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  isDefault: boolean;
+  createdAt: string;
 }
 
 export interface GetInvoicesQuery {
