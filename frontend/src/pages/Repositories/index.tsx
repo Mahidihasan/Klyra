@@ -39,7 +39,20 @@ export const RepositoriesPage: React.FC<{ onBackToKlyra?: () => void }> = ({ onB
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
   const [showCreate, setShowCreate] = React.useState(false);
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [selectedId, setSelectedId] = React.useState<string | null>(() => {
+    // Deep link support: #/repo/<id>/... opens the repository directly.
+    return window.location.hash.match(/^#\/repo\/([^/]+)/)?.[1] ?? null;
+  });
+
+  // Browser back/forward across the hub ↔ repository boundary.
+  React.useEffect(() => {
+    const onPop = () => {
+      const id = window.location.hash.match(/^#\/repo\/([^/]+)/)?.[1] ?? null;
+      setSelectedId(prev => (prev && id === prev ? prev : id));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // hub state
   const [query, setQuery] = React.useState('');
@@ -125,7 +138,16 @@ export const RepositoriesPage: React.FC<{ onBackToKlyra?: () => void }> = ({ onB
   const filtersActive = activeFilterCount > 0;
 
   if (selectedId) {
-    return <RepoDetail repoId={selectedId} onBack={() => { setSelectedId(null); loadRepos(); }} />;
+    return (
+      <RepoDetail
+        repoId={selectedId}
+        onBack={() => {
+          window.history.pushState(null, '', '#/repos');
+          setSelectedId(null);
+          loadRepos();
+        }}
+      />
+    );
   }
 
   return (
@@ -184,7 +206,7 @@ export const RepositoriesPage: React.FC<{ onBackToKlyra?: () => void }> = ({ onB
             <section className="hub-section">
               <div className="repo-grid">
                 {pinnedRepos.map(r => (
-                  <div key={r.id} className="repo-card pinned" onClick={() => setSelectedId(r.id)}>
+                  <div key={r.id} className="repo-card pinned" onClick={() => { window.history.pushState(null, '', `#/repo/${r.id}`); setSelectedId(r.id); }}>
                     <button
                       className="repo-pin-btn on"
                       title="Unpin"
@@ -258,7 +280,7 @@ export const RepositoriesPage: React.FC<{ onBackToKlyra?: () => void }> = ({ onB
             ) : (
               <div className="repo-grid">
                 {visible.map(r => (
-                  <div key={r.id} className="repo-card" onClick={() => setSelectedId(r.id)}>
+                  <div key={r.id} className="repo-card" onClick={() => { window.history.pushState(null, '', `#/repo/${r.id}`); setSelectedId(r.id); }}>
                     <button
                       className={`repo-pin-btn ${pinned.includes(r.id) ? 'on' : ''}`}
                       title={pinned.includes(r.id) ? 'Unpin' : 'Pin'}
@@ -292,7 +314,7 @@ export const RepositoriesPage: React.FC<{ onBackToKlyra?: () => void }> = ({ onB
       {showCreate && user && (
         <CreateRepoModal
           onClose={() => setShowCreate(false)}
-          onCreated={(id) => { setShowCreate(false); setSelectedId(id); }}
+          onCreated={(id) => { setShowCreate(false); window.history.pushState(null, '', `#/repo/${id}`); setSelectedId(id); }}
         />
       )}
     </div>

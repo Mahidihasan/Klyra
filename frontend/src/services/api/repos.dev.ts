@@ -196,7 +196,17 @@ export async function developmentRequest<T>(path: string, options: RequestInit =
   if (clean.endsWith('/branches')) return copy([{ name: 'main', sha, protected: true, ahead: 0, behind: 0, latest_commit: commits[0] }, { name: 'feature/refunds', sha: commits[1].sha, protected: false, ahead: 2, behind: 0, latest_commit: commits[1] }]) as T;
   if (clean.includes('/commits/') && !clean.endsWith('/commits')) return copy({ ...(commits.find(c => clean.endsWith(c.sha)) || commits[0]), patch: pr.diff }) as T;
   if (clean.endsWith('/commits')) return copy({ ref: 'main', commits, total: commits.length }) as T;
-  if (clean.endsWith('/tree')) { const p = new URLSearchParams(path.split('?')[1]).get('path') || ''; return copy({ entries: tree[p] || [], latest_commit: commits[0] }) as T; }
+  if (clean.endsWith('/tree')) {
+      const q = new URLSearchParams(path.split('?')[1]);
+      const p = q.get('path') || '';
+      if (q.get('recursive') === '1') {
+        const out: any[] = [];
+        const walk = (dir: string) => { for (const e of tree[dir] || []) { out.push(e); if (e.type === 'tree') walk(e.path); } };
+        walk('');
+        return copy({ entries: out, latest_commit: commits[0] }) as T;
+      }
+      return copy({ entries: tree[p] || [], latest_commit: commits[0] }) as T;
+    }
   if (clean.endsWith('/file')) { const p = new URLSearchParams(path.split('?')[1]).get('path') || ''; return copy({ content: files[p] || '', history: commits, latest_commit: commits[0] }) as T; }
   if (clean.endsWith('/pulls')) return copy([pr]) as T;
   if (/\/pulls\/\d+$/.test(clean)) return copy(pr) as T;

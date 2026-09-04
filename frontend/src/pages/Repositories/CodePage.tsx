@@ -1,7 +1,8 @@
 import React from 'react';
 import {
-  Folder, FileCode2, FileText, GitBranch, Tag, History, ChevronDown, Copy,
-  Search, BookOpen, Users, Cpu, Rocket, Settings, Shield, Store, Download,
+  Folder, File, FileCode, FileCode2, FileText, GitBranch, Tag, History, ChevronDown, Copy,
+  Search, BookOpen, Users, Cpu, Rocket, Settings, Store, Download, Braces, Database, Image,
+  ChevronRight, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { gitApi, apiDetectApi, reposApi, gitRemoteUrl } from '../../services/api/repos';
 import { RepoDetail, TreeEntry, RepoTab, Detection, Overview, CommitInfo } from '../../types/repos';
@@ -12,10 +13,17 @@ import { Avatar, CloneBox, EmptyState, ErrorBox, HighlightedCode, Loading, MiniM
 // API / deployment info lives in a compact secondary sidebar.
 
 export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => void }> = ({ repo, onNavigate }) => {
+  // Deep-link support: #/repo/<id>/tree/<path> | #/repo/<id>/blob/<path>
+  const initialHash = React.useMemo(() => {
+    const m = window.location.hash.match(new RegExp(`^#/repo/${repo.id}/(tree|blob)/?(.*)$`));
+    return m ? { kind: m[1] as 'tree' | 'blob', path: decodeURIComponent(m[2] || '') } : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [ref, setRef] = React.useState(repo.default_branch);
-  const [path, setPath] = React.useState('');
+  const [path, setPath] = React.useState(initialHash?.path ?? '');
   const [tree, setTree] = React.useState<TreeEntry[]>([]);
   const [file, setFile] = React.useState<{ content: string; history: any[] } | null>(null);
+  const [blobPending, setBlobPending] = React.useState(initialHash?.kind === 'blob');
   const [latest, setLatest] = React.useState<CommitInfo | null>(null);
   const [branches, setBranches] = React.useState<{ name: string; protected?: boolean }[]>([]);
   const [tagCount, setTagCount] = React.useState<number | null>(null);
@@ -30,14 +38,29 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
   const [showMore, setShowMore] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
 
+  // ---------- Branch directory slider (blob view) ----------
+  const [flatTree, setFlatTree] = React.useState<TreeEntry[]>([]);
+  const [flatRef, setFlatRef] = React.useState('');
+  const [sliderOpen, setSliderOpen] = React.useState(true);
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+
   const loadTree = React.useCallback(async (r: string, p: string) => {
-    setLoading(true); setError(''); setFile(null);
+    setLoading(true); setError('');
     try { const res = await gitApi.tree(repo.id, r, p); setTree(res.entries || []); if (!p && res.latest_commit) setLatest(res.latest_commit); }
     catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   }, [repo.id]);
 
-  React.useEffect(() => { loadTree(ref, path); }, [ref, path, loadTree]);
+  // The file table is the continuous code browser: it only fetches the tree for
+  // the current directory while no blob is open. Entering folders, files and
+  // breadcrumbs all mutate the same path/file state — never a separate page.
+  React.useEffect(() => {
+    if (file || blobPending) return;
+    loadTree(ref, path);
+  }, [ref, path, file, blobPending, loadTree]);
+
+  // Switching branches exits any open blob view and returns to the repo root.
+  React.useEffect(() => { setFile(null); setBlobPending(false); setPath(''); setFolder(''); setFilter(''); }, [ref]);
 
   // One-time context: branches, README, sidebar data. (tree() also returns latest_commit.)
   React.useEffect(() => {
@@ -67,14 +90,74 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
     })();
   }, [repo.id, repo.default_branch]);
 
+  const [folder, setFolder] = React.useState('');
+
+  // ---------- URL state (deep links, browser back/forward) ----------
+  // Routes: #/repo/<id>/tree/<path>  |  #/repo/<id>/blob/<path>
+  // The whole app is a state-based SPA without a router, so hash-based URLs
+  // via history.pushState keep navigation predictable without a new routing system.
+  React.useEffect(() => {
+    const inBlob = !!file || blobPending;
+    const next = `#/repo/${repo.id}${inBlob ? `/blob/${encodeURIComponent(path)}` : path ? `/tree/${encodeURIComponent(path)}` : ''}`;
+    if (window.location.hash !== next) window.history.pushState(null, '', next);
+  }, [repo.id, file, blobPending, path]);
+
   const openFile = async (fp: string) => {
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setBlobPending(false);
     try { const f = await gitApi.file(repo.id, ref, fp); setFile({ content: f.content, history: f.history }); setPath(fp); }
-    catch (e: any) { setError(e.message); }
+    catch (e: any) { setError(e.message); setBlobPending(false); }
     finally { setLoading(false); }
   };
 
-  const openPath = (p: string) => { setFilter(''); setPath(p ? `${path ? `${path}/` : ''}${p}` : path); };
+  // Deep link into a blob URL (refresh / shared link): fetch the file on mount.
+  React.useEffect(() => {
+    if (initialHash?.kind === 'blob' && initialHash.path) openFile(initialHash.path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load the full recursive branch tree when the blob view opens (per ref).
+  React.useEffect(() => {
+    if (!(file || blobPending) || flatRef === ref) return;
+    setFlatRef(ref);
+    gitApi.tree(repo.id, ref, '', true)
+      .then(res => setFlatTree(res.entries || []))
+      .catch(() => setFlatTree([]));
+  }, [file, blobPending, ref, flatRef, repo.id]);
+
+  // Auto-expand the ancestor folders of the file being viewed.
+  React.useEffect(() => {
+    if (!file || !path) return;
+    const segs = path.split('/');
+    setExpanded(prev => {
+      const next = new Set(prev);
+      for (let i = 1; i < segs.length; i++) next.add(segs.slice(0, i).join('/'));
+      return next;
+    });
+  }, [file, path]);
+
+  // React to browser back/forward: resolve the URL back into browsing state.
+  React.useEffect(() => {
+    const applyHash = () => {
+      const m = window.location.hash.match(new RegExp(`^#/repo/${repo.id}/(tree|blob)/?(.*)$`));
+      if (!m) return;
+      const kind = m[1];
+      const p = decodeURIComponent(m[2] || '');
+      if (kind === 'tree') { setFile(null); setBlobPending(false); setFilter(''); setFolder(p); setPath(p); }
+      else { setBlobPending(true); setPath(p); openFile(p); }
+    };
+    window.addEventListener('popstate', applyHash);
+    window.addEventListener('hashchange', applyHash);
+    return () => { window.removeEventListener('popstate', applyHash); window.removeEventListener('hashchange', applyHash); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repo.id]);
+
+  // Return to the folder the file lives in (or the repo root), like GitHub's blob view.
+  const backToFolder = (target?: string) => {
+    setFile(null); setError(''); setFilter('');
+    setPath(target ?? folder);
+  };
+
+  const openPath = (p: string) => { setFilter(''); setFolder(path ? `${path}/${p}` : p); setPath(path ? `${path}/${p}` : p); };
 
   const crumbs = path.split('/').filter(Boolean);
   const shownTree = filter
@@ -92,6 +175,9 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
   ];
 
   const endpointCount = detection?.endpoints?.length ?? ovw?.endpoint_count ?? null;
+
+  // GitHub-style file-type icons — shared with the tree slider (fileIconOf below).
+  const fileIcon = (name: string) => fileIconOf(name);
 
   return (
     <div className="codepage">
@@ -153,13 +239,48 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
       <div className="gh-layout">
         <div className="gh-main">
           {file ? (
-            <>
+            <div className="gh-blob-layout">
+              {/* collapsible branch directory slider */}
+              {sliderOpen ? (
+                <aside className="gh-tree-slider">
+                  <div className="gh-tree-head">
+                    <button className="gh-tree-toggle" onClick={() => setSliderOpen(false)} title="Hide directory tree">
+                      <PanelLeftClose size={13} />
+                    </button>
+                    <span className="gh-tree-title">Files</span>
+                    <span className="branch-tag">{ref}</span>
+                  </div>
+                  <div className="gh-tree-body">
+                    <TreePanel
+                      entries={flatTree}
+                      expanded={expanded}
+                      activePath={path}
+                      onToggle={p => setExpanded(prev => {
+                        const next = new Set(prev);
+                        if (next.has(p)) next.delete(p); else next.add(p);
+                        return next;
+                      })}
+                      onOpen={fp => openFile(fp)}
+                    />
+                  </div>
+                </aside>
+              ) : (
+                <button className="gh-tree-rail" onClick={() => setSliderOpen(true)} title="Show directory tree">
+                  <PanelLeftOpen size={15} />
+                </button>
+              )}
+
+              <div className="gh-blob-main">
               <div className="gh-file-head">
-                <button className="kr-btn" onClick={() => { setFile(null); setPath(''); }}>Back to files</button>
+                <button className="kr-btn" onClick={() => backToFolder()}>Back to files</button>
                 <span className="gh-file-path">
-                  <span className="gh-crumb" onClick={() => { setFile(null); setPath(''); }}>{repo.name}</span>
+                  <span className="gh-crumb" onClick={() => backToFolder('')}>{repo.name}</span>
                   {path.split('/').map((seg, i, arr) => (
-                    <span key={i} className="gh-crumb-sep">/{i === arr.length - 1 ? <b>{seg}</b> : seg}</span>
+                    <span key={i} className="gh-crumb-sep">/
+                      {i === arr.length - 1
+                        ? <b>{seg}</b>
+                        : <button className="gh-crumb" onClick={() => backToFolder(arr.slice(0, i + 1).join('/'))}>{seg}</button>}
+                    </span>
                   ))}
                 </span>
               </div>
@@ -198,23 +319,10 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
                   </div>
                 ))}
               </div>
-            </>
+              </div>
+            </div>
           ) : (
             <>
-              {/* breadcrumb + commit count */}
-              <div className="gh-crumbs-row">
-                <div className="gh-crumbs">
-                  <button className="gh-crumb" onClick={() => setPath('')}>{repo.name}</button>
-                  {crumbs.map((c, i) => (
-                    <span key={i} className="gh-crumb-sep">/
-                      <button className={`gh-crumb ${i === crumbs.length - 1 ? 'current' : ''}`} onClick={() => setPath(crumbs.slice(0, i + 1).join('/'))}>{c}</button>
-                    </span>
-                  ))}
-                </div>
-                <button className="gh-commit-count" onClick={() => onNavigate('commits')} title="View all commits">
-                  <History size={14} /> <b>{ovw?.commit_count ?? '—'}</b> commits
-                </button>
-              </div>
 
               {/* latest commit row */}
               {latest && (
@@ -224,6 +332,9 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
                   <span className="gh-latest-msg" onClick={() => onNavigate('commits')}>{latest.message}</span>
                   <span className="sha-chip" onClick={() => onNavigate('commits')}>{latest.sha.slice(0, 7)}</span>
                   <span className="gh-latest-time" onClick={() => onNavigate('commits')}>{timeAgo(latest.date)}</span>
+                  <button className="gh-commit-count" onClick={() => onNavigate('commits')} title="View all commits">
+                  <History size={14} /> <b>{ovw?.commit_count ?? '—'}</b> commits
+                </button>
                 </div>
               )}
 
@@ -236,20 +347,24 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
                 )}
                 {folders.map(t => (
                   <div key={t.path} className="gh-row" onClick={() => openPath(t.path)}>
-                    <Folder size={15} style={{ color: 'var(--accent-purple)' }} />
+                    <Folder size={15} style={{ color: '#539bf5' }} />
                     <span className="gh-row-name">{t.path}</span>
                     <span className="gh-row-commit">{t.last_commit_message || 'Folder'}</span>
                     <span className="gh-row-time">{t.last_updated ? timeAgo(t.last_updated) : ''}</span>
                   </div>
                 ))}
-                {files.map(t => (
-                  <div key={t.path} className="gh-row" onClick={() => openPath(path ? `${path}/${t.path}` : t.path)}>
-                    <FileCode2 size={15} style={{ color: 'var(--text-muted)' }} />
-                    <span className="gh-row-name">{t.path}</span>
-                    <span className="gh-row-commit">{t.last_commit_message || (t.size ? `${t.size.toLocaleString()} B` : 'File')}</span>
-                    <span className="gh-row-time">{t.last_updated ? timeAgo(t.last_updated) : ''}</span>
-                  </div>
-                ))}
+                {files.map(t => {
+                  const { icon: Icon, color } = fileIcon(t.path);
+                  const fullPath = path ? `${path}/${t.path}` : t.path;
+                  return (
+                    <div key={t.path} className="gh-row" onClick={() => openFile(fullPath)}>
+                      <Icon size={15} style={{ color }} />
+                      <span className="gh-row-name">{t.path}</span>
+                      <span className="gh-row-commit">{t.last_commit_message || (t.size ? `${t.size.toLocaleString()} B` : 'File')}</span>
+                      <span className="gh-row-time">{t.last_updated ? timeAgo(t.last_updated) : ''}</span>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* README preview */}
@@ -266,16 +381,19 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
         {/* ---------- compact sidebar ---------- */}
         <aside className="gh-side">
           <section>
-            <h5>About</h5>
+            <div className='gh-about-settings'>
+              <h3>About</h3>
+              <button className="gh-side-link gh-side-settings" onClick={() => onNavigate('settings')}>
+                <Settings size={16} />
+              </button>
+
+            </div>            
             <p className="gh-about-desc">{repo.description || 'No description.'}</p>
-            <div className="gh-side-row"><span className="lang-dot" />{repo.language || '—'}</div>
-            {repo.framework && <div className="gh-side-row">{repo.framework}</div>}
             <div className="gh-side-row">{repo.license} license</div>
-            <div className="gh-side-row">Updated {timeAgo(repo.updated_at)}</div>
           </section>
 
           <section>
-            <h5><Cpu size={12} /> API</h5>
+            <h3><Cpu size={12} /> API</h3>
             {detection?.openapi?.version
               ? <div className="gh-side-row"><span className="gh-side-label">Version</span><b className="mono">{detection.openapi.version}</b></div>
               : null}
@@ -292,7 +410,7 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
           </section>
 
           <section>
-            <h5><Rocket size={12} /> Releases</h5>
+            <h3><Rocket size={12} /> Releases</h3>
             {latestRelease ? (
               <div className="gh-side-row">
                 <span className="branch-tag">{latestRelease.tag_name}</span>
@@ -313,23 +431,106 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
               </div>
             </section>
           )}
-
-          <section>
-            <h5>Repository status</h5>
-            {ovw ? (
-              <>
-                <div className="gh-side-row"><span className="gh-side-label">Build</span><StatusPill status={ovw.build_status} /></div>
-                <div className="gh-side-row"><span className="gh-side-label">Tests</span><StatusPill status={ovw.test_status} /></div>
-                <div className="gh-side-row"><span className="gh-side-label">Deployment</span><StatusPill status={ovw.deploy_status} /></div>
-              </>
-            ) : <div className="gh-side-sub">Status unavailable.</div>}
-          </section>
-
-          <button className="gh-side-link gh-side-settings" onClick={() => onNavigate('settings')}>
-            <Settings size={11} /> Settings
-          </button>
+          
         </aside>
       </div>
     </div>
   );
 };
+
+// ============================ BRANCH DIRECTORY SLIDER ============================
+// Collapsible recursive tree of the entire branch, shown beside the code viewer.
+
+interface TreeNode {
+  name: string;
+  path: string;
+  type: 'blob' | 'tree';
+  children: TreeNode[];
+}
+
+function buildTreeModel(entries: TreeEntry[]): TreeNode[] {
+  const root: TreeNode = { name: '', path: '', type: 'tree', children: [] };
+  for (const e of entries) {
+    const segs = e.path.split('/');
+    let node = root;
+    for (let i = 0; i < segs.length; i++) {
+      const p = segs.slice(0, i + 1).join('/');
+      const isLeaf = i === segs.length - 1;
+      let child = node.children.find(c => c.path === p);
+      if (!child) {
+        child = { name: segs[i], path: p, type: isLeaf ? e.type : 'tree', children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    }
+  }
+  const sort = (nodes: TreeNode[]): TreeNode[] => {
+    nodes.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'tree' ? -1 : 1));
+    nodes.forEach(n => sort(n.children));
+    return nodes;
+  };
+  return sort(root.children);
+}
+
+const TreePanel: React.FC<{
+  entries: TreeEntry[];
+  expanded: Set<string>;
+  activePath: string;
+  onToggle: (p: string) => void;
+  onOpen: (p: string) => void;
+}> = ({ entries, expanded, activePath, onToggle, onOpen }) => {
+  const model = React.useMemo(() => buildTreeModel(entries), [entries]);
+
+  const renderNodes = (nodes: TreeNode[], depth: number): React.ReactNode =>
+    nodes.map(n => {
+      if (n.type === 'tree') {
+        const open = expanded.has(n.path);
+        return (
+          <React.Fragment key={n.path}>
+            <button
+              className="gh-tree-row"
+              style={{ paddingLeft: 8 + depth * 14 }}
+              onClick={() => onToggle(n.path)}
+            >
+              <ChevronRight size={12} className={`gh-tree-chev ${open ? 'open' : ''}`} />
+              <Folder size={13} style={{ color: '#539bf5' }} />
+              <span className="gh-tree-name">{n.name}</span>
+            </button>
+            {open && renderNodes(n.children, depth + 1)}
+          </React.Fragment>
+        );
+      }
+      const { icon: Icon, color } = fileIconOf(n.name);
+      return (
+        <button
+          key={n.path}
+          className={`gh-tree-row ${activePath === n.path ? 'active' : ''}`}
+          style={{ paddingLeft: 8 + depth * 14 }}
+          onClick={() => onOpen(n.path)}
+        >
+          <span className="gh-tree-chev-spacer" />
+          <Icon size={13} style={{ color }} />
+          <span className="gh-tree-name">{n.name}</span>
+        </button>
+      );
+    });
+
+  if (entries.length === 0) return <div className="gh-tree-empty">No files on this branch.</div>;
+  return <div className="gh-tree">{renderNodes(model, 0)}</div>;
+};
+
+// Shared with the file table icon helper (declared inside CodePage); tree needs
+// its own copy since it renders outside the component.
+function fileIconOf(name: string): { icon: any; color: string } {
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+  if (ext === '.md' || ext === '.txt') return { icon: FileText, color: '#539bf5' };
+  if (ext === '.json' || ext === '.yaml' || ext === '.yml') return { icon: Braces, color: '#d4a72c' };
+  if (ext === '.ts' || ext === '.tsx') return { icon: FileCode2, color: '#539bf5' };
+  if (ext === '.js' || ext === '.jsx' || ext === '.mjs') return { icon: FileCode2, color: '#d4a72c' };
+  if (ext === '.css' || ext === '.scss') return { icon: FileCode, color: '#96d0ff' };
+  if (ext === '.html') return { icon: FileCode, color: '#f47067' };
+  if (ext === '.py') return { icon: FileCode2, color: '#57ab5a' };
+  if (ext === '.sql') return { icon: Database, color: '#dcbdfb' };
+  if (ext === '.png' || ext === '.jpg' || ext === '.svg' || ext === '.ico') return { icon: Image, color: '#6cb6ff' };
+  return { icon: File, color: 'var(--text-muted)' };
+}
