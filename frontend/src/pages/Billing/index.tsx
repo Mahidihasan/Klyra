@@ -1,12 +1,11 @@
-import { RefreshCw } from 'lucide-react';
 import React, { useCallback, useState } from 'react';
-
+import { RefreshCw } from 'lucide-react';
 import { getDevUserId } from '../../config/devAuth';
 import { NavigationTab } from '../../types/api';
-
-import { InvoicesTab } from './InvoicesTab';
 import { OverviewTab } from './OverviewTab';
+import { InvoicesTab } from './InvoicesTab';
 import { PaymentsTab } from './PaymentsTab';
+import { PaymentMethodsTab } from './PaymentMethodsTab';
 import { PendingTab } from './PendingTab';
 
 interface BillingPageProps {
@@ -40,7 +39,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
 };
 
 /** Screens that load their own data and so need the Refresh button. */
-const REFRESHABLE = ['billing', 'billing-invoices', 'billing-payments'];
+const REFRESHABLE = ['billing', 'billing-invoices', 'billing-payments', 'billing-methods'];
 
 export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate }) => {
   const [refreshToken, setRefreshToken] = useState(0);
@@ -81,13 +80,13 @@ export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate 
         <div className="billing-notice card-base">
           <h3>No user selected</h3>
           <p>
-            Billing data is scoped to a signed-in user. Sign-in isn&apos;t wired up yet, so set a
-            user id for local development:
+            Billing data is scoped to a signed-in user. Sign-in isn&apos;t wired up yet,
+            so set a user id for local development:
           </p>
           <code>localStorage.setItem('klyra-dev-user-id', '&lt;uuid&gt;')</code>
           <p>
-            Or add <code>VITE_DEV_USER_ID</code> to <code>frontend/.env.development</code>, then
-            reload.
+            Or add <code>VITE_DEV_USER_ID</code> to{' '}
+            <code>frontend/.env.development</code>, then reload.
           </p>
         </div>
         <BillingStyles />
@@ -104,7 +103,10 @@ export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate 
       ) : activeTab === 'billing-payments' ? (
         <PaymentsTab refreshToken={refreshToken} onLoadingChange={handleLoadingChange} />
       ) : activeTab === 'billing-methods' ? (
-        <PendingTab kind="methods" />
+        <PaymentMethodsTab
+          refreshToken={refreshToken}
+          onLoadingChange={handleLoadingChange}
+        />
       ) : activeTab === 'billing-info' ? (
         <PendingTab kind="info" />
       ) : (
