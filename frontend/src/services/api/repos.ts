@@ -67,9 +67,9 @@ export const gitApi = {
       `/repos/${id}/commits?ref=${encodeURIComponent(ref)}&page=${page}${path ? `&path=${encodeURIComponent(path)}` : ''}`),
   commit: (id: string, sha: string) =>
     request<{ sha: string; message: string; author: string; date: string; patch: string }>(`/repos/${id}/commits/${sha}`),
-  tree: (id: string, ref: string, path = '') =>
+  tree: (id: string, ref: string, path = '', recursive = false) =>
     request<{ entries: TreeEntry[]; latest_commit: CommitInfo | null }>(
-      `/repos/${id}/tree?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path)}`),
+      `/repos/${id}/tree?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path)}${recursive ? '&recursive=1' : ''}`),
   file: (id: string, ref: string, path: string) =>
     request<{ content: string; history: CommitInfo[]; latest_commit: CommitInfo | null }>(
       `/repos/${id}/file?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path)}`),
