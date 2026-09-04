@@ -143,20 +143,16 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     {formatAmount(invoice.amount, invoice.currency)}
                   </td>
                   <td className="align-right">
-                    {invoice.pdfUrl ? (
-                      <a
-                        className="row-link"
-                        href={invoice.pdfUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <Download size={14} />
-                        <span>PDF</span>
-                      </a>
-                    ) : (
-                      <span className="muted">—</span>
-                    )}
+                    <a
+                      className="row-link"
+                      href={billingApi.invoicePdfUrl(invoice.id)}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <Download size={14} />
+                      <span>PDF</span>
+                    </a>
                   </td>
                 </tr>
               ))}

@@ -6,7 +6,7 @@ import { OverviewTab } from './OverviewTab';
 import { InvoicesTab } from './InvoicesTab';
 import { PaymentsTab } from './PaymentsTab';
 import { PaymentMethodsTab } from './PaymentMethodsTab';
-import { PendingTab } from './PendingTab';
+import { BillingInfoTab } from './BillingInfoTab';
 
 interface BillingPageProps {
   /** Which billing screen the sidebar has selected. */
@@ -39,7 +39,13 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
 };
 
 /** Screens that load their own data and so need the Refresh button. */
-const REFRESHABLE = ['billing', 'billing-invoices', 'billing-payments', 'billing-methods'];
+const REFRESHABLE = [
+  'billing',
+  'billing-invoices',
+  'billing-payments',
+  'billing-methods',
+  'billing-info',
+];
 
 export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate }) => {
   const [refreshToken, setRefreshToken] = useState(0);
@@ -108,13 +114,18 @@ export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate 
           onLoadingChange={handleLoadingChange}
         />
       ) : activeTab === 'billing-info' ? (
-        <PendingTab kind="info" />
+        <BillingInfoTab
+          refreshToken={refreshToken}
+          onLoadingChange={handleLoadingChange}
+        />
       ) : (
         <OverviewTab
           refreshToken={refreshToken}
           onLoadingChange={handleLoadingChange}
           onViewInvoices={() => onNavigate('billing-invoices')}
           onViewPayments={() => onNavigate('billing-payments')}
+          onViewMethods={() => onNavigate('billing-methods')}
+          onViewInformation={() => onNavigate('billing-info')}
         />
       )}
 

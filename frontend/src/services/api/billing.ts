@@ -1,4 +1,6 @@
 import {
+  BillingInformation,
+  BillingInformationField,
   BillingOverview,
   GetInvoicesQuery,
   GetPaymentsQuery,
@@ -16,14 +18,24 @@ const API_BASE_URL = '/api/billing';
  * report failures as { success: false, error: { code, message } }, so this
  * unwraps `data` and surfaces `error.message`.
  */
-/** Thrown so callers can tell "Stripe isn't set up" from a real failure. */
+/**
+ * Thrown so callers can tell one failure from another — "Stripe isn't set up"
+ * from a real outage, or a validation error carrying per-field messages.
+ */
 export class BillingApiError extends Error {
   code: string | null;
 
-  constructor(message: string, code: string | null) {
+  fields: Partial<Record<BillingInformationField, string>>;
+
+  constructor(
+    message: string,
+    code: string | null,
+    fields: Partial<Record<BillingInformationField, string>> = {},
+  ) {
     super(message);
     this.name = 'BillingApiError';
     this.code = code;
+    this.fields = fields;
   }
 }
 
@@ -41,6 +53,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
     throw new BillingApiError(
       json?.error?.message || `HTTP ${res.status}: ${res.statusText}`,
       json?.error?.code ?? null,
+      json?.error?.fields ?? {},
     );
   }
 
@@ -65,6 +78,14 @@ function pagedParams(query: { page?: number; limit?: number; status?: string }) 
 }
 
 export const billingApi = {
+  /**
+   * Direct link to the invoice PDF. The server generates it on demand, so this
+   * works whether or not a stored copy exists yet.
+   */
+  invoicePdfUrl(invoiceId: string): string {
+    return `${API_BASE_URL}/invoices/${invoiceId}/pdf${withDevUserId(new URLSearchParams())}`;
+  },
+
   async fetchOverview(): Promise<BillingOverview> {
     const res = await fetch(
       `${API_BASE_URL}/overview${withDevUserId(new URLSearchParams())}`,
@@ -119,6 +140,27 @@ export const billingApi = {
       { method: 'POST' },
     );
     return handleResponse<{ id: string }>(res);
+  },
+
+  async fetchBillingInformation(): Promise<{ information: BillingInformation }> {
+    const res = await fetch(
+      `${API_BASE_URL}/information${withDevUserId(new URLSearchParams())}`,
+    );
+    return handleResponse<{ information: BillingInformation }>(res);
+  },
+
+  async saveBillingInformation(
+    payload: Record<string, string>,
+  ): Promise<{ information: BillingInformation }> {
+    const res = await fetch(
+      `${API_BASE_URL}/information${withDevUserId(new URLSearchParams())}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    );
+    return handleResponse<{ information: BillingInformation }>(res);
   },
 
   async removePaymentMethod(paymentMethodId: string): Promise<{ id: string }> {

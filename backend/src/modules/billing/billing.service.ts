@@ -1,8 +1,11 @@
 import { pool } from '../../services/database.service';
 
 import {
+  BillingInformation,
+  BillingInformationInput,
   BillingOverview,
   CurrencyTotal,
+  DueInvoiceSummary,
   Invoice,
   InvoiceDetail,
   InvoicePayment,
@@ -38,7 +41,8 @@ export function isValidPaymentStatusFilter(value: unknown): value is PaymentStat
   return typeof value === 'string' && value in PAYMENT_STATUS_MAP;
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_PATTERN.test(value);
@@ -93,47 +97,7 @@ const INVOICE_JOINS = `
   LEFT JOIN subscription_plans p ON p.id = s.plan_id
 `;
 
-interface InvoiceRow {
-  id: string;
-  invoice_number: string;
-  amount: number | string;
-  currency: string;
-  status: Invoice['status'];
-  pdf_url: string | null;
-  due_date: string | null;
-  paid_at: string | null;
-  created_at: string;
-  subscription_id: string | null;
-  subscription_status: string;
-  period_start: string | null;
-  period_end: string | null;
-  api_id: string;
-  api_name: string;
-  plan_id: string;
-  plan_name: string;
-}
-
-interface PaymentRow {
-  id: string;
-  amount: number | string;
-  currency: string;
-  status: InvoicePayment['status'];
-  payment_method: string | null;
-  payment_method_details: Record<string, unknown> | null;
-  failure_reason: string | null;
-  created_at: string;
-  invoice_id?: string | null;
-  invoice_number?: string | null;
-  api_name?: string | null;
-}
-
-interface CurrencyTotalRow {
-  currency: string;
-  amount: number | string;
-  count: number | string;
-}
-
-function mapInvoice(row: InvoiceRow): Invoice {
+function mapInvoice(row: Record<string, any>): Invoice {
   return {
     id: row.id,
     invoiceNumber: row.invoice_number,
@@ -157,7 +121,7 @@ function mapInvoice(row: InvoiceRow): Invoice {
   };
 }
 
-function mapPaymentRow(row: PaymentRow): InvoicePayment {
+function mapPaymentRow(row: Record<string, any>): InvoicePayment {
   return {
     id: row.id,
     amount: Number(row.amount),
@@ -228,9 +192,7 @@ export async function getInvoiceById(
   );
 
   const row = invoiceResult.rows[0];
-  if (!row) {
-    return null;
-  }
+  if (!row) return null;
 
   const paymentsResult = await pool.query(
     `SELECT
@@ -314,7 +276,9 @@ export async function getUserPayments(userId: string, query: GetPaymentsQuery) {
 
   const payments: Payment[] = dataResult.rows.map((row) => ({
     ...mapPaymentRow(row),
-    invoice: row.invoice_id ? { id: row.invoice_id, invoiceNumber: row.invoice_number! } : null,
+    invoice: row.invoice_id
+      ? { id: row.invoice_id, invoiceNumber: row.invoice_number }
+      : null,
     apiName: row.api_name,
   }));
 
@@ -324,13 +288,46 @@ export async function getUserPayments(userId: string, query: GetPaymentsQuery) {
   };
 }
 
-function mapCurrencyTotals(rows: CurrencyTotalRow[]): CurrencyTotal[] {
+function mapCurrencyTotals(rows: Record<string, any>[]): CurrencyTotal[] {
   return rows.map((row) => ({
     currency: row.currency,
     amount: Number(row.amount),
     count: Number(row.count),
   }));
 }
+
+function mapDueInvoice(row: Record<string, any> | undefined): DueInvoiceSummary | null {
+  if (!row) return null;
+  const dueDate = new Date(row.due_date);
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return {
+    invoiceId: row.id,
+    invoiceNumber: row.invoice_number,
+    amount: Number(row.amount),
+    currency: row.currency,
+    dueDate: row.due_date,
+    daysFromNow: Math.round((dueDate.getTime() - Date.now()) / msPerDay),
+  };
+}
+
+/**
+ * Nets out successful payments so a partially paid invoice only counts for
+ * what is actually still owed.
+ */
+const OUTSTANDING_SELECT = `
+  SELECT
+    i.currency,
+    SUM(GREATEST(i.amount - COALESCE(paid.total, 0), 0)) AS amount,
+    COUNT(*)::int AS count
+  FROM invoices i
+  LEFT JOIN (
+    SELECT invoice_id, SUM(amount) AS total
+    FROM payments
+    WHERE status = 'SUCCEEDED' AND invoice_id IS NOT NULL
+    GROUP BY invoice_id
+  ) paid ON paid.invoice_id = i.id
+  WHERE i.user_id = $1 AND i.status = ANY($2::invoice_status[])
+`;
 
 /**
  * Everything the billing dashboard shows, in one round trip.
@@ -341,84 +338,261 @@ function mapCurrencyTotals(rows: CurrencyTotalRow[]): CurrencyTotal[] {
  */
 export async function getBillingOverview(userId: string): Promise<BillingOverview> {
   const unpaidStatuses = INVOICE_STATUS_MAP.unpaid;
+  const params = [userId, unpaidStatuses];
 
-  const [outstandingResult, thisMonthResult, lastMonthResult, nextPaymentResult] =
-    await Promise.all([
-      // Outstanding is the invoice total minus whatever already succeeded
-      // against it, so a partially paid invoice only counts for the remainder.
-      pool.query(
-        `SELECT
-           i.currency,
-           SUM(GREATEST(i.amount - COALESCE(paid.total, 0), 0)) AS amount,
-           COUNT(*)::int AS count
-         FROM invoices i
-         LEFT JOIN (
-           SELECT invoice_id, SUM(amount) AS total
-           FROM payments
-           WHERE status = 'SUCCEEDED' AND invoice_id IS NOT NULL
-           GROUP BY invoice_id
-         ) paid ON paid.invoice_id = i.id
-         WHERE i.user_id = $1 AND i.status = ANY($2::invoice_status[])
-         GROUP BY i.currency
-         HAVING SUM(GREATEST(i.amount - COALESCE(paid.total, 0), 0)) > 0
-         ORDER BY 2 DESC`,
-        [userId, unpaidStatuses],
-      ),
-      pool.query(
-        `SELECT currency, SUM(amount) AS amount, COUNT(*)::int AS count
-         FROM payments
-         WHERE user_id = $1
-           AND status = 'SUCCEEDED'
-           AND created_at >= date_trunc('month', NOW())
-         GROUP BY currency
-         ORDER BY SUM(amount) DESC`,
-        [userId],
-      ),
-      pool.query(
-        `SELECT currency, SUM(amount) AS amount, COUNT(*)::int AS count
-         FROM payments
-         WHERE user_id = $1
-           AND status = 'SUCCEEDED'
-           AND created_at >= date_trunc('month', NOW()) - INTERVAL '1 month'
-           AND created_at < date_trunc('month', NOW())
-         GROUP BY currency
-         ORDER BY SUM(amount) DESC`,
-        [userId],
-      ),
-      pool.query(
-        `SELECT id, invoice_number, amount, currency, due_date
-         FROM invoices
-         WHERE user_id = $1
-           AND status = ANY($2::invoice_status[])
-           AND due_date IS NOT NULL
-         ORDER BY due_date ASC
-         LIMIT 1`,
-        [userId, unpaidStatuses],
-      ),
-    ]);
-
-  const [{ invoices: recentInvoices }, { payments: recentPayments }] = await Promise.all([
-    getUserInvoices(userId, { limit: 4 }),
-    getUserPayments(userId, { limit: 3 }),
+  const [
+    outstandingResult,
+    overdueResult,
+    thisMonthResult,
+    lastMonthResult,
+    nextPaymentResult,
+    oldestOverdueResult,
+    failedResult,
+  ] = await Promise.all([
+    pool.query(
+      `${OUTSTANDING_SELECT}
+       GROUP BY i.currency
+       HAVING SUM(GREATEST(i.amount - COALESCE(paid.total, 0), 0)) > 0
+       ORDER BY 2 DESC`,
+      params,
+    ),
+    pool.query(
+      `${OUTSTANDING_SELECT}
+         AND i.due_date IS NOT NULL
+         AND i.due_date < NOW()
+       GROUP BY i.currency
+       HAVING SUM(GREATEST(i.amount - COALESCE(paid.total, 0), 0)) > 0
+       ORDER BY 2 DESC`,
+      params,
+    ),
+    pool.query(
+      `SELECT currency, SUM(amount) AS amount, COUNT(*)::int AS count
+       FROM payments
+       WHERE user_id = $1
+         AND status = 'SUCCEEDED'
+         AND created_at >= date_trunc('month', NOW())
+       GROUP BY currency
+       ORDER BY SUM(amount) DESC`,
+      [userId],
+    ),
+    pool.query(
+      `SELECT currency, SUM(amount) AS amount, COUNT(*)::int AS count
+       FROM payments
+       WHERE user_id = $1
+         AND status = 'SUCCEEDED'
+         AND created_at >= date_trunc('month', NOW()) - INTERVAL '1 month'
+         AND created_at < date_trunc('month', NOW())
+       GROUP BY currency
+       ORDER BY SUM(amount) DESC`,
+      [userId],
+    ),
+    // Soonest invoice not yet past its due date.
+    pool.query(
+      `SELECT id, invoice_number, amount, currency, due_date
+       FROM invoices
+       WHERE user_id = $1
+         AND status = ANY($2::invoice_status[])
+         AND due_date IS NOT NULL
+         AND due_date >= NOW()
+       ORDER BY due_date ASC
+       LIMIT 1`,
+      params,
+    ),
+    // Longest-overdue invoice — the one to chase first.
+    pool.query(
+      `SELECT id, invoice_number, amount, currency, due_date
+       FROM invoices
+       WHERE user_id = $1
+         AND status = ANY($2::invoice_status[])
+         AND due_date IS NOT NULL
+         AND due_date < NOW()
+       ORDER BY due_date ASC
+       LIMIT 1`,
+      params,
+    ),
+    // Failed charges in the last 30 days are worth surfacing; older ones are
+    // history rather than something to act on.
+    pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM payments
+       WHERE user_id = $1
+         AND status IN ('FAILED', 'CANCELLED')
+         AND created_at >= NOW() - INTERVAL '30 days'`,
+      [userId],
+    ),
   ]);
 
-  const nextRow = nextPaymentResult.rows[0];
+  const [
+    { invoices: recentInvoices },
+    { payments: recentPayments },
+    { payments: failedPayments },
+    billingInformation,
+  ] = await Promise.all([
+    getUserInvoices(userId, { limit: 4 }),
+    getUserPayments(userId, { limit: 4 }),
+    getUserPayments(userId, { limit: 1, status: 'failed' }),
+    getBillingInformation(userId),
+  ]);
 
   return {
     outstanding: mapCurrencyTotals(outstandingResult.rows),
+    overdue: mapCurrencyTotals(overdueResult.rows),
     paidThisMonth: mapCurrencyTotals(thisMonthResult.rows),
     paidLastMonth: mapCurrencyTotals(lastMonthResult.rows),
-    nextPayment: nextRow
-      ? {
-          invoiceId: nextRow.id,
-          invoiceNumber: nextRow.invoice_number,
-          amount: Number(nextRow.amount),
-          currency: nextRow.currency,
-          dueDate: nextRow.due_date,
-          isOverdue: new Date(nextRow.due_date).getTime() < Date.now(),
-        }
-      : null,
+    nextPayment: mapDueInvoice(nextPaymentResult.rows[0]),
+    oldestOverdue: mapDueInvoice(oldestOverdueResult.rows[0]),
+    failedPayments: {
+      count: failedResult.rows[0]?.count ?? 0,
+      latest: failedPayments[0] ?? null,
+    },
+    // Filled in by the route when Stripe is configured — the service layer
+    // stays free of Stripe so it can be used without it.
+    defaultPaymentMethod: null,
+    billingInformation,
     recentInvoices,
     recentPayments,
   };
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+const MAX_LENGTHS: Record<keyof BillingInformationInput, number> = {
+  billingName: 100,
+  companyName: 255,
+  invoiceEmail: 255,
+  addressLine1: 255,
+  addressLine2: 255,
+  city: 100,
+  state: 100,
+  postalCode: 20,
+  country: 2,
+  taxId: 50,
+};
+
+/** Trims a value and turns blanks into null so empty fields don't persist as ''. */
+function normalizeOptional(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+export interface ValidationResult {
+  values?: BillingInformationInput;
+  errors: Partial<Record<keyof BillingInformationInput, string>>;
+}
+
+/**
+ * Validates and normalizes a billing information payload.
+ *
+ * Only billingName is required — someone may not have a company, a tax ID, or
+ * a full postal address, and blocking a save on those would be unhelpful.
+ */
+export function validateBillingInformation(payload: unknown): ValidationResult {
+  const errors: ValidationResult['errors'] = {};
+  const body = (payload ?? {}) as Record<string, unknown>;
+
+  const billingName = normalizeOptional(body.billingName);
+  if (!billingName) {
+    errors.billingName = 'Enter the name invoices should be addressed to';
+  }
+
+  const invoiceEmail = normalizeOptional(body.invoiceEmail);
+  if (invoiceEmail && !EMAIL_PATTERN.test(invoiceEmail)) {
+    errors.invoiceEmail = 'Enter a valid email address';
+  }
+
+  const country = normalizeOptional(body.country)?.toUpperCase() ?? null;
+  if (country && !/^[A-Z]{2}$/.test(country)) {
+    errors.country = 'Use a two-letter country code';
+  }
+
+  const values: BillingInformationInput = {
+    billingName: billingName ?? '',
+    companyName: normalizeOptional(body.companyName),
+    invoiceEmail,
+    addressLine1: normalizeOptional(body.addressLine1),
+    addressLine2: normalizeOptional(body.addressLine2),
+    city: normalizeOptional(body.city),
+    state: normalizeOptional(body.state),
+    postalCode: normalizeOptional(body.postalCode),
+    country,
+    taxId: normalizeOptional(body.taxId),
+  };
+
+  for (const [field, limit] of Object.entries(MAX_LENGTHS)) {
+    const key = field as keyof BillingInformationInput;
+    const value = values[key];
+    if (value && value.length > limit) {
+      errors[key] = `Keep this under ${limit} characters`;
+    }
+  }
+
+  if (Object.keys(errors).length > 0) return { errors };
+  return { values, errors };
+}
+
+const EMPTY_INFORMATION: BillingInformation = {
+  billingName: '',
+  companyName: null,
+  invoiceEmail: null,
+  addressLine1: null,
+  addressLine2: null,
+  city: null,
+  state: null,
+  postalCode: null,
+  country: null,
+  taxId: null,
+  updatedAt: null,
+};
+
+/**
+ * Reads stored billing details, falling back to the account name and email so
+ * the form starts from something sensible rather than blank.
+ */
+export async function getBillingInformation(userId: string): Promise<BillingInformation> {
+  const result = await pool.query(
+    `SELECT name, email, metadata->'billingInformation' AS billing_information
+     FROM users
+     WHERE id = $1`,
+    [userId],
+  );
+
+  const row = result.rows[0];
+  if (!row) return EMPTY_INFORMATION;
+
+  const stored = (row.billing_information ?? {}) as Partial<BillingInformation>;
+
+  return {
+    ...EMPTY_INFORMATION,
+    ...stored,
+    billingName: stored.billingName || row.name || '',
+    invoiceEmail: stored.invoiceEmail ?? row.email ?? null,
+  };
+}
+
+export async function saveBillingInformation(
+  userId: string,
+  values: BillingInformationInput,
+): Promise<BillingInformation> {
+  const record: BillingInformation = {
+    ...values,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const result = await pool.query(
+    `UPDATE users
+     SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{billingInformation}', $2::jsonb, true),
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING metadata->'billingInformation' AS billing_information`,
+    [userId, JSON.stringify(record)],
+  );
+
+  if (result.rowCount === 0) {
+    const error = new Error(`No user found for id ${userId}`);
+    (error as Error & { code?: string }).code = 'NOT_FOUND';
+    throw error;
+  }
+
+  return result.rows[0].billing_information as BillingInformation;
 }

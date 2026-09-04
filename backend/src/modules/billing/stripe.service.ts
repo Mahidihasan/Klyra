@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 
 import { pool } from '../../services/database.service';
-import { PaymentMethod } from './billing.types';
+import { BillingInformation, PaymentMethod } from './billing.types';
 
 /**
  * Stripe access for the billing module.
@@ -182,4 +182,41 @@ export async function removePaymentMethod(userId: string, paymentMethodId: strin
   await assertOwnership(customerId, paymentMethodId);
 
   await stripe.paymentMethods.detach(paymentMethodId);
+}
+
+/**
+ * Mirrors billing details onto the Stripe customer so Stripe-generated
+ * receipts and invoices carry the same name, email and address.
+ *
+ * Tax IDs are deliberately not synced: Stripe models them as separate objects
+ * that require a type (eu_vat, gb_vat, us_ein…), and guessing that from a free
+ * text field would attach the wrong one. They stay in our own record for now.
+ */
+export async function syncCustomerBillingDetails(
+  userId: string,
+  info: BillingInformation,
+): Promise<void> {
+  const stripe = getStripe();
+  const customerId = await getOrCreateCustomerId(userId);
+
+  const hasAddress = Boolean(
+    info.addressLine1 || info.city || info.state || info.postalCode || info.country,
+  );
+
+  await stripe.customers.update(customerId, {
+    name: info.companyName || info.billingName,
+    ...(info.invoiceEmail ? { email: info.invoiceEmail } : {}),
+    ...(hasAddress
+      ? {
+          address: {
+            line1: info.addressLine1 ?? undefined,
+            line2: info.addressLine2 ?? undefined,
+            city: info.city ?? undefined,
+            state: info.state ?? undefined,
+            postal_code: info.postalCode ?? undefined,
+            country: info.country ?? undefined,
+          },
+        }
+      : {}),
+  });
 }

@@ -1,9 +1,20 @@
 // Mirrors the invoice_status enum in infrastructure/database/schema.sql.
 // Keep these in sync — an unknown label makes Postgres reject the enum cast.
-export type InvoiceStatus = 'DRAFT' | 'SENT' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID';
+export type InvoiceStatus =
+  | 'DRAFT'
+  | 'SENT'
+  | 'PARTIALLY_PAID'
+  | 'PAID'
+  | 'OVERDUE'
+  | 'VOID';
 
 // Mirrors the payment_status enum.
-export type PaymentStatus = 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
+export type PaymentStatus =
+  | 'PENDING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'CANCELLED';
 
 export type InvoiceStatusFilter = 'paid' | 'unpaid' | 'void';
 
@@ -78,28 +89,28 @@ export interface GetPaymentsQuery {
   status?: PaymentStatusFilter;
 }
 
-/** One currency's slice of a money total — amounts can't be summed across currencies. */
-export interface CurrencyTotal {
-  currency: string;
-  amount: number;
-  count: number;
+/**
+ * Details that appear on invoices.
+ *
+ * Stored in users.metadata->'billingInformation' rather than dedicated columns,
+ * so no migration is needed; move it to a table later if the team decides to.
+ */
+export interface BillingInformation {
+  billingName: string;
+  companyName: string | null;
+  invoiceEmail: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  /** ISO 3166-1 alpha-2, uppercase. */
+  country: string | null;
+  taxId: string | null;
+  updatedAt: string | null;
 }
 
-export interface BillingOverview {
-  outstanding: CurrencyTotal[];
-  paidThisMonth: CurrencyTotal[];
-  paidLastMonth: CurrencyTotal[];
-  nextPayment: {
-    invoiceId: string;
-    invoiceNumber: string;
-    amount: number;
-    currency: string;
-    dueDate: string;
-    isOverdue: boolean;
-  } | null;
-  recentInvoices: Invoice[];
-  recentPayments: Payment[];
-}
+export type BillingInformationInput = Omit<BillingInformation, 'updatedAt'>;
 
 export interface PaymentMethod {
   id: string;
@@ -109,6 +120,47 @@ export interface PaymentMethod {
   expYear: number;
   isDefault: boolean;
   createdAt: string;
+}
+
+/** One currency's slice of a money total — amounts can't be summed across currencies. */
+export interface CurrencyTotal {
+  currency: string;
+  amount: number;
+  count: number;
+}
+
+/** An unpaid invoice singled out for the dashboard. */
+export interface DueInvoiceSummary {
+  invoiceId: string;
+  invoiceNumber: string;
+  amount: number;
+  currency: string;
+  dueDate: string;
+  /** Negative when the due date has already passed. */
+  daysFromNow: number;
+}
+
+export interface BillingOverview {
+  /** Unpaid totals, net of any payments already applied. */
+  outstanding: CurrencyTotal[];
+  /** The slice of `outstanding` whose due date has passed. */
+  overdue: CurrencyTotal[];
+  paidThisMonth: CurrencyTotal[];
+  paidLastMonth: CurrencyTotal[];
+  /** Soonest invoice not yet past its due date. */
+  nextPayment: DueInvoiceSummary | null;
+  /** Longest-overdue invoice, if any. */
+  oldestOverdue: DueInvoiceSummary | null;
+  /** Recent failed or cancelled charges, so the UI can warn about them. */
+  failedPayments: {
+    count: number;
+    latest: Payment | null;
+  };
+  /** Null when Stripe isn't configured or no card is on file. */
+  defaultPaymentMethod: PaymentMethod | null;
+  billingInformation: BillingInformation;
+  recentInvoices: Invoice[];
+  recentPayments: Payment[];
 }
 
 export interface AddPaymentMethodPayload {
