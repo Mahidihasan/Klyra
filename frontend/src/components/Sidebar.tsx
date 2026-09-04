@@ -18,7 +18,8 @@ import {
   ChevronRight,
   Crown,
   X,
-  Plug
+  Plug,
+  GitBranch
 } from 'lucide-react';
 import { NavigationTab } from '../types/api';
 
@@ -47,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'my-apis', label: 'My APIs', icon: Layers },
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
     { id: 'playground', label: 'Playground', icon: Terminal },
+    { id: 'repositories', label: 'Repositories', icon: GitBranch },
     
     { id: 'api-keys', label: 'API Keys', icon: Key },
     { id: 'collections', label: 'Collections', icon: FolderOpen },
