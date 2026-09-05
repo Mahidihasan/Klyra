@@ -18,8 +18,7 @@ import {
   ChevronRight,
   Crown,
   X,
-  Plug,
-  GitBranch
+  Plug
 } from 'lucide-react';
 import { NavigationTab } from '../types/api';
 
@@ -48,7 +47,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'my-apis', label: 'My APIs', icon: Layers },
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
     { id: 'playground', label: 'Playground', icon: Terminal },
-    { id: 'repositories', label: 'Repositories', icon: GitBranch },
     
     { id: 'api-keys', label: 'API Keys', icon: Key },
     { id: 'collections', label: 'Collections', icon: FolderOpen },
@@ -56,30 +54,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'history', label: 'History', icon: Clock },
   ];
 
-  // Billing owns a group of screens, so it expands instead of navigating flat.
-  const billingChildren = [
-    { id: 'billing', label: 'Overview' },
-    { id: 'billing-invoices', label: 'Invoices' },
-    { id: 'billing-payments', label: 'Payment history' },
-    { id: 'billing-methods', label: 'Payment methods' },
-    { id: 'billing-info', label: 'Billing information' },
-  ];
-
   const accountNav = [
-    { id: 'usage', label: 'Usage', icon: BarChart3, children: undefined as typeof billingChildren | undefined },
-    { id: 'wallet', label: 'Wallet', icon: Wallet, children: undefined },
-    { id: 'billing', label: 'Billing', icon: CreditCard, children: billingChildren },
-    { id: 'settings', label: 'Settings', icon: Settings, children: undefined },
-    { id: 'logout', label: 'Logout', icon: LogOut, children: undefined },
+    { id: 'usage', label: 'Usage', icon: BarChart3 },
+    { id: 'wallet', label: 'Wallet', icon: Wallet },
+    { id: 'billing', label: 'Billing', icon: CreditCard },
+    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'logout', label: 'Logout', icon: LogOut },
   ];
-
-  const isBillingSection = activeTab.startsWith('billing');
-  const [isBillingOpen, setIsBillingOpen] = React.useState<boolean>(isBillingSection);
-
-  // Keep the group open when navigation lands on a billing screen elsewhere.
-  React.useEffect(() => {
-    if (isBillingSection) setIsBillingOpen(true);
-  }, [isBillingSection]);
 
   const handleNavClick = (tabId: string) => {
     if (tabId === 'logout') {
@@ -164,44 +145,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="nav-section-title">ACCOUNT</div>
             {accountNav.map((item) => {
               const IconComponent = item.icon;
-
-              if (item.children) {
-                const isGroupActive = activeTab.startsWith(item.id);
-                return (
-                  <div key={item.id} className="nav-group">
-                    <button
-                      className={`nav-item ${isGroupActive && !isBillingOpen ? 'active' : ''}`}
-                      onClick={() => {
-                        setIsBillingOpen((prev) => !prev);
-                        if (!isGroupActive) handleNavClick(item.id);
-                      }}
-                      aria-expanded={isBillingOpen}
-                    >
-                      <IconComponent size={18} className="nav-icon" />
-                      <span className="nav-label">{item.label}</span>
-                      <ChevronRight
-                        size={14}
-                        className={`nav-chevron ${isBillingOpen ? 'open' : ''}`}
-                      />
-                    </button>
-
-                    {isBillingOpen && (
-                      <div className="nav-children">
-                        {item.children.map((child) => (
-                          <button
-                            key={child.id}
-                            className={`nav-child ${activeTab === child.id ? 'active' : ''}`}
-                            onClick={() => handleNavClick(child.id)}
-                          >
-                            {child.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
               const isActive = activeTab === item.id;
               return (
                 <button
@@ -364,52 +307,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           .nav-label {
             flex: 1;
             text-align: left;
-          }
-
-          .nav-group {
-            display: flex;
-            flex-direction: column;
-          }
-
-          .nav-chevron {
-            color: var(--text-muted);
-            transition: transform 0.15s ease;
-            flex-shrink: 0;
-          }
-
-          .nav-chevron.open {
-            transform: rotate(90deg);
-          }
-
-          .nav-children {
-            display: flex;
-            flex-direction: column;
-            margin: 2px 0 4px 0;
-            padding-left: 21px;
-            border-left: 1px solid var(--border-subtle);
-            margin-left: 21px;
-          }
-
-          .nav-child {
-            width: 100%;
-            text-align: left;
-            padding: 7px 10px;
-            border-radius: var(--radius-sm);
-            color: var(--text-muted);
-            font-size: 12px;
-            font-weight: 500;
-            transition: all 0.15s ease;
-          }
-
-          .nav-child:hover {
-            color: var(--text-secondary);
-            background-color: rgba(255, 255, 255, 0.04);
-          }
-
-          .nav-child.active {
-            color: var(--text-accent);
-            background-color: var(--accent-subtle);
-            font-weight: 600;
           }
 
           .nav-badge {

@@ -94,11 +94,27 @@ export interface DueInvoiceSummary {
   daysFromNow: number;
 }
 
+export interface SpendingPoint {
+  /** 'YYYY-MM' */
+  month: string;
+  currency: string;
+  amount: number;
+}
+
+export interface ApiSpending {
+  apiId: string | null;
+  apiName: string;
+  currency: string;
+  amount: number;
+  invoiceCount: number;
+}
+
 export interface BillingOverview {
   outstanding: CurrencyTotal[];
   overdue: CurrencyTotal[];
   paidThisMonth: CurrencyTotal[];
   paidLastMonth: CurrencyTotal[];
+  totalSpent: CurrencyTotal[];
   nextPayment: DueInvoiceSummary | null;
   oldestOverdue: DueInvoiceSummary | null;
   failedPayments: {

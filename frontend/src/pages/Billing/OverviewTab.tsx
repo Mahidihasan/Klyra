@@ -1,23 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  AlertTriangle,
-  ArrowRight,
-  CreditCard,
-  Download,
-  MapPin,
-  Plus,
-} from 'lucide-react';
+import { ArrowRight, CreditCard, Download, Plus } from 'lucide-react';
 import { billingApi } from '../../services/api/billing';
 import { StatusBadge } from '../../components/billing/StatusBadge';
 import { InvoiceDetailModal } from '../../components/billing/InvoiceDetailModal';
 import {
-  BillingInformation,
+  ApiSpending,
   BillingOverview,
   CurrencyTotal,
   DueInvoiceSummary,
+  SpendingPoint,
 } from '../../types/billing';
 import { describeCard, formatAmount, formatDate } from './format';
 import { BillingState } from './shared';
+import { SpendingChart } from './SpendingChart';
+import { ApiSpendingCard } from './ApiSpendingCard';
 
 interface OverviewTabProps {
   refreshToken: number;
@@ -25,7 +21,6 @@ interface OverviewTabProps {
   onViewInvoices: () => void;
   onViewPayments: () => void;
   onViewMethods: () => void;
-  onViewInformation: () => void;
 }
 
 /** Totals arrive per currency, so render each one rather than adding them up. */
@@ -47,28 +42,16 @@ function dueLabel(due: DueInvoiceSummary): string {
   return `Due in ${days} days`;
 }
 
-/** One-line address for the summary card, in postal order. */
-function addressLine(info: BillingInformation): string | null {
-  const parts = [
-    info.addressLine1,
-    info.addressLine2,
-    info.city,
-    info.state,
-    info.postalCode,
-    info.country,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(', ') : null;
-}
-
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   refreshToken,
   onLoadingChange,
   onViewInvoices,
   onViewPayments,
   onViewMethods,
-  onViewInformation,
 }) => {
   const [overview, setOverview] = useState<BillingOverview | null>(null);
+  const [spending, setSpending] = useState<SpendingPoint[]>([]);
+  const [apiSpending, setApiSpending] = useState<ApiSpending[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
@@ -78,7 +61,18 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     onLoadingChange(true);
     setError(null);
     try {
-      setOverview(await billingApi.fetchOverview());
+      // The charts are secondary, so a failure there shouldn't blank the page.
+      const [overviewResult, spendingResult, byApiResult] = await Promise.allSettled([
+        billingApi.fetchOverview(),
+        billingApi.fetchSpending(6),
+        billingApi.fetchSpendingByApi(),
+      ]);
+
+      if (overviewResult.status === 'rejected') throw overviewResult.reason;
+
+      setOverview(overviewResult.value);
+      setSpending(spendingResult.status === 'fulfilled' ? spendingResult.value.points : []);
+      setApiSpending(byApiResult.status === 'fulfilled' ? byApiResult.value.breakdown : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load the dashboard.');
       setOverview(null);
@@ -96,6 +90,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     return (
       <div className="ov-wrap">
         <div className="ov-stats">
+          <div className="ov-stat ov-skeleton" />
           <div className="ov-stat ov-skeleton" />
           <div className="ov-stat ov-skeleton" />
           <div className="ov-stat ov-skeleton" />
@@ -120,56 +115,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     );
   }
 
-  const {
-    outstanding,
-    overdue,
-    nextPayment,
-    oldestOverdue,
-    failedPayments,
-    defaultPaymentMethod,
-    billingInformation,
-  } = overview;
-
+  const { outstanding, nextPayment, defaultPaymentMethod } = overview;
   const hasOutstanding = outstanding.length > 0;
-  const hasOverdue = overdue.length > 0;
-  const address = addressLine(billingInformation);
 
   return (
     <div className="ov-wrap">
-      {hasOverdue && oldestOverdue && (
-        <div className="ov-alert danger">
-          <AlertTriangle size={16} />
-          <div className="ov-alert-body">
-            <strong>{renderTotals(overdue)} is overdue.</strong>{' '}
-            {oldestOverdue.invoiceNumber} was due {formatDate(oldestOverdue.dueDate)}.
-          </div>
-          <button className="ov-alert-btn" onClick={onViewInvoices}>
-            Review invoices
-          </button>
-        </div>
-      )}
-
-      {failedPayments.count > 0 && failedPayments.latest && (
-        <div className="ov-alert warning">
-          <AlertTriangle size={16} />
-          <div className="ov-alert-body">
-            <strong>
-              {failedPayments.count === 1
-                ? 'A payment failed.'
-                : `${failedPayments.count} payments failed.`}
-            </strong>{' '}
-            {describeCard(
-              failedPayments.latest.paymentMethodDetails,
-              failedPayments.latest.paymentMethod,
-            )}{' '}
-            was declined. Update your card to avoid interruption.
-          </div>
-          <button className="ov-alert-btn" onClick={onViewMethods}>
-            Update card
-          </button>
-        </div>
-      )}
-
       <div className="ov-stats">
         <div className={`ov-stat ${hasOutstanding ? 'primary' : ''}`}>
           <span className="ov-stat-label">Outstanding</span>
@@ -185,6 +135,16 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
 
         <div className="ov-stat">
+          <span className="ov-stat-label">This month</span>
+          <span className="ov-stat-value">{renderTotals(overview.paidThisMonth)}</span>
+          <span className="ov-stat-sub">
+            {overview.paidLastMonth.length > 0
+              ? `${renderTotals(overview.paidLastMonth)} last month`
+              : 'Nothing last month'}
+          </span>
+        </div>
+
+        <div className="ov-stat">
           <span className="ov-stat-label">Next payment</span>
           <span className="ov-stat-value">
             {nextPayment ? formatAmount(nextPayment.amount, nextPayment.currency) : '—'}
@@ -197,80 +157,71 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
 
         <div className="ov-stat">
-          <span className="ov-stat-label">Paid this month</span>
-          <span className="ov-stat-value">{renderTotals(overview.paidThisMonth)}</span>
+          <span className="ov-stat-label">Total spent</span>
+          <span className="ov-stat-value">{renderTotals(overview.totalSpent)}</span>
           <span className="ov-stat-sub">
-            {overview.paidLastMonth.length > 0
-              ? `${renderTotals(overview.paidLastMonth)} last month`
-              : 'Nothing last month'}
+            {totalCount(overview.totalSpent) > 0
+              ? `${totalCount(overview.totalSpent)} payments all time`
+              : 'No payments yet'}
           </span>
         </div>
       </div>
 
-      <div className="ov-grid">
+      <div className="ov-grid split">
         <section className="card-base ov-card">
           <div className="ov-card-head">
-            <div className="ov-card-title">
-              <CreditCard size={15} color="var(--text-muted)" />
-              <h3>Payment method</h3>
-            </div>
-            <button className="ov-link-btn" onClick={onViewMethods}>
-              <span>{defaultPaymentMethod ? 'Manage' : 'Add'}</span>
-              <ArrowRight size={13} />
-            </button>
+            <h3>Spending overview</h3>
           </div>
-
-          {defaultPaymentMethod ? (
-            <>
-              <div className="ov-strong-line">
-                {describeCard(
-                  { brand: defaultPaymentMethod.brand, last4: defaultPaymentMethod.last4 },
-                  null,
-                )}
-              </div>
-              <div className="ov-muted-line">
-                Expires {String(defaultPaymentMethod.expMonth).padStart(2, '0')}/
-                {defaultPaymentMethod.expYear}
-                {defaultPaymentMethod.isDefault ? ' · default' : ''}
-              </div>
-            </>
-          ) : (
-            <button className="ov-inline-add" onClick={onViewMethods}>
-              <Plus size={14} />
-              <span>Add a card</span>
-            </button>
-          )}
+          <SpendingChart points={spending} />
         </section>
 
-        <section className="card-base ov-card">
-          <div className="ov-card-head">
-            <div className="ov-card-title">
-              <MapPin size={15} color="var(--text-muted)" />
-              <h3>Billing address</h3>
-            </div>
-            <button className="ov-link-btn" onClick={onViewInformation}>
-              <span>Edit</span>
-              <ArrowRight size={13} />
-            </button>
-          </div>
-
-          {billingInformation.billingName || address ? (
-            <>
-              <div className="ov-strong-line">
-                {billingInformation.companyName || billingInformation.billingName}
+        {/* Stacked so the column matches the chart's height instead of
+            leaving a gap underneath the card. */}
+        <div className="ov-side-stack">
+          <section className="card-base ov-card">
+            <div className="ov-card-head">
+              <div className="ov-card-title">
+                <CreditCard size={15} color="var(--text-muted)" />
+                <h3>Payment method</h3>
               </div>
-              <div className="ov-muted-line">{address ?? 'No address on file'}</div>
-              {billingInformation.taxId && (
-                <div className="ov-muted-line">Tax ID {billingInformation.taxId}</div>
-              )}
-            </>
-          ) : (
-            <button className="ov-inline-add" onClick={onViewInformation}>
-              <Plus size={14} />
-              <span>Add billing details</span>
-            </button>
-          )}
-        </section>
+              <button className="ov-link-btn" onClick={onViewMethods}>
+                <span>{defaultPaymentMethod ? 'Manage' : 'Add'}</span>
+                <ArrowRight size={13} />
+              </button>
+            </div>
+
+            {defaultPaymentMethod ? (
+              <>
+                <div className="ov-strong-line">
+                  {describeCard(
+                    {
+                      brand: defaultPaymentMethod.brand,
+                      last4: defaultPaymentMethod.last4,
+                    },
+                    null,
+                  )}
+                </div>
+                <div className="ov-muted-line">
+                  Expires {String(defaultPaymentMethod.expMonth).padStart(2, '0')}/
+                  {defaultPaymentMethod.expYear}
+                  {defaultPaymentMethod.isDefault ? ' · default' : ''}
+                </div>
+              </>
+            ) : (
+              <button className="ov-inline-add" onClick={onViewMethods}>
+                <Plus size={14} />
+                <span>Add payment method</span>
+              </button>
+            )}
+          </section>
+
+          <section className="card-base ov-card">
+            <div className="ov-card-head">
+              <h3>API spending</h3>
+            </div>
+            <ApiSpendingCard breakdown={apiSpending} />
+          </section>
+        </div>
       </div>
 
       <section className="card-base ov-card">
@@ -372,62 +323,6 @@ const OverviewStyles: React.FC = () => (
       gap: 14px;
     }
 
-    .ov-alert {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 13px 16px;
-      border-radius: var(--radius-md);
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    .ov-alert.danger {
-      background-color: rgba(239, 68, 68, 0.1);
-      border: 1px solid rgba(239, 68, 68, 0.3);
-      color: var(--status-maintenance);
-    }
-
-    .ov-alert.warning {
-      background-color: rgba(245, 158, 11, 0.1);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      color: var(--status-beta);
-    }
-
-    .ov-alert-body {
-      flex: 1;
-      min-width: 0;
-      color: var(--text-secondary);
-    }
-
-    .ov-alert.danger .ov-alert-body strong {
-      color: var(--status-maintenance);
-      font-weight: 600;
-    }
-
-    .ov-alert.warning .ov-alert-body strong {
-      color: var(--status-beta);
-      font-weight: 600;
-    }
-
-    .ov-alert-btn {
-      flex-shrink: 0;
-      height: 30px;
-      padding: 0 14px;
-      border-radius: var(--radius-sm);
-      background-color: transparent;
-      border: 1px solid currentColor;
-      color: inherit;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background-color 0.15s ease;
-    }
-
-    .ov-alert-btn:hover {
-      background-color: rgba(255, 255, 255, 0.06);
-    }
-
     .ov-stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -445,9 +340,20 @@ const OverviewStyles: React.FC = () => (
       align-items: flex-start;
     }
 
+    /* Marked out with an accent rule rather than a filled panel — a solid
+       accent background left the muted label unreadable. */
     .ov-stat.primary {
       border-color: var(--accent-subtle-border);
-      background: linear-gradient(180deg, rgba(139, 92, 246, 0.07) 0%, var(--bg-card) 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .ov-stat.primary::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: var(--accent-gradient);
     }
 
     .ov-stat-label {
@@ -495,6 +401,23 @@ const OverviewStyles: React.FC = () => (
       align-items: start;
     }
 
+    /* Chart needs the room; the cards beside it stack to fill the column. */
+    .ov-grid.split {
+      grid-template-columns: minmax(0, 1.8fr) minmax(260px, 1fr);
+    }
+
+    .ov-side-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .ov-grid.split {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .ov-card {
       padding: 16px 18px;
       display: flex;
@@ -512,7 +435,7 @@ const OverviewStyles: React.FC = () => (
     }
 
     .ov-skeleton.tall {
-      min-height: 180px;
+      min-height: 220px;
     }
 
     .ov-card-head {
@@ -557,6 +480,7 @@ const OverviewStyles: React.FC = () => (
       font-size: 15px;
       font-weight: 600;
       color: var(--text-primary);
+      text-transform: capitalize;
     }
 
     .ov-muted-line {

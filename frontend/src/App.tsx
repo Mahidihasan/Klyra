@@ -1,20 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
-
-import { ApiBuildEntry } from './components/ApiBuildEntry';
-import { ApiDetailModal } from './components/ApiDetailModal';
-import { ApiTesterModal } from './components/ApiTesterModal';
-import { CategoryFilter } from './components/CategoryFilter';
-import { CommandPalette } from './components/CommandPalette';
-import { CreateCollectionModal } from './components/CreateCollectionModal';
-import { HeroBanner } from './components/HeroBanner';
 import { Sidebar } from './components/Sidebar';
-import { TabViews } from './components/TabViews';
 import { Topbar } from './components/Topbar';
+import { HeroBanner } from './components/HeroBanner';
 import { TrendingApiCard } from './components/TrendingApiCard';
+import { CategoryFilter } from './components/CategoryFilter';
+import { ApiTesterModal } from './components/ApiTesterModal';
+import { ApiDetailModal } from './components/ApiDetailModal';
+import { CreateCollectionModal } from './components/CreateCollectionModal';
+import { CommandPalette } from './components/CommandPalette';
+import { TabViews } from './components/TabViews';
+import { PlaygroundPage } from './pages/Playground/index';
+import { ApiBuildEntry } from './components/ApiBuildEntry';
 import { ApiBuilder } from './pages/ApiBuilder/index';
 import { BillingPage } from './pages/Billing/index';
-import { PlaygroundPage } from './pages/Playground/index';
-import { RepositoriesPage } from './pages/Repositories/index';
 import './pages/Playground/styles.css';
 
 import {
@@ -22,10 +20,9 @@ import {
   MOCK_POPULAR_APIS,
   MOCK_NEWLY_LAUNCHED_APIS,
   MOCK_RECOMMENDED_APIS,
-  MOCK_COLLECTIONS,
+  MOCK_COLLECTIONS
 } from './data/mockData';
 import { ApiItem, ApiProject, CollectionItem, NavigationTab } from './types/api';
-
 import { ChevronRight, TrendingUp, Sparkles, Rocket, Star } from 'lucide-react';
 
 export function App() {
@@ -64,38 +61,25 @@ export function App() {
       ...MOCK_TRENDING_APIS,
       ...MOCK_POPULAR_APIS,
       ...MOCK_NEWLY_LAUNCHED_APIS,
-      ...MOCK_RECOMMENDED_APIS,
+      ...MOCK_RECOMMENDED_APIS
     ];
   }, []);
 
   // Filter helper
   const filterApis = (apis: ApiItem[]) => {
-    return apis.filter((api) => {
+    return apis.filter(api => {
       const matchCat = selectedCategory === 'All Categories' || api.category === selectedCategory;
-      const matchQuery =
-        !searchQuery ||
+      const matchQuery = !searchQuery ||
         api.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         api.description.toLowerCase().includes(searchQuery.toLowerCase());
       return matchCat && matchQuery;
     });
   };
 
-  const filteredTrendingApis = useMemo(
-    () => filterApis(MOCK_TRENDING_APIS),
-    [selectedCategory, searchQuery],
-  );
-  const filteredPopularApis = useMemo(
-    () => filterApis(MOCK_POPULAR_APIS),
-    [selectedCategory, searchQuery],
-  );
-  const filteredNewlyLaunchedApis = useMemo(
-    () => filterApis(MOCK_NEWLY_LAUNCHED_APIS),
-    [selectedCategory, searchQuery],
-  );
-  const filteredRecommendedApis = useMemo(
-    () => filterApis(MOCK_RECOMMENDED_APIS),
-    [selectedCategory, searchQuery],
-  );
+  const filteredTrendingApis = useMemo(() => filterApis(MOCK_TRENDING_APIS), [selectedCategory, searchQuery]);
+  const filteredPopularApis = useMemo(() => filterApis(MOCK_POPULAR_APIS), [selectedCategory, searchQuery]);
+  const filteredNewlyLaunchedApis = useMemo(() => filterApis(MOCK_NEWLY_LAUNCHED_APIS), [selectedCategory, searchQuery]);
+  const filteredRecommendedApis = useMemo(() => filterApis(MOCK_RECOMMENDED_APIS), [selectedCategory, searchQuery]);
 
   // Handlers
   const handleOpenTester = (api?: ApiItem | null) => {
@@ -104,7 +88,7 @@ export function App() {
   };
 
   const handleCreateCollection = (newCol: CollectionItem) => {
-    setCollections((prev) => [newCol, ...prev]);
+    setCollections(prev => [newCol, ...prev]);
   };
 
   return (
@@ -119,241 +103,228 @@ export function App() {
           onChange={(project) => {
             setActiveApiProject(project);
             const projects = JSON.parse(localStorage.getItem('klyra-api-projects') || '[]');
-            localStorage.setItem(
-              'klyra-api-projects',
-              JSON.stringify(
-                projects.map((item: ApiProject) => (item.id === project.id ? project : item)),
-              ),
-            );
+            localStorage.setItem('klyra-api-projects', JSON.stringify(projects.map((item: ApiProject) => item.id === project.id ? project : item)));
           }}
         />
       ) : activeTab === 'api-build' ? (
         <ApiBuildEntry
           onBack={() => setActiveTab('home')}
-          onOpenProject={(project) => {
-            setActiveApiProject(project);
-            setActiveTab('api-builder');
-          }}
+          onOpenProject={(project) => { setActiveApiProject(project); setActiveTab('api-builder'); }}
         />
-      ) : activeTab === 'repositories' ? (
-        <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
       ) : (
-        <>
-          {/* Top Header Bar - Full Width */}
-          <Topbar
-            searchQuery={searchQuery}
-            setSearchQuery={setSearchQuery}
-            onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
-            onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
-          />
+      <>
+      {/* Top Header Bar - Full Width */}
+      <Topbar
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
+        onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
+      />
 
-          {/* Body: Sidebar + Main Content */}
-          <div className="app-body">
-            {/* Left Navigation Sidebar */}
-            <Sidebar
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              onOpenNewRequest={() => setActiveTab('api-build')}
-              isMobileOpen={isMobileSidebarOpen}
-              onCloseMobile={() => setIsMobileSidebarOpen(false)}
-            />
+      {/* Body: Sidebar + Main Content */}
+      <div className="app-body">
+        {/* Left Navigation Sidebar */}
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onOpenNewRequest={() => setActiveTab('api-build')}
+          isMobileOpen={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        />
 
-            {/* Main Content Area */}
-            <div className="main-wrapper">
-              {/* Dynamic View Rendering */}
-              {activeTab === 'home' ? (
-                <main className="content-grid animate-fade-in">
-                  {/* Center Main Dashboard Column */}
-                  <div className="center-column">
-                    {/* 1. Hero Banner */}
-                    <HeroBanner onSearchSubmit={(term) => setSearchQuery(term)} />
+        {/* Main Content Area */}
+        <div className="main-wrapper">
 
-                    {/* 2. Category Filter Navigation Bar */}
-                    <CategoryFilter
-                      selectedCategory={selectedCategory}
-                      onSelectCategory={setSelectedCategory}
-                    />
+        {/* Dynamic View Rendering */}
+        {activeTab === 'home' ? (
+          <main className="content-grid animate-fade-in">
+            {/* Center Main Dashboard Column */}
+            <div className="center-column">
 
-                    {/* 3. Trending APIs Section */}
-                    <section className="dashboard-section">
-                      <div className="section-header">
-                        <div className="section-title-group">
-                          <div className="section-icon-wrapper trending">
-                            <TrendingUp size={16} color="#8b5cf6" />
-                          </div>
-                          <div>
-                            <h2 className="section-title">Trending APIs</h2>
-                            <p className="section-subtitle">Most popular APIs this week</p>
-                          </div>
-                        </div>
+              {/* 1. Hero Banner */}
+              <HeroBanner
+                onSearchSubmit={(term) => setSearchQuery(term)}
+              />
 
-                        <div className="section-header-actions">
-                          <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                            <span>View all</span>
-                            <ChevronRight size={14} />
-                          </button>
-                        </div>
-                      </div>
+              {/* 2. Category Filter Navigation Bar */}
+              <CategoryFilter
+                selectedCategory={selectedCategory}
+                onSelectCategory={setSelectedCategory}
+              />
 
-                      <div className="api-cards-row">
-                        {filteredTrendingApis.length > 0 ? (
-                          filteredTrendingApis
-                            .slice(0, 8)
-                            .map((api) => (
-                              <TrendingApiCard
-                                key={api.id}
-                                api={api}
-                                onSelectApi={(item) => setSelectedApi(item)}
-                              />
-                            ))
-                        ) : (
-                          <div className="empty-filter-state card-base">
-                            No trending APIs match "{searchQuery || selectedCategory}".
-                          </div>
-                        )}
-                      </div>
-                    </section>
-
-                    {/* 4. Newly Launched APIs Section */}
-                    <section className="dashboard-section">
-                      <div className="section-header">
-                        <div className="section-title-group">
-                          <div className="section-icon-wrapper new">
-                            <Sparkles size={16} color="#22d3ee" />
-                          </div>
-                          <div>
-                            <h2 className="section-title">Newly Launched</h2>
-                            <p className="section-subtitle">Recently added APIs</p>
-                          </div>
-                        </div>
-
-                        <div className="section-header-actions">
-                          <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                            <span>View all</span>
-                            <ChevronRight size={14} />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="api-cards-row">
-                        {filteredNewlyLaunchedApis.length > 0 ? (
-                          filteredNewlyLaunchedApis
-                            .slice(0, 8)
-                            .map((api) => (
-                              <TrendingApiCard
-                                key={api.id}
-                                api={api}
-                                onSelectApi={(item) => setSelectedApi(item)}
-                              />
-                            ))
-                        ) : (
-                          <div className="empty-filter-state card-base">
-                            No newly launched APIs match "{searchQuery || selectedCategory}".
-                          </div>
-                        )}
-                      </div>
-                    </section>
-
-                    {/* 5. Popular APIs Section */}
-                    <section className="dashboard-section">
-                      <div className="section-header">
-                        <div className="section-title-group">
-                          <div className="section-icon-wrapper popular">
-                            <Rocket size={16} color="#f59e0b" />
-                          </div>
-                          <div>
-                            <h2 className="section-title">Popular APIs</h2>
-                            <p className="section-subtitle">Widely used APIs</p>
-                          </div>
-                        </div>
-
-                        <div className="section-header-actions">
-                          <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                            <span>View all</span>
-                            <ChevronRight size={14} />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="api-cards-row">
-                        {filteredPopularApis.length > 0 ? (
-                          filteredPopularApis
-                            .slice(0, 8)
-                            .map((api) => (
-                              <TrendingApiCard
-                                key={api.id}
-                                api={api}
-                                onSelectApi={(item) => setSelectedApi(item)}
-                              />
-                            ))
-                        ) : (
-                          <div className="empty-filter-state card-base">
-                            No popular APIs match "{searchQuery || selectedCategory}".
-                          </div>
-                        )}
-                      </div>
-                    </section>
-
-                    {/* 6. Recommended for You Section */}
-                    <section className="dashboard-section">
-                      <div className="section-header">
-                        <div className="section-title-group">
-                          <div className="section-icon-wrapper recommended">
-                            <Star size={16} color="#ec4899" />
-                          </div>
-                          <div>
-                            <h2 className="section-title">Recommended for You</h2>
-                            <p className="section-subtitle">Personalized / featured APIs</p>
-                          </div>
-                        </div>
-
-                        <div className="section-header-actions">
-                          <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                            <span>View all</span>
-                            <ChevronRight size={14} />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="api-cards-row">
-                        {filteredRecommendedApis.length > 0 ? (
-                          filteredRecommendedApis
-                            .slice(0, 8)
-                            .map((api) => (
-                              <TrendingApiCard
-                                key={api.id}
-                                api={api}
-                                onSelectApi={(item) => setSelectedApi(item)}
-                              />
-                            ))
-                        ) : (
-                          <div className="empty-filter-state card-base">
-                            No recommended APIs match "{searchQuery || selectedCategory}".
-                          </div>
-                        )}
-                      </div>
-                    </section>
+              {/* 3. Trending APIs Section */}
+              <section className="dashboard-section">
+                <div className="section-header">
+                  <div className="section-title-group">
+                    <div className="section-icon-wrapper trending">
+                      <TrendingUp size={16} color="#8b5cf6" />
+                    </div>
+                    <div>
+                      <h2 className="section-title">Trending APIs</h2>
+                      <p className="section-subtitle">Most popular APIs this week</p>
+                    </div>
                   </div>
-                </main>
-              ) : activeTab.startsWith('billing') ? (
-                <main className="content-page-wrapper">
-                  <BillingPage activeTab={activeTab} onNavigate={setActiveTab} />
-                </main>
-              ) : (
-                <main className="content-page-wrapper">
-                  <TabViews
-                    activeTab={activeTab}
-                    collections={collections}
-                    apis={allApis}
-                    onOpenCreateCollection={() => setIsCreateColOpen(true)}
-                    onOpenTester={(api) => handleOpenTester(api)}
-                    onSelectApi={(api) => setSelectedApi(api)}
-                  />
-                </main>
-              )}
+
+                  <div className="section-header-actions">
+                    <button className="view-all-link" onClick={() => setActiveTab('apis')}>
+                      <span>View all</span>
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="api-cards-row">
+                  {filteredTrendingApis.length > 0 ? (
+                    filteredTrendingApis.slice(0, 8).map(api => (
+                      <TrendingApiCard
+                        key={api.id}
+                        api={api}
+                        onSelectApi={(item) => setSelectedApi(item)}
+                      />
+                    ))
+                  ) : (
+                    <div className="empty-filter-state card-base">
+                      No trending APIs match "{searchQuery || selectedCategory}".
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* 4. Newly Launched APIs Section */}
+              <section className="dashboard-section">
+                <div className="section-header">
+                  <div className="section-title-group">
+                    <div className="section-icon-wrapper new">
+                      <Sparkles size={16} color="#22d3ee" />
+                    </div>
+                    <div>
+                      <h2 className="section-title">Newly Launched</h2>
+                      <p className="section-subtitle">Recently added APIs</p>
+                    </div>
+                  </div>
+
+                  <div className="section-header-actions">
+                    <button className="view-all-link" onClick={() => setActiveTab('apis')}>
+                      <span>View all</span>
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="api-cards-row">
+                  {filteredNewlyLaunchedApis.length > 0 ? (
+                    filteredNewlyLaunchedApis.slice(0, 8).map(api => (
+                      <TrendingApiCard
+                        key={api.id}
+                        api={api}
+                        onSelectApi={(item) => setSelectedApi(item)}
+                      />
+                    ))
+                  ) : (
+                    <div className="empty-filter-state card-base">
+                      No newly launched APIs match "{searchQuery || selectedCategory}".
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* 5. Popular APIs Section */}
+              <section className="dashboard-section">
+                <div className="section-header">
+                  <div className="section-title-group">
+                    <div className="section-icon-wrapper popular">
+                      <Rocket size={16} color="#f59e0b" />
+                    </div>
+                    <div>
+                      <h2 className="section-title">Popular APIs</h2>
+                      <p className="section-subtitle">Widely used APIs</p>
+                    </div>
+                  </div>
+
+                  <div className="section-header-actions">
+                    <button className="view-all-link" onClick={() => setActiveTab('apis')}>
+                      <span>View all</span>
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="api-cards-row">
+                  {filteredPopularApis.length > 0 ? (
+                    filteredPopularApis.slice(0, 8).map(api => (
+                      <TrendingApiCard
+                        key={api.id}
+                        api={api}
+                        onSelectApi={(item) => setSelectedApi(item)}
+                      />
+                    ))
+                  ) : (
+                    <div className="empty-filter-state card-base">
+                      No popular APIs match "{searchQuery || selectedCategory}".
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* 6. Recommended for You Section */}
+              <section className="dashboard-section">
+                <div className="section-header">
+                  <div className="section-title-group">
+                    <div className="section-icon-wrapper recommended">
+                      <Star size={16} color="#ec4899" />
+                    </div>
+                    <div>
+                      <h2 className="section-title">Recommended for You</h2>
+                      <p className="section-subtitle">Personalized / featured APIs</p>
+                    </div>
+                  </div>
+
+                  <div className="section-header-actions">
+                    <button className="view-all-link" onClick={() => setActiveTab('apis')}>
+                      <span>View all</span>
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="api-cards-row">
+                  {filteredRecommendedApis.length > 0 ? (
+                    filteredRecommendedApis.slice(0, 8).map(api => (
+                      <TrendingApiCard
+                        key={api.id}
+                        api={api}
+                        onSelectApi={(item) => setSelectedApi(item)}
+                      />
+                    ))
+                  ) : (
+                    <div className="empty-filter-state card-base">
+                      No recommended APIs match "{searchQuery || selectedCategory}".
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
-          </div>
-        </>
+
+          </main>
+        ) : activeTab === 'billing' ? (
+          <main className="content-page-wrapper">
+            <BillingPage />
+          </main>
+        ) : (
+          <main className="content-page-wrapper">
+            <TabViews
+              activeTab={activeTab}
+              collections={collections}
+              apis={allApis}
+              onOpenCreateCollection={() => setIsCreateColOpen(true)}
+              onOpenTester={(api) => handleOpenTester(api)}
+              onSelectApi={(api) => setSelectedApi(api)}
+            />
+          </main>
+        )}
+        </div>
+      </div>
+      </>
       )}
 
       {/* Global Modals & Dialogs */}
