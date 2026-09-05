@@ -3,9 +3,11 @@ import { pool } from '../../services/database.service';
 import {
   BillingInformation,
   BillingInformationInput,
+  ApiSpending,
   BillingOverview,
   CurrencyTotal,
   DueInvoiceSummary,
+  SpendingPoint,
   Invoice,
   InvoiceDetail,
   InvoicePayment,
@@ -348,6 +350,7 @@ export async function getBillingOverview(userId: string): Promise<BillingOvervie
     nextPaymentResult,
     oldestOverdueResult,
     failedResult,
+    totalSpentResult,
   ] = await Promise.all([
     pool.query(
       `${OUTSTANDING_SELECT}
@@ -420,6 +423,14 @@ export async function getBillingOverview(userId: string): Promise<BillingOvervie
          AND created_at >= NOW() - INTERVAL '30 days'`,
       [userId],
     ),
+    pool.query(
+      `SELECT currency, SUM(amount) AS amount, COUNT(*)::int AS count
+       FROM payments
+       WHERE user_id = $1 AND status = 'SUCCEEDED'
+       GROUP BY currency
+       ORDER BY SUM(amount) DESC`,
+      [userId],
+    ),
   ]);
 
   const [
@@ -439,6 +450,7 @@ export async function getBillingOverview(userId: string): Promise<BillingOvervie
     overdue: mapCurrencyTotals(overdueResult.rows),
     paidThisMonth: mapCurrencyTotals(thisMonthResult.rows),
     paidLastMonth: mapCurrencyTotals(lastMonthResult.rows),
+    totalSpent: mapCurrencyTotals(totalSpentResult.rows),
     nextPayment: mapDueInvoice(nextPaymentResult.rows[0]),
     oldestOverdue: mapDueInvoice(oldestOverdueResult.rows[0]),
     failedPayments: {
@@ -595,4 +607,89 @@ export async function saveBillingInformation(
   }
 
   return result.rows[0].billing_information as BillingInformation;
+}
+
+/**
+ * Monthly succeeded-payment totals for the spending chart.
+ *
+ * Months with no payments are filled in as zero so the chart keeps an even
+ * horizontal rhythm instead of collapsing gaps.
+ */
+export async function getMonthlySpending(
+  userId: string,
+  months: number,
+): Promise<SpendingPoint[]> {
+  const span = Math.min(Math.max(Math.trunc(months) || 6, 1), 24);
+
+  const result = await pool.query(
+    `SELECT
+       to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
+       currency,
+       SUM(amount) AS amount
+     FROM payments
+     WHERE user_id = $1
+       AND status = 'SUCCEEDED'
+       AND created_at >= date_trunc('month', NOW()) - ($2::int - 1) * INTERVAL '1 month'
+     GROUP BY 1, 2
+     ORDER BY 1 ASC`,
+    [userId, span],
+  );
+
+  const rows: SpendingPoint[] = result.rows.map((row) => ({
+    month: row.month,
+    currency: row.currency,
+    amount: Number(row.amount),
+  }));
+
+  const currencies = Array.from(new Set(rows.map((row) => row.currency)));
+  if (currencies.length === 0) currencies.push('USD');
+
+  const now = new Date();
+  const filled: SpendingPoint[] = [];
+
+  for (let offset = span - 1; offset >= 0; offset -= 1) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    const month = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    for (const currency of currencies) {
+      const existing = rows.find((row) => row.month === month && row.currency === currency);
+      filled.push({ month, currency, amount: existing?.amount ?? 0 });
+    }
+  }
+
+  return filled;
+}
+
+/**
+ * Invoiced spend attributed to each API.
+ *
+ * Invoices with no subscription have no API to attribute to, so they are
+ * grouped together rather than dropped — otherwise the breakdown wouldn't add
+ * up to the invoice total.
+ */
+export async function getSpendingByApi(userId: string): Promise<ApiSpending[]> {
+  const result = await pool.query(
+    `SELECT
+       a.id AS api_id,
+       COALESCE(a.name, 'One-off charges') AS api_name,
+       i.currency,
+       SUM(i.amount) AS amount,
+       COUNT(*)::int AS invoice_count
+     FROM invoices i
+     LEFT JOIN user_subscriptions s ON s.id = i.subscription_id
+     LEFT JOIN apis a ON a.id = s.api_id
+     WHERE i.user_id = $1
+       AND i.status <> 'VOID'
+     GROUP BY a.id, a.name, i.currency
+     ORDER BY SUM(i.amount) DESC`,
+    [userId],
+  );
+
+  return result.rows.map((row) => ({
+    apiId: row.api_id,
+    apiName: row.api_name,
+    currency: row.currency,
+    amount: Number(row.amount),
+    invoiceCount: row.invoice_count,
+  }));
 }

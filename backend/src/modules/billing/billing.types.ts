@@ -140,6 +140,23 @@ export interface DueInvoiceSummary {
   daysFromNow: number;
 }
 
+/** One month's succeeded-payment total, for the spending chart. */
+export interface SpendingPoint {
+  /** 'YYYY-MM' */
+  month: string;
+  currency: string;
+  amount: number;
+}
+
+/** Spend attributed to a single API, for the breakdown. */
+export interface ApiSpending {
+  apiId: string | null;
+  apiName: string;
+  currency: string;
+  amount: number;
+  invoiceCount: number;
+}
+
 export interface BillingOverview {
   /** Unpaid totals, net of any payments already applied. */
   outstanding: CurrencyTotal[];
@@ -147,6 +164,8 @@ export interface BillingOverview {
   overdue: CurrencyTotal[];
   paidThisMonth: CurrencyTotal[];
   paidLastMonth: CurrencyTotal[];
+  /** All-time succeeded payments. */
+  totalSpent: CurrencyTotal[];
   /** Soonest invoice not yet past its due date. */
   nextPayment: DueInvoiceSummary | null;
   /** Longest-overdue invoice, if any. */
