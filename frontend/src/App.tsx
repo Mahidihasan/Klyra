@@ -15,28 +15,117 @@ import { ApiBuilder } from './pages/ApiBuilder/index';
 import { RepositoriesPage } from './pages/Repositories/index';
 import './pages/Playground/styles.css';
 
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthPage, AuthMode } from './pages/Auth/AuthPage';
+import { DemoInboxPage } from './pages/Auth/DemoInboxPage';
+
 import {
   MOCK_TRENDING_APIS,
   MOCK_POPULAR_APIS,
   MOCK_NEWLY_LAUNCHED_APIS,
   MOCK_RECOMMENDED_APIS,
-  MOCK_COLLECTIONS
+  MOCK_COLLECTIONS,
 } from './data/mockData';
 import { ApiItem, ApiProject, CollectionItem, NavigationTab } from './types/api';
-import { ChevronRight, TrendingUp, Sparkles, Rocket, Star } from 'lucide-react';
+import { ChevronRight, TrendingUp, Sparkles, Rocket, Star, RefreshCw } from 'lucide-react';
 
-export function App() {
+function AppContent() {
+  const { isAuthenticated, isLoading } = useAuth();
   // Persist active tab in localStorage to survive refresh
   const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('activeTab');
-      // Default to playground if no saved value, otherwise use saved value
-      return (saved as NavigationTab) || 'playground';
+      // Default to home if no saved value
+      return (saved as NavigationTab) || 'home';
     }
-    return 'playground';
+    return 'home';
   });
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Auth modal overlay state
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return Boolean(params.get('auth') || params.get('token'));
+    }
+    return false;
+  });
+  const [authModalMode, setAuthModalMode] = useState<AuthMode>(() => {
+    if (typeof window !== 'undefined') {
+      const auth = new URLSearchParams(window.location.search).get('auth');
+      if (auth === 'register') return 'register';
+      if (auth === 'verify-email') return 'verify-email';
+      if (auth === 'reset-password') return 'reset-password';
+      if (auth === 'forgot-password') return 'forgot-password';
+      if (auth === '2fa') return '2fa';
+    }
+    return 'login';
+  });
+  const [authModalToken, setAuthModalToken] = useState<string | undefined>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('token') || undefined;
+    }
+    return undefined;
+  });
+
+  // Listen to popstate or url changes for auth query params
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleUrlChange = () => {
+      const params = new URLSearchParams(window.location.search);
+      const auth = params.get('auth');
+      const token = params.get('token');
+      if (auth || token) {
+        setAuthModalToken(token || undefined);
+        if (auth === 'register') setAuthModalMode('register');
+        else if (auth === 'verify-email') setAuthModalMode('verify-email');
+        else if (auth === 'reset-password') setAuthModalMode('reset-password');
+        else if (auth === 'forgot-password') setAuthModalMode('forgot-password');
+        else setAuthModalMode('login');
+        setShowAuthModal(true);
+      }
+    };
+    window.addEventListener('popstate', handleUrlChange);
+    return () => window.removeEventListener('popstate', handleUrlChange);
+  }, []);
+
+  // Listen for sync from Demo Inbox tab (to open modal if closed)
+  useEffect(() => {
+    const handleSync = (type: string, token?: string) => {
+      if (type === 'EMAIL_VERIFIED') {
+        setAuthModalMode('verify-email');
+        setShowAuthModal(true);
+      } else if (type === 'START_RESET_PASSWORD') {
+        setAuthModalToken(token);
+        setAuthModalMode('reset-password');
+        setShowAuthModal(true);
+      }
+    };
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel('klyra_auth_channel');
+      channel.onmessage = (e) => {
+        if (e.data?.type) handleSync(e.data.type, e.data.token);
+      };
+    }
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'klyra_auth_sync' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed.type) handleSync(parsed.type, parsed.token);
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      if (channel) channel.close();
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
 
   // Modals state
   const [selectedApi, setSelectedApi] = useState<ApiItem | null>(null);
@@ -61,25 +150,38 @@ export function App() {
       ...MOCK_TRENDING_APIS,
       ...MOCK_POPULAR_APIS,
       ...MOCK_NEWLY_LAUNCHED_APIS,
-      ...MOCK_RECOMMENDED_APIS
+      ...MOCK_RECOMMENDED_APIS,
     ];
   }, []);
 
   // Filter helper
   const filterApis = (apis: ApiItem[]) => {
-    return apis.filter(api => {
+    return apis.filter((api) => {
       const matchCat = selectedCategory === 'All Categories' || api.category === selectedCategory;
-      const matchQuery = !searchQuery ||
+      const matchQuery =
+        !searchQuery ||
         api.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         api.description.toLowerCase().includes(searchQuery.toLowerCase());
       return matchCat && matchQuery;
     });
   };
 
-  const filteredTrendingApis = useMemo(() => filterApis(MOCK_TRENDING_APIS), [selectedCategory, searchQuery]);
-  const filteredPopularApis = useMemo(() => filterApis(MOCK_POPULAR_APIS), [selectedCategory, searchQuery]);
-  const filteredNewlyLaunchedApis = useMemo(() => filterApis(MOCK_NEWLY_LAUNCHED_APIS), [selectedCategory, searchQuery]);
-  const filteredRecommendedApis = useMemo(() => filterApis(MOCK_RECOMMENDED_APIS), [selectedCategory, searchQuery]);
+  const filteredTrendingApis = useMemo(
+    () => filterApis(MOCK_TRENDING_APIS),
+    [selectedCategory, searchQuery],
+  );
+  const filteredPopularApis = useMemo(
+    () => filterApis(MOCK_POPULAR_APIS),
+    [selectedCategory, searchQuery],
+  );
+  const filteredNewlyLaunchedApis = useMemo(
+    () => filterApis(MOCK_NEWLY_LAUNCHED_APIS),
+    [selectedCategory, searchQuery],
+  );
+  const filteredRecommendedApis = useMemo(
+    () => filterApis(MOCK_RECOMMENDED_APIS),
+    [selectedCategory, searchQuery],
+  );
 
   // Handlers
   const handleOpenTester = (api?: ApiItem | null) => {
@@ -88,8 +190,35 @@ export function App() {
   };
 
   const handleCreateCollection = (newCol: CollectionItem) => {
-    setCollections(prev => [newCol, ...prev]);
+    setCollections((prev) => [newCol, ...prev]);
   };
+
+  // 1. Check if user opened Demo Inbox (dedicated window or view param)
+  const isDemoInboxRoute =
+    typeof window !== 'undefined' &&
+    (window.location.pathname === '/demo-inbox' ||
+      new URLSearchParams(window.location.search).get('view') === 'demo-inbox');
+
+  if (isDemoInboxRoute) {
+    return <DemoInboxPage />;
+  }
+
+  // 2. Loading state during auth check
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0b0c12',
+        }}
+      >
+        <RefreshCw className="spin-icon" size={32} color="#8b5cf6" />
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -103,226 +232,245 @@ export function App() {
           onChange={(project) => {
             setActiveApiProject(project);
             const projects = JSON.parse(localStorage.getItem('klyra-api-projects') || '[]');
-            localStorage.setItem('klyra-api-projects', JSON.stringify(projects.map((item: ApiProject) => item.id === project.id ? project : item)));
+            localStorage.setItem(
+              'klyra-api-projects',
+              JSON.stringify(
+                projects.map((item: ApiProject) => (item.id === project.id ? project : item)),
+              ),
+            );
           }}
         />
       ) : activeTab === 'api-build' ? (
         <ApiBuildEntry
           onBack={() => setActiveTab('home')}
-          onOpenProject={(project) => { setActiveApiProject(project); setActiveTab('api-builder'); }}
+          onOpenProject={(project) => {
+            setActiveApiProject(project);
+            setActiveTab('api-builder');
+          }}
         />
       ) : activeTab === 'repositories' ? (
         <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
       ) : (
-      <>
-      {/* Top Header Bar - Full Width */}
-      <Topbar
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
-        onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
-      />
+        <>
+          {/* Top Header Bar - Full Width */}
+          <Topbar
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
+            onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
+            onOpenLogin={() => {
+              setAuthModalMode('login');
+              setShowAuthModal(true);
+            }}
+            onOpenRegister={() => {
+              setAuthModalMode('register');
+              setShowAuthModal(true);
+            }}
+          />
 
-      {/* Body: Sidebar + Main Content */}
-      <div className="app-body">
-        {/* Left Navigation Sidebar */}
-        <Sidebar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          onOpenNewRequest={() => setActiveTab('api-build')}
-          isMobileOpen={isMobileSidebarOpen}
-          onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        />
-
-        {/* Main Content Area */}
-        <div className="main-wrapper">
-
-        {/* Dynamic View Rendering */}
-        {activeTab === 'home' ? (
-          <main className="content-grid animate-fade-in">
-            {/* Center Main Dashboard Column */}
-            <div className="center-column">
-
-              {/* 1. Hero Banner */}
-              <HeroBanner
-                onSearchSubmit={(term) => setSearchQuery(term)}
-              />
-
-              {/* 2. Category Filter Navigation Bar */}
-              <CategoryFilter
-                selectedCategory={selectedCategory}
-                onSelectCategory={setSelectedCategory}
-              />
-
-              {/* 3. Trending APIs Section */}
-              <section className="dashboard-section">
-                <div className="section-header">
-                  <div className="section-title-group">
-                    <div className="section-icon-wrapper trending">
-                      <TrendingUp size={16} color="#8b5cf6" />
-                    </div>
-                    <div>
-                      <h2 className="section-title">Trending APIs</h2>
-                      <p className="section-subtitle">Most popular APIs this week</p>
-                    </div>
-                  </div>
-
-                  <div className="section-header-actions">
-                    <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                      <span>View all</span>
-                      <ChevronRight size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="api-cards-row">
-                  {filteredTrendingApis.length > 0 ? (
-                    filteredTrendingApis.slice(0, 8).map(api => (
-                      <TrendingApiCard
-                        key={api.id}
-                        api={api}
-                        onSelectApi={(item) => setSelectedApi(item)}
-                      />
-                    ))
-                  ) : (
-                    <div className="empty-filter-state card-base">
-                      No trending APIs match "{searchQuery || selectedCategory}".
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {/* 4. Newly Launched APIs Section */}
-              <section className="dashboard-section">
-                <div className="section-header">
-                  <div className="section-title-group">
-                    <div className="section-icon-wrapper new">
-                      <Sparkles size={16} color="#22d3ee" />
-                    </div>
-                    <div>
-                      <h2 className="section-title">Newly Launched</h2>
-                      <p className="section-subtitle">Recently added APIs</p>
-                    </div>
-                  </div>
-
-                  <div className="section-header-actions">
-                    <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                      <span>View all</span>
-                      <ChevronRight size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="api-cards-row">
-                  {filteredNewlyLaunchedApis.length > 0 ? (
-                    filteredNewlyLaunchedApis.slice(0, 8).map(api => (
-                      <TrendingApiCard
-                        key={api.id}
-                        api={api}
-                        onSelectApi={(item) => setSelectedApi(item)}
-                      />
-                    ))
-                  ) : (
-                    <div className="empty-filter-state card-base">
-                      No newly launched APIs match "{searchQuery || selectedCategory}".
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {/* 5. Popular APIs Section */}
-              <section className="dashboard-section">
-                <div className="section-header">
-                  <div className="section-title-group">
-                    <div className="section-icon-wrapper popular">
-                      <Rocket size={16} color="#f59e0b" />
-                    </div>
-                    <div>
-                      <h2 className="section-title">Popular APIs</h2>
-                      <p className="section-subtitle">Widely used APIs</p>
-                    </div>
-                  </div>
-
-                  <div className="section-header-actions">
-                    <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                      <span>View all</span>
-                      <ChevronRight size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="api-cards-row">
-                  {filteredPopularApis.length > 0 ? (
-                    filteredPopularApis.slice(0, 8).map(api => (
-                      <TrendingApiCard
-                        key={api.id}
-                        api={api}
-                        onSelectApi={(item) => setSelectedApi(item)}
-                      />
-                    ))
-                  ) : (
-                    <div className="empty-filter-state card-base">
-                      No popular APIs match "{searchQuery || selectedCategory}".
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {/* 6. Recommended for You Section */}
-              <section className="dashboard-section">
-                <div className="section-header">
-                  <div className="section-title-group">
-                    <div className="section-icon-wrapper recommended">
-                      <Star size={16} color="#ec4899" />
-                    </div>
-                    <div>
-                      <h2 className="section-title">Recommended for You</h2>
-                      <p className="section-subtitle">Personalized / featured APIs</p>
-                    </div>
-                  </div>
-
-                  <div className="section-header-actions">
-                    <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                      <span>View all</span>
-                      <ChevronRight size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="api-cards-row">
-                  {filteredRecommendedApis.length > 0 ? (
-                    filteredRecommendedApis.slice(0, 8).map(api => (
-                      <TrendingApiCard
-                        key={api.id}
-                        api={api}
-                        onSelectApi={(item) => setSelectedApi(item)}
-                      />
-                    ))
-                  ) : (
-                    <div className="empty-filter-state card-base">
-                      No recommended APIs match "{searchQuery || selectedCategory}".
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-
-          </main>
-        ) : (
-          <main className="content-page-wrapper">
-            <TabViews
+          {/* Body: Sidebar + Main Content */}
+          <div className="app-body">
+            {/* Left Navigation Sidebar */}
+            <Sidebar
               activeTab={activeTab}
-              collections={collections}
-              apis={allApis}
-              onOpenCreateCollection={() => setIsCreateColOpen(true)}
-              onOpenTester={(api) => handleOpenTester(api)}
-              onSelectApi={(api) => setSelectedApi(api)}
+              setActiveTab={setActiveTab}
+              onOpenNewRequest={() => setActiveTab('api-build')}
+              isMobileOpen={isMobileSidebarOpen}
+              onCloseMobile={() => setIsMobileSidebarOpen(false)}
             />
-          </main>
-        )}
-        </div>
-      </div>
-      </>
+
+            {/* Main Content Area */}
+            <div className="main-wrapper">
+              {/* Dynamic View Rendering */}
+              {activeTab === 'home' ? (
+                <main className="content-grid animate-fade-in">
+                  {/* Center Main Dashboard Column */}
+                  <div className="center-column">
+                    {/* 1. Hero Banner */}
+                    <HeroBanner onSearchSubmit={(term) => setSearchQuery(term)} />
+
+                    {/* 2. Category Filter Navigation Bar */}
+                    <CategoryFilter
+                      selectedCategory={selectedCategory}
+                      onSelectCategory={setSelectedCategory}
+                    />
+
+                    {/* 3. Trending APIs Section */}
+                    <section className="dashboard-section">
+                      <div className="section-header">
+                        <div className="section-title-group">
+                          <div className="section-icon-wrapper trending">
+                            <TrendingUp size={16} color="#8b5cf6" />
+                          </div>
+                          <div>
+                            <h2 className="section-title">Trending APIs</h2>
+                            <p className="section-subtitle">Most popular APIs this week</p>
+                          </div>
+                        </div>
+
+                        <div className="section-header-actions">
+                          <button className="view-all-link" onClick={() => setActiveTab('apis')}>
+                            <span>View all</span>
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="api-cards-row">
+                        {filteredTrendingApis.length > 0 ? (
+                          filteredTrendingApis
+                            .slice(0, 8)
+                            .map((api) => (
+                              <TrendingApiCard
+                                key={api.id}
+                                api={api}
+                                onSelectApi={(item) => setSelectedApi(item)}
+                              />
+                            ))
+                        ) : (
+                          <div className="empty-filter-state card-base">
+                            No trending APIs match "{searchQuery || selectedCategory}".
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    {/* 4. Newly Launched APIs Section */}
+                    <section className="dashboard-section">
+                      <div className="section-header">
+                        <div className="section-title-group">
+                          <div className="section-icon-wrapper new">
+                            <Sparkles size={16} color="#22d3ee" />
+                          </div>
+                          <div>
+                            <h2 className="section-title">Newly Launched</h2>
+                            <p className="section-subtitle">Recently added APIs</p>
+                          </div>
+                        </div>
+
+                        <div className="section-header-actions">
+                          <button className="view-all-link" onClick={() => setActiveTab('apis')}>
+                            <span>View all</span>
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="api-cards-row">
+                        {filteredNewlyLaunchedApis.length > 0 ? (
+                          filteredNewlyLaunchedApis
+                            .slice(0, 8)
+                            .map((api) => (
+                              <TrendingApiCard
+                                key={api.id}
+                                api={api}
+                                onSelectApi={(item) => setSelectedApi(item)}
+                              />
+                            ))
+                        ) : (
+                          <div className="empty-filter-state card-base">
+                            No newly launched APIs match "{searchQuery || selectedCategory}".
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    {/* 5. Popular APIs Section */}
+                    <section className="dashboard-section">
+                      <div className="section-header">
+                        <div className="section-title-group">
+                          <div className="section-icon-wrapper popular">
+                            <Rocket size={16} color="#f59e0b" />
+                          </div>
+                          <div>
+                            <h2 className="section-title">Popular APIs</h2>
+                            <p className="section-subtitle">Widely used APIs</p>
+                          </div>
+                        </div>
+
+                        <div className="section-header-actions">
+                          <button className="view-all-link" onClick={() => setActiveTab('apis')}>
+                            <span>View all</span>
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="api-cards-row">
+                        {filteredPopularApis.length > 0 ? (
+                          filteredPopularApis
+                            .slice(0, 8)
+                            .map((api) => (
+                              <TrendingApiCard
+                                key={api.id}
+                                api={api}
+                                onSelectApi={(item) => setSelectedApi(item)}
+                              />
+                            ))
+                        ) : (
+                          <div className="empty-filter-state card-base">
+                            No popular APIs match "{searchQuery || selectedCategory}".
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    {/* 6. Recommended for You Section */}
+                    <section className="dashboard-section">
+                      <div className="section-header">
+                        <div className="section-title-group">
+                          <div className="section-icon-wrapper recommended">
+                            <Star size={16} color="#ec4899" />
+                          </div>
+                          <div>
+                            <h2 className="section-title">Recommended for You</h2>
+                            <p className="section-subtitle">Personalized / featured APIs</p>
+                          </div>
+                        </div>
+
+                        <div className="section-header-actions">
+                          <button className="view-all-link" onClick={() => setActiveTab('apis')}>
+                            <span>View all</span>
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="api-cards-row">
+                        {filteredRecommendedApis.length > 0 ? (
+                          filteredRecommendedApis
+                            .slice(0, 8)
+                            .map((api) => (
+                              <TrendingApiCard
+                                key={api.id}
+                                api={api}
+                                onSelectApi={(item) => setSelectedApi(item)}
+                              />
+                            ))
+                        ) : (
+                          <div className="empty-filter-state card-base">
+                            No recommended APIs match "{searchQuery || selectedCategory}".
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  </div>
+                </main>
+              ) : (
+                <main className="content-page-wrapper">
+                  <TabViews
+                    activeTab={activeTab}
+                    collections={collections}
+                    apis={allApis}
+                    onOpenCreateCollection={() => setIsCreateColOpen(true)}
+                    onOpenTester={(api) => handleOpenTester(api)}
+                    onSelectApi={(api) => setSelectedApi(api)}
+                  />
+                </main>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* Global Modals & Dialogs */}
@@ -366,6 +514,28 @@ export function App() {
         onSelectApi={(api) => setSelectedApi(api)}
         onOpenTester={() => handleOpenTester()}
       />
+
+      {/* 5. Auth Modal (Login / Sign Up / 2FA / Password Reset) */}
+      {showAuthModal && (
+        <AuthPage
+          isModal={true}
+          initialMode={authModalMode}
+          initialToken={authModalToken}
+          onClose={() => {
+            setShowAuthModal(false);
+            if (typeof window !== 'undefined' && window.location.search.includes('auth')) {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+          }}
+          onLoginSuccess={() => {
+            setShowAuthModal(false);
+            if (typeof window !== 'undefined' && window.location.search.includes('auth')) {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+            setActiveTab('home');
+          }}
+        />
+      )}
 
       <style>{`
         .center-column {
@@ -507,5 +677,13 @@ export function App() {
         }
       `}</style>
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

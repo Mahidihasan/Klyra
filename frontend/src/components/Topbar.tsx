@@ -1,13 +1,29 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Moon, Bell, ChevronDown, Menu, User, Key, LogOut, CheckCircle, Sliders, Shield } from 'lucide-react';
+import {
+  Search,
+  Moon,
+  Bell,
+  ChevronDown,
+  Menu,
+  User,
+  Key,
+  LogOut,
+  CheckCircle,
+  Sliders,
+  Shield,
+} from 'lucide-react';
 import { MOCK_NOTIFICATIONS } from '../data/mockData';
 import klyraLogo from '../assets/images/klyra_logo.png';
+import { useAuth } from '../context/AuthContext';
+import { LoginHistoryModal } from './LoginHistoryModal';
 
 interface TopbarProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   onOpenCommandPalette: () => void;
   onToggleMobileSidebar: () => void;
+  onOpenLogin?: () => void;
+  onOpenRegister?: () => void;
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
@@ -15,15 +31,28 @@ export const Topbar: React.FC<TopbarProps> = ({
   setSearchQuery,
   onOpenCommandPalette,
   onToggleMobileSidebar,
+  onOpenLogin,
+  onOpenRegister,
 }) => {
+  const { user, logout, isAuthenticated } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showLoginHistory, setShowLoginHistory] = useState(false);
   const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const initials = user?.name
+    ? user.name
+        .split(' ')
+        .map((p) => p[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : 'AD';
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -39,7 +68,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   }, []);
 
   const markAllRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
+    setNotifications(notifications.map((n) => ({ ...n, read: true })));
   };
 
   return (
@@ -69,90 +98,124 @@ export const Topbar: React.FC<TopbarProps> = ({
         />
       </div>
 
-      {/* Right: Notification Bell + Profile Avatar */}
+      {/* Right: Authentication or User Profile */}
       <div className="topbar-right">
-        {/* Notifications Popover Container */}
-        <div className="popover-wrapper" ref={notifRef}>
-          <button
-            className="topbar-btn relative"
-            onClick={() => setShowNotifications(!showNotifications)}
-            title="Notifications"
-          >
-            <Bell size={18} />
-            {unreadCount > 0 && (
-              <span className="notif-badge">{unreadCount}</span>
-            )}
-          </button>
+        {!isAuthenticated ? (
+          <div className="topbar-auth-group">
+            <button
+              type="button"
+              className="topbar-auth-btn login-btn"
+              onClick={onOpenLogin}
+              id="nav-login-btn"
+            >
+              <span className="btn-border-accent" />
+              <span className="btn-content">Login</span>
+            </button>
+            <button
+              type="button"
+              className="topbar-auth-btn signup-btn"
+              onClick={onOpenRegister}
+              id="nav-signup-btn"
+            >
+              <span className="btn-border-accent" />
+              <span className="btn-content">Sign Up</span>
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Notifications Popover Container */}
+            <div className="popover-wrapper" ref={notifRef}>
+              <button
+                className="topbar-btn relative"
+                onClick={() => setShowNotifications(!showNotifications)}
+                title="Notifications"
+              >
+                <Bell size={18} />
+                {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
+              </button>
 
-          {showNotifications && (
-            <div className="dropdown-panel notif-panel animate-fade-in">
-              <div className="panel-header">
-                <span className="panel-title">Notifications</span>
-                {unreadCount > 0 && (
-                  <button className="mark-read-btn" onClick={markAllRead}>
-                    Mark all read
-                  </button>
-                )}
-              </div>
-              <div className="panel-body">
-                {notifications.map(n => (
-                  <div key={n.id} className={`notif-item ${!n.read ? 'unread' : ''}`}>
-                    <div className="notif-title-row">
-                      <span className="notif-item-title">{n.title}</span>
-                      <span className="notif-time">{n.time}</span>
-                    </div>
-                    <p className="notif-msg">{n.message}</p>
+              {showNotifications && (
+                <div className="dropdown-panel notif-panel animate-fade-in">
+                  <div className="panel-header">
+                    <span className="panel-title">Notifications</span>
+                    {unreadCount > 0 && (
+                      <button className="mark-read-btn" onClick={markAllRead}>
+                        Mark all read
+                      </button>
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* User Profile Dropdown */}
-        <div className="popover-wrapper" ref={userRef}>
-          <button
-            className="user-profile-btn"
-            onClick={() => setShowUserMenu(!showUserMenu)}
-          >
-            <div className="user-avatar">AD</div>
-          </button>
-
-          {showUserMenu && (
-            <div className="dropdown-panel user-panel animate-fade-in">
-              <div className="user-menu-header">
-                <div className="user-avatar-large">AD</div>
-                <div>
-                  <div className="user-full-name">Alex Dev</div>
-                  <div className="user-email">developer@apimarket.io</div>
+                  <div className="panel-body">
+                    {notifications.map((n) => (
+                      <div key={n.id} className={`notif-item ${!n.read ? 'unread' : ''}`}>
+                        <div className="notif-title-row">
+                          <span className="notif-item-title">{n.title}</span>
+                          <span className="notif-time">{n.time}</span>
+                        </div>
+                        <p className="notif-msg">{n.message}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="user-menu-divider" />
-              <button className="user-menu-item" onClick={() => setShowUserMenu(false)}>
-                <User size={16} />
-                <span>My Profile</span>
-              </button>
-              <button className="user-menu-item" onClick={() => setShowUserMenu(false)}>
-                <Key size={16} />
-                <span>API Keys & Credentials</span>
-              </button>
-              <button className="user-menu-item" onClick={() => setShowUserMenu(false)}>
-                <Sliders size={16} />
-                <span>Organization Settings</span>
-              </button>
-              <button className="user-menu-item" onClick={() => setShowUserMenu(false)}>
-                <Shield size={16} />
-                <span>Audit Logs</span>
-              </button>
-              <div className="user-menu-divider" />
-              <button className="user-menu-item logout" onClick={() => setShowUserMenu(false)}>
-                <LogOut size={16} />
-                <span>Sign Out</span>
-              </button>
+              )}
             </div>
-          )}
-        </div>
+
+            {/* User Profile Dropdown */}
+            <div className="popover-wrapper" ref={userRef}>
+              <button className="user-profile-btn" onClick={() => setShowUserMenu(!showUserMenu)}>
+                <div className="user-avatar">{initials}</div>
+              </button>
+
+              {showUserMenu && (
+                <div className="dropdown-panel user-panel animate-fade-in">
+                  <div className="user-menu-header">
+                    <div className="user-avatar-large">{initials}</div>
+                    <div>
+                      <div className="user-full-name">{user?.name || 'Alex Dev'}</div>
+                      <div className="user-email">{user?.email || 'developer@apimarket.io'}</div>
+                    </div>
+                  </div>
+                  <div className="user-menu-divider" />
+                  <button className="user-menu-item" onClick={() => setShowUserMenu(false)}>
+                    <User size={16} />
+                    <span>My Profile</span>
+                  </button>
+                  <button className="user-menu-item" onClick={() => setShowUserMenu(false)}>
+                    <Key size={16} />
+                    <span>API Keys & Credentials</span>
+                  </button>
+                  <button className="user-menu-item" onClick={() => setShowUserMenu(false)}>
+                    <Sliders size={16} />
+                    <span>Organization Settings</span>
+                  </button>
+                  <button
+                    className="user-menu-item"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      setShowLoginHistory(true);
+                    }}
+                  >
+                    <Shield size={16} />
+                    <span>Login History & Audit</span>
+                  </button>
+                  <div className="user-menu-divider" />
+                  <button
+                    className="user-menu-item logout"
+                    onClick={async () => {
+                      setShowUserMenu(false);
+                      await logout();
+                    }}
+                  >
+                    <LogOut size={16} />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
+
+      {showLoginHistory && <LoginHistoryModal onClose={() => setShowLoginHistory(false)} />}
       <style>{`
   /* =========================================================
      TOPBAR
@@ -378,6 +441,126 @@ export const Topbar: React.FC<TopbarProps> = ({
     flex: 0 0 auto;
 
     min-width: 210px;
+  }
+
+  /* =========================================================
+     AUTH BUTTONS (UNAUTHENTICATED)
+     ========================================================= */
+
+  .topbar-auth-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .topbar-auth-btn {
+    position: relative;
+    border-radius: 9999px;
+    padding: 1.5px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s ease, box-shadow 0.25s ease;
+  }
+
+  .topbar-auth-btn:hover {
+    transform: translateY(-1px);
+  }
+
+  .topbar-auth-btn:active {
+    transform: translateY(0);
+  }
+
+  /* Clearly visible, smooth, theme-matched rotating border accent */
+  .topbar-auth-btn .btn-border-accent {
+    position: absolute;
+    inset: -200%;
+    background: conic-gradient(
+      from 0deg at 50% 50%,
+      transparent 0deg,
+      rgba(99, 102, 241, 0.4) 45deg,
+      #8b5cf6 90deg,
+      #d946ef 140deg,
+      #a855f7 180deg,
+      rgba(99, 102, 241, 0.5) 220deg,
+      transparent 270deg,
+      transparent 360deg
+    );
+    animation: authBorderRotate 3.5s linear infinite;
+    border-radius: 9999px;
+    will-change: transform;
+  }
+
+  @keyframes authBorderRotate {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Inner pill covering the core */
+  .topbar-auth-btn .btn-content {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 18px;
+    border-radius: 9999px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    transition: all 0.2s ease;
+    z-index: 1;
+    white-space: nowrap;
+  }
+
+  /* Login Button: Dark sleek glass inside */
+  .login-btn {
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.22);
+  }
+
+  .login-btn .btn-content {
+    background: #0f101b;
+    color: #e2e8f0;
+  }
+
+  .login-btn:hover {
+    box-shadow: 0 0 18px rgba(139, 92, 246, 0.45);
+  }
+
+  .login-btn:hover .btn-content {
+    background: #141525;
+    color: #ffffff;
+  }
+
+  /* Sign Up Button: Vibrant gradient accent fill */
+  .signup-btn {
+    box-shadow: 0 0 14px rgba(139, 92, 246, 0.35);
+  }
+
+  .signup-btn .btn-content {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #9333ea 100%);
+    color: #ffffff;
+  }
+
+  .signup-btn .btn-border-accent {
+    opacity: 1;
+    filter: brightness(1.2) saturate(1.15);
+  }
+
+  .signup-btn:hover {
+    box-shadow: 0 0 24px rgba(217, 70, 239, 0.55);
+  }
+
+  .signup-btn:hover .btn-content {
+    background: linear-gradient(135deg, #5b52f5 0%, #8b5cf6 50%, #a855f7 100%);
   }
 
 

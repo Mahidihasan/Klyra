@@ -22,6 +22,7 @@ import {
   GitBranch
 } from 'lucide-react';
 import { NavigationTab } from '../types/api';
+import { useAuth } from '../context/AuthContext';
 
 interface SidebarProps {
   activeTab: NavigationTab;
@@ -38,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   onCloseMobile
 }) => {
+  const { logout } = useAuth();
 
   const discoverNav = [
     { id: 'home', label: 'Home', icon: Home },
@@ -64,9 +66,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'logout', label: 'Logout', icon: LogOut },
   ];
 
-  const handleNavClick = (tabId: string) => {
+  const handleNavClick = async (tabId: string) => {
     if (tabId === 'logout') {
-      alert('Logging out of Klyra API lifecycle platform.');
+      onCloseMobile();
+      await logout();
       return;
     }
     setActiveTab(tabId as NavigationTab);
