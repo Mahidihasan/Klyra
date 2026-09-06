@@ -21,6 +21,8 @@ import { BillingState } from './shared';
 
 interface OverviewTabProps {
   refreshToken: number;
+  /** Bumped on the live-refresh interval; triggers a silent background reload. */
+  liveRefreshKey?: number;
   onLoadingChange: (isLoading: boolean) => void;
   onViewInvoices: () => void;
   onViewPayments: () => void;
@@ -62,6 +64,7 @@ function addressLine(info: BillingInformation): string | null {
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   refreshToken,
+  liveRefreshKey,
   onLoadingChange,
   onViewInvoices,
   onViewPayments,
@@ -73,24 +76,40 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
 
-  const loadOverview = useCallback(async () => {
-    setIsLoading(true);
-    onLoadingChange(true);
-    setError(null);
-    try {
-      setOverview(await billingApi.fetchOverview());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load the dashboard.');
-      setOverview(null);
-    } finally {
-      setIsLoading(false);
-      onLoadingChange(false);
-    }
-  }, [onLoadingChange]);
+  const loadOverview = useCallback(
+    async (mode: 'initial' | 'silent' = 'initial') => {
+      // Silent (live) refreshes keep the current view on screen instead of
+      // flashing the skeleton; only the initial load / manual refresh shows it.
+      if (mode !== 'silent') {
+        setIsLoading(true);
+        onLoadingChange(true);
+      }
+      setError(null);
+      try {
+        setOverview(await billingApi.fetchOverview());
+      } catch (err) {
+        // A background refresh failing shouldn't wipe out the last good data.
+        if (mode === 'silent') return;
+        setError(err instanceof Error ? err.message : 'Could not load the dashboard.');
+        setOverview(null);
+      } finally {
+        if (mode !== 'silent') {
+          setIsLoading(false);
+          onLoadingChange(false);
+        }
+      }
+    },
+    [onLoadingChange],
+  );
 
   useEffect(() => {
     loadOverview();
   }, [loadOverview, refreshToken]);
+
+  // Live poll: re-sync silently whenever the interval bumps the key.
+  useEffect(() => {
+    if (liveRefreshKey) loadOverview('silent');
+  }, [liveRefreshKey, loadOverview]);
 
   if (isLoading) {
     return (

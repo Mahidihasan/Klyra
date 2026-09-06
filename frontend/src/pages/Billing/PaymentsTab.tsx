@@ -26,11 +26,14 @@ const EMPTY_BODY: Record<PaymentFilter, string> = {
 
 interface PaymentsTabProps {
   refreshToken: number;
+  /** Bumped on the live-refresh interval; triggers a silent background reload. */
+  liveRefreshKey?: number;
   onLoadingChange: (isLoading: boolean) => void;
 }
 
 export const PaymentsTab: React.FC<PaymentsTabProps> = ({
   refreshToken,
+  liveRefreshKey,
   onLoadingChange,
 }) => {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -40,31 +43,47 @@ export const PaymentsTab: React.FC<PaymentsTabProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadPayments = useCallback(async () => {
-    setIsLoading(true);
-    onLoadingChange(true);
-    setError(null);
-    try {
-      const result = await billingApi.fetchPayments({
-        page,
-        limit: PAGE_SIZE,
-        status: filter === 'all' ? undefined : filter,
-      });
-      setPayments(result.payments);
-      setMeta(result.meta);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load payments.');
-      setPayments([]);
-      setMeta(null);
-    } finally {
-      setIsLoading(false);
-      onLoadingChange(false);
-    }
-  }, [page, filter, onLoadingChange]);
+  const loadPayments = useCallback(
+    async (mode: 'initial' | 'silent' = 'initial') => {
+      // Silent (live) refreshes keep the current table on screen instead of
+      // flashing the skeleton; only the initial load / manual refresh shows it.
+      if (mode !== 'silent') {
+        setIsLoading(true);
+        onLoadingChange(true);
+      }
+      setError(null);
+      try {
+        const result = await billingApi.fetchPayments({
+          page,
+          limit: PAGE_SIZE,
+          status: filter === 'all' ? undefined : filter,
+        });
+        setPayments(result.payments);
+        setMeta(result.meta);
+      } catch (err) {
+        // A background refresh failing shouldn't wipe out the last good data.
+        if (mode === 'silent') return;
+        setError(err instanceof Error ? err.message : 'Could not load payments.');
+        setPayments([]);
+        setMeta(null);
+      } finally {
+        if (mode !== 'silent') {
+          setIsLoading(false);
+          onLoadingChange(false);
+        }
+      }
+    },
+    [page, filter, onLoadingChange],
+  );
 
   useEffect(() => {
     loadPayments();
   }, [loadPayments, refreshToken]);
+
+  // Live poll: re-sync silently whenever the interval bumps the key.
+  useEffect(() => {
+    if (liveRefreshKey) loadPayments('silent');
+  }, [liveRefreshKey, loadPayments]);
 
   const handleFilterChange = (next: PaymentFilter) => {
     setFilter(next);

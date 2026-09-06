@@ -19,11 +19,14 @@ const FILTERS: { id: InvoiceFilter; label: string }[] = [
 interface InvoicesTabProps {
   /** Bumped by the page-level Refresh button to force a reload. */
   refreshToken: number;
+  /** Bumped on the live-refresh interval; triggers a silent background reload. */
+  liveRefreshKey?: number;
   onLoadingChange: (isLoading: boolean) => void;
 }
 
 export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   refreshToken,
+  liveRefreshKey,
   onLoadingChange,
 }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -34,31 +37,47 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
 
-  const loadInvoices = useCallback(async () => {
-    setIsLoading(true);
-    onLoadingChange(true);
-    setError(null);
-    try {
-      const result = await billingApi.fetchInvoices({
-        page,
-        limit: PAGE_SIZE,
-        status: filter === 'all' ? undefined : filter,
-      });
-      setInvoices(result.invoices);
-      setMeta(result.meta);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load invoices.');
-      setInvoices([]);
-      setMeta(null);
-    } finally {
-      setIsLoading(false);
-      onLoadingChange(false);
-    }
-  }, [page, filter, onLoadingChange]);
+  const loadInvoices = useCallback(
+    async (mode: 'initial' | 'silent' = 'initial') => {
+      // Silent (live) refreshes keep the current table on screen instead of
+      // flashing the skeleton; only the initial load / manual refresh shows it.
+      if (mode !== 'silent') {
+        setIsLoading(true);
+        onLoadingChange(true);
+      }
+      setError(null);
+      try {
+        const result = await billingApi.fetchInvoices({
+          page,
+          limit: PAGE_SIZE,
+          status: filter === 'all' ? undefined : filter,
+        });
+        setInvoices(result.invoices);
+        setMeta(result.meta);
+      } catch (err) {
+        // A background refresh failing shouldn't wipe out the last good data.
+        if (mode === 'silent') return;
+        setError(err instanceof Error ? err.message : 'Could not load invoices.');
+        setInvoices([]);
+        setMeta(null);
+      } finally {
+        if (mode !== 'silent') {
+          setIsLoading(false);
+          onLoadingChange(false);
+        }
+      }
+    },
+    [page, filter, onLoadingChange],
+  );
 
   useEffect(() => {
     loadInvoices();
   }, [loadInvoices, refreshToken]);
+
+  // Live poll: re-sync silently whenever the interval bumps the key.
+  useEffect(() => {
+    if (liveRefreshKey) loadInvoices('silent');
+  }, [liveRefreshKey, loadInvoices]);
 
   const handleFilterChange = (next: InvoiceFilter) => {
     setFilter(next);

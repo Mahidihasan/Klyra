@@ -25,6 +25,7 @@ import {
   removePaymentMethod,
   syncCustomerBillingDetails,
 } from './stripe.service';
+import { subscribeBillingEvents } from './realtime.service';
 
 const router = Router();
 
@@ -409,6 +410,25 @@ router.put('/information', async (req: RequestWithUser, res: Response) => {
       error: { code: 'INTERNAL_ERROR', message: 'Failed to save billing information' },
     });
   }
+});
+
+// ============ Realtime events (Server-Sent Events) ============
+// GET /api/billing/events
+//
+// Streams `data:` frames whenever the user's billing data changes in the
+// database. The client applies the change by re-fetching the relevant tab.
+router.get('/events', (req: RequestWithUser, res: Response) => {
+  const userId = getUserIdFromRequest(req);
+  if (!userId) {
+    res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Not authenticated' },
+    });
+    return;
+  }
+
+  // Keep the HTTP layer from buffering/time-ing out the long-lived stream.
+  subscribeBillingEvents(userId, res);
 });
 
 // ============ Get Single Invoice ============

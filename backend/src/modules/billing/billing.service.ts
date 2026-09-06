@@ -1,5 +1,7 @@
 import { pool } from '../../services/database.service';
 
+import { publishBillingChange } from './realtime.service';
+
 import {
   BillingInformation,
   BillingInformationInput,
@@ -593,6 +595,11 @@ export async function saveBillingInformation(
     (error as Error & { code?: string }).code = 'NOT_FOUND';
     throw error;
   }
+
+  // Billing info lives in users.metadata, which has no DB trigger, so push the
+  // change here so any open Billing pages refresh straight away. This runs on
+  // the committed write, so the NOTIFY reflects the newly saved values.
+  void publishBillingChange(userId, 'users', 'UPDATE');
 
   return result.rows[0].billing_information as BillingInformation;
 }

@@ -10,6 +10,9 @@ import { CodePage } from './CodePage';
 import { BranchesTab, CommitsTab } from './GitTabs';
 import { PullsTab, IssuesTab, CollaboratorsTab } from './CollabTabs';
 import { ApiTab, DocsTab, TestsTab, DeploymentsTab, ReleasesTab, MarketplaceTab, SettingsTab } from './OpsTabs';
+import { ProjectsTab } from './ProjectsTab';
+import { InsightsTab } from './InsightsTab';
+
 interface Props {
   repoId: string;
   onBack: () => void;
@@ -84,12 +87,12 @@ export const RepoDetail: React.FC<Props> = ({ repoId, onBack }) => {
         {tab === 'pulls' && <PullsTab repo={repo} canWrite={canWrite} canMerge={isOwner || repo.role === 'maintainer'} />}
         {tab === 'issues' && <IssuesTab repo={repo} canWrite={canWrite} />}
         {tab === 'collaborators' && <CollaboratorsTab repo={repo} canManage={isOwner || repo.role === 'maintainer'} onChanged={load} />}
-        {tab === 'commits' && <CommitsTab repo={repo} />}
+        {tab === 'commits' && <InsightsTab repo={repo} />}
         {tab === 'releases' && <ReleasesTab repo={repo} isOwner={isOwner} canWrite={canWrite} />}
         {tab === 'api' && <ApiTab repo={repo} />}
         {tab === 'docs' && <DocsTab repo={repo} />}
         {tab === 'tests' && <TestsTab repo={repo} canWrite={canWrite} />}
-        {tab === 'deployments' && <DeploymentsTab repo={repo} isOwner={isOwner} />}
+        {tab === 'deployments' && <ProjectsTab repo={repo} isOwner={isOwner} />}
         {tab === 'marketplace' && <MarketplaceTab repo={repo} isOwner={isOwner} canWrite={canWrite} />}
         {tab === 'settings' && <SettingsTab repo={repo} isOwner={isOwner} onChanged={load} onBack={onBack} />}
       </div>

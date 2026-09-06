@@ -11,6 +11,7 @@ dotenv.config();
 
 // eslint-disable-next-line import/first
 import app from './app';
+import { connectListener } from './modules/billing/realtime.service';
 
 const PORT = process.env.PORT || 4000;
 
@@ -18,6 +19,10 @@ const server = app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Backend server running on http://localhost:${PORT}`);
 });
+
+// Open the Postgres LISTEN/NOTIFY connection for billing realtime. It retries
+// in the background if it can't connect, so this is fire-and-forget.
+void connectListener();
 
 process.on('SIGTERM', () => {
   // eslint-disable-next-line no-console

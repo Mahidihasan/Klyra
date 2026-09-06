@@ -33,11 +33,14 @@ function isExpired(month: number, year: number): boolean {
 
 interface PaymentMethodsTabProps {
   refreshToken: number;
+  /** Bumped on the live-refresh interval; triggers a silent background reload. */
+  liveRefreshKey?: number;
   onLoadingChange: (isLoading: boolean) => void;
 }
 
 export const PaymentMethodsTab: React.FC<PaymentMethodsTabProps> = ({
   refreshToken,
+  liveRefreshKey,
   onLoadingChange,
 }) => {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
@@ -47,32 +50,47 @@ export const PaymentMethodsTab: React.FC<PaymentMethodsTabProps> = ({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [isStartingSetup, setIsStartingSetup] = useState(false);
 
-  const loadMethods = useCallback(async () => {
-    setIsLoading(true);
-    onLoadingChange(true);
-    setError(null);
-    try {
-      const result = await billingApi.fetchPaymentMethods();
-      setMethods(result.paymentMethods);
-      setStripeMissing(false);
-    } catch (err) {
-      // Stripe not being configured isn't a failure — it's a known gap, so the
-      // screen explains it instead of showing an error.
-      if (err instanceof BillingApiError && err.code === 'STRIPE_NOT_CONFIGURED') {
-        setStripeMissing(true);
-      } else {
-        setError(err instanceof Error ? err.message : 'Could not load payment methods.');
+  const loadMethods = useCallback(
+    async (mode: 'initial' | 'silent' = 'initial') => {
+      // Silent (live) refreshes keep the current list on screen instead of
+      // flashing the skeleton; only the initial load / manual refresh shows it.
+      if (mode !== 'silent') {
+        setIsLoading(true);
+        onLoadingChange(true);
       }
-      setMethods([]);
-    } finally {
-      setIsLoading(false);
-      onLoadingChange(false);
-    }
-  }, [onLoadingChange]);
+      setError(null);
+      try {
+        const result = await billingApi.fetchPaymentMethods();
+        setMethods(result.paymentMethods);
+        setStripeMissing(false);
+      } catch (err) {
+        // Stripe not being configured isn't a failure — it's a known gap, so the
+        // screen explains it instead of showing an error.
+        if (err instanceof BillingApiError && err.code === 'STRIPE_NOT_CONFIGURED') {
+          setStripeMissing(true);
+        } else if (mode !== 'silent') {
+          // A background refresh failing shouldn't wipe out the last good data.
+          setError(err instanceof Error ? err.message : 'Could not load payment methods.');
+        }
+        setMethods([]);
+      } finally {
+        if (mode !== 'silent') {
+          setIsLoading(false);
+          onLoadingChange(false);
+        }
+      }
+    },
+    [onLoadingChange],
+  );
 
   useEffect(() => {
     loadMethods();
   }, [loadMethods, refreshToken]);
+
+  // Live poll: re-sync silently whenever the interval bumps the key.
+  useEffect(() => {
+    if (liveRefreshKey) loadMethods('silent');
+  }, [liveRefreshKey, loadMethods]);
 
   const handleAddCard = async () => {
     setIsStartingSetup(true);

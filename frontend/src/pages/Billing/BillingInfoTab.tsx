@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { billingApi, BillingApiError } from '../../services/api/billing';
 import { BillingInformation, BillingInformationField } from '../../types/billing';
@@ -84,11 +84,14 @@ function formatUpdatedAt(value: string | null): string | null {
 
 interface BillingInfoTabProps {
   refreshToken: number;
+  /** Bumped on the live-refresh interval; triggers a silent background reload. */
+  liveRefreshKey?: number;
   onLoadingChange: (isLoading: boolean) => void;
 }
 
 export const BillingInfoTab: React.FC<BillingInfoTabProps> = ({
   refreshToken,
+  liveRefreshKey,
   onLoadingChange,
 }) => {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -103,31 +106,53 @@ export const BillingInfoTab: React.FC<BillingInfoTabProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
-  const loadInformation = useCallback(async () => {
-    setIsLoading(true);
-    onLoadingChange(true);
-    setLoadError(null);
-    try {
-      const { information } = await billingApi.fetchBillingInformation();
-      const next = toForm(information);
-      setForm(next);
-      setSavedForm(next);
-      setUpdatedAt(information.updatedAt);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Could not load billing information.');
-    } finally {
-      setIsLoading(false);
-      onLoadingChange(false);
-    }
-  }, [onLoadingChange]);
+  const loadInformation = useCallback(
+    async (mode: 'initial' | 'silent' = 'initial') => {
+      // Never overwrite a form the user is actively editing mid-way through.
+      if (mode === 'silent' && dirtyRef.current) return;
+
+      // Silent (live) refreshes keep the current form on screen instead of
+      // flashing the skeleton; only the initial load / manual refresh shows it.
+      if (mode !== 'silent') {
+        setIsLoading(true);
+        onLoadingChange(true);
+      }
+      setLoadError(null);
+      try {
+        const { information } = await billingApi.fetchBillingInformation();
+        const next = toForm(information);
+        setForm(next);
+        setSavedForm(next);
+        setUpdatedAt(information.updatedAt);
+      } catch (err) {
+        // A background refresh failing shouldn't wipe out the last good data.
+        if (mode === 'silent') return;
+        setLoadError(err instanceof Error ? err.message : 'Could not load billing information.');
+      } finally {
+        if (mode !== 'silent') {
+          setIsLoading(false);
+          onLoadingChange(false);
+        }
+      }
+    },
+    [onLoadingChange],
+  );
 
   useEffect(() => {
     loadInformation();
   }, [loadInformation, refreshToken]);
 
+  // Live poll: re-sync silently whenever the interval bumps the key.
+  useEffect(() => {
+    if (liveRefreshKey) loadInformation('silent');
+  }, [liveRefreshKey, loadInformation]);
+
   const isDirty = (Object.keys(form) as BillingInformationField[]).some(
     (key) => form[key] !== savedForm[key],
   );
+  // Mirrors the current dirty state for the (read-only) ref used above.
+  const dirtyRef = useRef(isDirty);
+  dirtyRef.current = isDirty;
 
   const update = (field: BillingInformationField, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));

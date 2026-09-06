@@ -7,6 +7,7 @@ import { InvoicesTab } from './InvoicesTab';
 import { PaymentsTab } from './PaymentsTab';
 import { PaymentMethodsTab } from './PaymentMethodsTab';
 import { BillingInfoTab } from './BillingInfoTab';
+import { useLiveRefresh } from './useLiveRefresh';
 
 interface BillingPageProps {
   /** Which billing screen the sidebar has selected. */
@@ -51,13 +52,21 @@ export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate 
   const [refreshToken, setRefreshToken] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
+  const devUserId = getDevUserId();
+  // True on data-driven screens with a user — that's where live updates apply.
+  const liveEnabled = Boolean(devUserId) && REFRESHABLE.includes(activeTab);
+  // Push-driven: SSE bumps the key when this user's billing data changes.
+  const { refreshKey: liveRefreshKey, status: liveStatus } = useLiveRefresh(
+    liveEnabled,
+    devUserId,
+  );
+
   // Each screen reports its own loading state so Refresh can disable.
   const handleLoadingChange = useCallback((next: boolean) => {
     setIsLoading(next);
   }, []);
 
   const copy = TITLES[activeTab] ?? TITLES.billing;
-  const devUserId = getDevUserId();
 
   const header = (
     <div className="billing-header">
@@ -65,15 +74,37 @@ export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate 
         <h1 className="billing-title">{copy.title}</h1>
         <p className="billing-subtitle">{copy.subtitle}</p>
       </div>
-      {REFRESHABLE.includes(activeTab) && devUserId && (
-        <button
-          className="billing-refresh-btn"
-          onClick={() => setRefreshToken((prev) => prev + 1)}
-          disabled={isLoading}
-        >
-          <RefreshCw size={14} className={isLoading ? 'spinning' : ''} />
-          <span>Refresh</span>
-        </button>
+      {liveEnabled && (
+        <div className="billing-header-actions">
+          <div
+            className="billing-live-indicator"
+            data-status={liveStatus}
+            title={
+              liveStatus === 'connected'
+                ? 'Live — updates as your billing data changes'
+                : liveStatus === 'reconnecting'
+                  ? 'Reconnecting to live updates…'
+                  : 'Connecting to live updates…'
+            }
+          >
+            <span className="billing-live-dot" />
+            <span>
+              {liveStatus === 'reconnecting'
+                ? 'Reconnecting'
+                : liveStatus === 'connecting'
+                  ? 'Connecting'
+                  : 'Live'}
+            </span>
+          </div>
+          <button
+            className="billing-refresh-btn"
+            onClick={() => setRefreshToken((prev) => prev + 1)}
+            disabled={isLoading}
+          >
+            <RefreshCw size={14} className={isLoading ? 'spinning' : ''} />
+            <span>Refresh</span>
+          </button>
+        </div>
       )}
     </div>
   );
@@ -105,22 +136,33 @@ export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate 
       {header}
 
       {activeTab === 'billing-invoices' ? (
-        <InvoicesTab refreshToken={refreshToken} onLoadingChange={handleLoadingChange} />
+        <InvoicesTab
+          refreshToken={refreshToken}
+          liveRefreshKey={liveRefreshKey}
+          onLoadingChange={handleLoadingChange}
+        />
       ) : activeTab === 'billing-payments' ? (
-        <PaymentsTab refreshToken={refreshToken} onLoadingChange={handleLoadingChange} />
+        <PaymentsTab
+          refreshToken={refreshToken}
+          liveRefreshKey={liveRefreshKey}
+          onLoadingChange={handleLoadingChange}
+        />
       ) : activeTab === 'billing-methods' ? (
         <PaymentMethodsTab
           refreshToken={refreshToken}
+          liveRefreshKey={liveRefreshKey}
           onLoadingChange={handleLoadingChange}
         />
       ) : activeTab === 'billing-info' ? (
         <BillingInfoTab
           refreshToken={refreshToken}
+          liveRefreshKey={liveRefreshKey}
           onLoadingChange={handleLoadingChange}
         />
       ) : (
         <OverviewTab
           refreshToken={refreshToken}
+          liveRefreshKey={liveRefreshKey}
           onLoadingChange={handleLoadingChange}
           onViewInvoices={() => onNavigate('billing-invoices')}
           onViewPayments={() => onNavigate('billing-payments')}
@@ -148,6 +190,58 @@ const BillingStyles: React.FC = () => (
       justify-content: space-between;
       gap: 16px;
       flex-wrap: wrap;
+    }
+
+    .billing-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .billing-live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 34px;
+      padding: 0 12px;
+      border-radius: var(--radius-md);
+      background-color: rgba(34, 197, 94, 0.08);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      color: var(--status-active);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .billing-live-indicator[data-status='connecting'],
+    .billing-live-indicator[data-status='reconnecting'] {
+      background-color: rgba(234, 179, 8, 0.08);
+      border-color: rgba(234, 179, 8, 0.3);
+      color: var(--status-warning, #eab308);
+    }
+
+    .billing-live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: currentColor;
+    }
+
+    .billing-live-indicator[data-status='connected'] .billing-live-dot {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+      animation: billing-live-pulse 2s infinite;
+    }
+
+    @keyframes billing-live-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+      70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .billing-live-indicator[data-status='connected'] .billing-live-dot {
+        animation: none;
+      }
     }
 
     .billing-title {
