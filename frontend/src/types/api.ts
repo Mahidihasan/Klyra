@@ -64,8 +64,7 @@ export type NavigationTab =
   | 'billing'
   | 'settings'
   | 'api-build'
-  | 'api-builder'
-  | 'repositories';
+  | 'api-builder';
 
 export type ApiProjectCreationMethod = 'import' | 'blank' | 'template' | 'ai';
 

@@ -12,7 +12,7 @@ import { TabViews } from './components/TabViews';
 import { PlaygroundPage } from './pages/Playground/index';
 import { ApiBuildEntry } from './components/ApiBuildEntry';
 import { ApiBuilder } from './pages/ApiBuilder/index';
-import { RepositoriesPage } from './pages/Repositories/index';
+import { BillingPage } from './pages/Billing/index';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -248,8 +248,6 @@ function AppContent() {
             setActiveTab('api-builder');
           }}
         />
-      ) : activeTab === 'repositories' ? (
-        <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
       ) : (
         <>
           {/* Top Header Bar - Full Width */}
@@ -455,6 +453,10 @@ function AppContent() {
                       </div>
                     </section>
                   </div>
+                </main>
+              ) : activeTab === 'billing' ? (
+                <main className="content-page-wrapper">
+                  <BillingPage />
                 </main>
               ) : (
                 <main className="content-page-wrapper">
