@@ -578,7 +578,7 @@ export const DocsTab: React.FC<{ repo: RepoDetail }> = ({ repo }) => {
 };
 
 // ============================ ACTIONS / WORKFLOWS (TESTS TAB) ============================
-export const TestsTab: React.FC<{ repo: RepoDetail; canWrite: boolean }> = ({ repo, canWrite }) => {
+export const TestsTab: React.FC<{ repo: RepoDetail; canWrite: boolean; refreshKey?: number }> = ({ repo, canWrite, refreshKey = 0 }) => {
   const [runs, setRuns] = React.useState<CiRun[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
@@ -595,6 +595,23 @@ export const TestsTab: React.FC<{ repo: RepoDetail; canWrite: boolean }> = ({ re
   }, [repo.id]);
 
   React.useEffect(() => { load(); }, [load]);
+
+  // Realtime refresh: when a repo event lands (e.g. a CI run finished), reload
+  // the run list. Skip the initial 0 so it doesn't double-load on mount.
+  React.useEffect(() => {
+    if (refreshKey > 0) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
+
+  // Live polling: while any run is still running, re-check until it settles so
+  // the Actions screen updates without needing SSE or a manual refresh.
+  React.useEffect(() => {
+    const hasRunning = runs.some(r => r.status === 'running' || r.status === 'queued' || r.status === 'pending');
+    if (!hasRunning) return;
+    const timer = window.setTimeout(load, 3000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runs]);
 
   const triggerRun = async (type: 'build' | 'test') => {
     setBusy(type); setError('');
@@ -727,7 +744,7 @@ export const TestsTab: React.FC<{ repo: RepoDetail; canWrite: boolean }> = ({ re
 };
 
 // ============================ PROJECTS & DEPLOYMENTS ============================
-export const DeploymentsTab: React.FC<{ repo: RepoDetail; isOwner: boolean }> = ({ repo, isOwner }) => {
+export const DeploymentsTab: React.FC<{ repo: RepoDetail; isOwner: boolean; refreshKey?: number }> = ({ repo, isOwner, refreshKey = 0 }) => {
   const [deps, setDeps] = React.useState<Deployment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
@@ -743,6 +760,12 @@ export const DeploymentsTab: React.FC<{ repo: RepoDetail; isOwner: boolean }> = 
   }, [repo.id]);
 
   React.useEffect(() => { load(); }, [load]);
+
+  // Realtime refresh: reload the deployment history when a repo event lands.
+  React.useEffect(() => {
+    if (refreshKey > 0) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   const deploy = async () => {
     setBusy(true); setError('');

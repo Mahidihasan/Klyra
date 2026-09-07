@@ -5,11 +5,24 @@ import { pool } from '../../services/database.service';
 import { logActivity, handleError, loadRepoFor, getRepo } from './repos.routes.core';
 import { detectRepo, DetectionResult } from './detect.service';
 import { runCi, latestRuns } from './ci.service';
+import { subscribeRepoEvents } from './realtime.service';
 
 const router = Router();
 
 // In-flight detection guard shared by the module
 const detecting = new Set<string>();
+
+// ============================ REALTIME (SSE) ============================
+// Opens a Server-Sent Events stream for one repository. Any table change routed
+// to this repo (CI finishes, deployments, activity, repo metadata) is pushed to
+// this stream by the repo realtime hub. Read access is enforced on subscribe.
+router.get('/repos/:id/events', requireAuth, (req, res) => {
+  void (async () => {
+    const ctx = await loadRepoFor(req, res, 'read');
+    if (!ctx) return;
+    subscribeRepoEvents(ctx.repo.id, res);
+  })();
+});
 
 // ============================ API DETECTION ============================
 // Re-scans the default branch: framework, endpoints, OpenAPI, env vars,

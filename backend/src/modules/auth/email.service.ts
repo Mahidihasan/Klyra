@@ -191,3 +191,180 @@ export class EmailService {
     demoEmails = [];
   }
 }
+
+// ============================================================================
+// Production email provider (Brevo Transactional Email API) + OTP emails
+// ============================================================================
+
+import { getEmailProvider, getBrevoApiKey, getFromAddress } from './email.config';
+
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
+const BREVO_TIMEOUT_MS = 10_000;
+
+/**
+ * Raised when the configured email provider fails. Message is safe to return
+ * to clients and never contains provider internals or secrets.
+ */
+export class EmailDeliveryError extends Error {
+  constructor(message = 'We could not send the verification email right now. Please try again shortly.') {
+    super(message);
+    this.name = 'EmailDeliveryError';
+  }
+}
+
+interface BrevoSendPayload {
+  to: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+}
+
+/**
+ * Send a transactional email through the Brevo API (official REST endpoint).
+ * Throws EmailDeliveryError on any failure; provider details stay in logs only.
+ */
+export async function sendViaBrevo(payload: BrevoSendPayload): Promise<void> {
+  let from: ReturnType<typeof getFromAddress>;
+  let apiKey: string;
+  try {
+    from = getFromAddress();
+    apiKey = getBrevoApiKey();
+  } catch (err: any) {
+    // eslint-disable-next-line no-console
+    console.error(`[email] Brevo configuration error: ${err.message}`);
+    throw new EmailDeliveryError();
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BREVO_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(BREVO_API_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'api-key': apiKey,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: from.name, email: from.email },
+        to: [{ email: payload.to }],
+        subject: payload.subject,
+        htmlContent: payload.htmlContent,
+        textContent: payload.textContent,
+      }),
+    });
+
+    if (!res.ok) {
+      // Log a short, secret-free summary for diagnostics.
+      // eslint-disable-next-line no-console
+      console.error(`[email] Brevo API error: status=${res.status}`);
+      throw new EmailDeliveryError();
+    }
+  } catch (err) {
+    if (err instanceof EmailDeliveryError) throw err;
+    // eslint-disable-next-line no-console
+    console.error('[email] Brevo request failed (network/timeout).');
+    throw new EmailDeliveryError();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export type OtpEmailKind = 'EMAIL_VERIFICATION' | 'PASSWORD_RESET';
+
+/** Build subject + HTML + plain-text body for OTP transactional emails. */
+export function buildOtpEmail(kind: OtpEmailKind, otp: string): { subject: string; html: string; text: string } {
+  const isVerification = kind === 'EMAIL_VERIFICATION';
+  const subject = isVerification ? 'Verify your Klyra account' : 'Reset your Klyra password';
+  const intro = isVerification ? 'Welcome to Klyra!' : 'We received a request to reset your Klyra password.';
+
+  const text = [
+    'Hi,',
+    '',
+    intro,
+    '',
+    'Your verification code is:',
+    otp,
+    '',
+    'This code expires in 10 minutes.',
+    '',
+    isVerification
+      ? 'If you did not create a Klyra account, you can safely ignore this email.'
+      : 'If you did not request a password reset, you can safely ignore this email.',
+    '',
+    '— Klyra Team',
+  ].join('\n');
+
+  const ignoreNote = isVerification
+    ? 'If you did not create a Klyra account, you can safely ignore this email.'
+    : 'If you did not request a password reset, you can safely ignore this email.';
+
+  const html = `<!DOCTYPE html>
+<html><body style="margin:0;padding:24px;background:#0b0c12;font-family:'Inter',system-ui,sans-serif;">
+  <div style="max-width:520px;margin:0 auto;background:#141524;color:#f8fafc;border-radius:12px;border:1px solid #202237;padding:32px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px;">
+      <div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#d946ef 100%);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#fff;">K</div>
+      <span style="font-size:18px;font-weight:700;letter-spacing:-0.02em;color:#ffffff;">KLYRA</span>
+    </div>
+    <p style="font-size:14px;line-height:1.6;color:#94a3b8;margin:0 0 20px;">Hi,</p>
+    <p style="font-size:14px;line-height:1.6;color:#94a3b8;margin:0 0 20px;">${intro}</p>
+    <p style="font-size:14px;color:#94a3b8;margin:0 0 8px;">Your verification code is:</p>
+    <div style="text-align:center;margin:20px 0;">
+      <span style="display:inline-block;font-size:30px;font-weight:800;letter-spacing:10px;color:#ffffff;background:#0b0c12;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:14px 24px;">${otp}</span>
+    </div>
+    <p style="font-size:13px;color:#94a3b8;margin:0 0 24px;">This code expires in 10 minutes.</p>
+    <p style="font-size:12px;color:#64748b;line-height:1.5;margin:0 0 6px;">${ignoreNote}</p>
+    <p style="font-size:12px;color:#64748b;margin:16px 0 0;">— Klyra Team</p>
+  </div>
+</body></html>`;
+
+  return { subject, html, text };
+}
+
+function pushDemoOtpEmail(to: string, kind: OtpEmailKind, otp: string): void {
+  const isVerification = kind === 'EMAIL_VERIFICATION';
+  const built = buildOtpEmail(kind, otp);
+  demoEmails.unshift({
+    id: generateRandomToken(8),
+    to,
+    from: 'security@klyra.io',
+    subject: built.subject,
+    category: isVerification ? 'VERIFY_EMAIL' : 'RESET_PASSWORD',
+    previewText: `Your Klyra verification code is ${otp}. It expires in 10 minutes.`,
+    htmlContent: built.html,
+    code: otp,
+    createdAt: new Date().toISOString(),
+    read: false,
+  });
+  if (demoEmails.length > 50) demoEmails.pop();
+}
+
+export class OtpEmailService {
+  /**
+   * Send the account-verification OTP through the configured provider.
+   */
+  static async sendVerificationOTP(email: string, otp: string): Promise<void> {
+    if (getEmailProvider() === 'brevo') {
+      const built = buildOtpEmail('EMAIL_VERIFICATION', otp);
+      await sendViaBrevo({ to: email, subject: built.subject, htmlContent: built.html, textContent: built.text });
+      return;
+    }
+    // Local development fallback: existing demo inbox behavior.
+    pushDemoOtpEmail(email, 'EMAIL_VERIFICATION', otp);
+  }
+
+  /**
+   * Send the password-reset OTP through the configured provider.
+   */
+  static async sendPasswordResetOTP(email: string, otp: string): Promise<void> {
+    if (getEmailProvider() === 'brevo') {
+      const built = buildOtpEmail('PASSWORD_RESET', otp);
+      await sendViaBrevo({ to: email, subject: built.subject, htmlContent: built.html, textContent: built.text });
+      return;
+    }
+    pushDemoOtpEmail(email, 'PASSWORD_RESET', otp);
+  }
+}
+

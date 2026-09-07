@@ -18,12 +18,20 @@ const SECRET_KEY = process.env.STRIPE_SECRET_KEY?.trim();
 
 let client: Stripe | null = null;
 
+/**
+ * True only when a real-looking key is present. Placeholder values left in
+ * .env templates (e.g. "sk_test_your_stripe_secret_key") must NOT count as
+ * configured — they pass the length check but fail at the Stripe API with a
+ * confusing 500, when the caller wants a clean "not set up" response.
+ */
 export function isStripeConfigured(): boolean {
-  return Boolean(SECRET_KEY);
+  if (!SECRET_KEY) return false;
+  if (!SECRET_KEY.startsWith('sk_')) return false;
+  return !/your|placeholder|changeme|xxx/i.test(SECRET_KEY);
 }
 
 function getStripe(): Stripe {
-  if (!SECRET_KEY) {
+  if (!SECRET_KEY || !isStripeConfigured()) {
     throw new Error('STRIPE_SECRET_KEY is not configured');
   }
   if (!client) {

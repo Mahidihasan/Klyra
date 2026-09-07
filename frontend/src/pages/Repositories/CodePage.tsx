@@ -216,7 +216,6 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
                 ? branches.map(b => <option key={b.name} value={b.name}>{b.name}</option>)
                 : <option value={ref}>{ref}</option>}
             </select>
-            <ChevronDown size={12} />
           </label>
           <button type="button" className="gh-toolbar-link" onClick={() => onNavigate('branches')}>
             <GitBranch size={13} /> <b>{branches.length || repo.branches?.length || 0}</b> branches

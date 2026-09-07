@@ -10,12 +10,22 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 export const gitRemoteUrl = (repoId: string) => `${BASE}/api/git/${repoId}.git`;
 
 function headers(): Record<string, string> {
-  const token = localStorage.getItem('klyra_token') || '';
+  // Prefer the Repository-native token (kly_...); fall back to the main app's
+  // JWT session so one login authorizes everything (the backend bridges JWTs).
+  const token =
+    localStorage.getItem('klyra_token') ||
+    localStorage.getItem('klyra_access_token') ||
+    '';
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  if (import.meta.env.DEV) return developmentRequest<T>(path, options);
+  // Fixture layer is an explicit opt-in only (VITE_USE_MOCK_REPOS=true).
+  // By default — including normal `pnpm dev` — all calls go to the real backend
+  // so the Repository feature is exercised end-to-end.
+  if (import.meta.env.DEV && import.meta.env.VITE_USE_MOCK_REPOS === 'true') {
+    return developmentRequest<T>(path, options);
+  }
   const res = await fetch(`${BASE}/api${path}`, { headers: headers(), ...options });
   if (res.status === 204) return undefined as T;
   let data: any = null;

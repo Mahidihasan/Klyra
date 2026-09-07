@@ -242,6 +242,50 @@ export function ensureReposSchema(): Promise<void> {
                     payload JSONB DEFAULT '{}',
           created_at TIMESTAMPTZ DEFAULT NOW()
         );
+
+        -- Realtime triggers (see 2026_09_07_002_repo_realtime.sql). Defined here
+        -- too so SSE updates work out-of-the-box when the schema self-bootstraps.
+        CREATE OR REPLACE FUNCTION notify_repo_change()
+        RETURNS TRIGGER AS $$
+        DECLARE
+            v_repo_id  UUID;
+            v_payload  TEXT;
+        BEGIN
+            v_repo_id := COALESCE(NEW.repo_id, OLD.repo_id);
+            IF v_repo_id IS NULL THEN
+                RETURN COALESCE(NEW, OLD);
+            END IF;
+            v_payload := json_build_object(
+                'repoId',  v_repo_id::text,
+                'rowId',   COALESCE((NEW).id, (OLD).id)::text,
+                'table',   TG_TABLE_NAME,
+                'event',   TG_OP,
+                'at',      clock_timestamp()
+            )::text;
+            PERFORM pg_notify('repo_change', v_payload);
+            RETURN COALESCE(NEW, OLD);
+        END;
+        $$ LANGUAGE plpgsql;
+
+        DROP TRIGGER IF EXISTS trg_repo_change_ci_runs ON kr_ci_runs;
+        CREATE TRIGGER trg_repo_change_ci_runs
+            AFTER INSERT OR UPDATE OR DELETE ON kr_ci_runs
+            FOR EACH ROW EXECUTE FUNCTION notify_repo_change();
+
+        DROP TRIGGER IF EXISTS trg_repo_change_deployments ON kr_deployments;
+        CREATE TRIGGER trg_repo_change_deployments
+            AFTER INSERT OR UPDATE OR DELETE ON kr_deployments
+            FOR EACH ROW EXECUTE FUNCTION notify_repo_change();
+
+        DROP TRIGGER IF EXISTS trg_repo_change_activity ON kr_activity;
+        CREATE TRIGGER trg_repo_change_activity
+            AFTER INSERT OR UPDATE OR DELETE ON kr_activity
+            FOR EACH ROW EXECUTE FUNCTION notify_repo_change();
+
+        DROP TRIGGER IF EXISTS trg_repo_change_repositories ON kr_repositories;
+        CREATE TRIGGER trg_repo_change_repositories
+            AFTER INSERT OR UPDATE OR DELETE ON kr_repositories
+            FOR EACH ROW EXECUTE FUNCTION notify_repo_change();
       `);
     })();
   }

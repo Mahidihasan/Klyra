@@ -32,8 +32,28 @@ const loadPinned = (): string[] => {
 
 export const RepositoriesPage: React.FC<{ onBackToKlyra?: () => void }> = ({ onBackToKlyra }) => {
   const [user, setUser] = React.useState<KlyraUser | null>(() => {
-    if (import.meta.env.DEV) return developmentUser;
-    try { return JSON.parse(localStorage.getItem('klyra_user') || 'null'); } catch { return null; }
+    // Only pretend to be logged in when the explicit dev-fixture mode is on;
+    // otherwise use the real session (token from the backend /auth endpoints).
+    if (import.meta.env.DEV && import.meta.env.VITE_USE_MOCK_REPOS === 'true') return developmentUser;
+    try {
+      const raw = JSON.parse(localStorage.getItem('klyra_user') || 'null');
+      if (!raw) return null;
+      // Legacy Repository session shape (KlyraUser) — use as-is.
+      if (typeof raw.id === 'number' && raw.username) return raw as KlyraUser;
+      // Main app auth session shape (UserProfile: UUID id, email, name).
+      // Map it onto KlyraUser; username uses the email because the backend
+      // bridges JWT identities into the Repository system keyed by email.
+      if (raw.email) {
+        return {
+          id: 0,
+          username: raw.email,
+          email: raw.email,
+          display_name: raw.name || raw.email,
+          avatar_color: '#8b5cf6',
+        };
+      }
+      return null;
+    } catch { return null; }
   });
   const [repos, setRepos] = React.useState<RepoSummary[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -173,7 +193,6 @@ export const RepositoriesPage: React.FC<{ onBackToKlyra?: () => void }> = ({ onB
         <div className="auth-bar">
           {user ? (
             <>
-              <span className="auth-chip"><Avatar name={user.display_name || user.username} color={user.avatar_color} />{user.username}</span>
               <button className="kr-btn primary" onClick={() => setShowCreate(true)}><Plus size={14} /> New Repository</button>
             </>
           ) : (

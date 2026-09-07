@@ -1,11 +1,29 @@
 import { Router, Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { EmailService } from './email.service';
+import { OtpError } from './otp.service';
+import { EmailDeliveryError } from './email.service';
 import { authLimiter, resendLimiter } from './auth.rate-limiter';
 import { requireAuth } from './auth.middleware';
 import { pool } from '../../services/database.service';
 
 const router = Router();
+
+/**
+ * Map auth errors to HTTP statuses using the project's existing error shape.
+ * Never leaks provider internals; OtpError/EmailDeliveryError messages are safe.
+ */
+function sendAuthError(res: Response, err: any, fallback: string): void {
+  if (err instanceof EmailDeliveryError) {
+    res.status(502).json({ error: err.message, code: 'EMAIL_SEND_FAILED' });
+    return;
+  }
+  if (err instanceof OtpError) {
+    res.status(err.status).json({ error: err.message, code: err.code });
+    return;
+  }
+  res.status(400).json({ error: err.message || fallback });
+}
 
 function getClientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -26,18 +44,18 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     const result = await AuthService.register(name, email, password);
     res.status(201).json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Registration failed.' });
+    sendAuthError(res, err, 'Registration failed.');
   }
 });
 
-// 2. VERIFY EMAIL
+// 2. VERIFY EMAIL (6-digit OTP)
 router.post('/verify-email', async (req: Request, res: Response) => {
   try {
-    const { token } = req.body || {};
-    const result = await AuthService.verifyEmail(token);
+    const { email, otp } = req.body || {};
+    const result = await AuthService.verifyEmail(email, otp);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Email verification failed.' });
+    sendAuthError(res, err, 'Email verification failed.');
   }
 });
 
@@ -111,7 +129,18 @@ router.post('/forgot-password', resendLimiter, async (req: Request, res: Respons
     const result = await AuthService.forgotPassword(email);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to process password reset request.' });
+    sendAuthError(res, err, 'Failed to process password reset request.');
+  }
+});
+
+// 7b. VERIFY PASSWORD RESET OTP -> issues short-lived single-use reset token
+router.post('/verify-reset-otp', authLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body || {};
+    const result = await AuthService.verifyResetOtp(email, otp);
+    res.json(result);
+  } catch (err: any) {
+    sendAuthError(res, err, 'Verification failed.');
   }
 });
 

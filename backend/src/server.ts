@@ -12,8 +12,15 @@ dotenv.config();
 // eslint-disable-next-line import/first
 import app from './app';
 import { connectListener } from './modules/billing/realtime.service';
+import { connectRepoListener } from './modules/repos/realtime.service';
 
 const PORT = process.env.PORT || 4000;
+
+// Validate email provider configuration (Brevo/demo). Logs a clear,
+// secret-free report and keeps the server up so the problem is visible
+// without crashing the whole backend.
+import { reportEmailConfig } from './modules/auth/email.config';
+reportEmailConfig();
 
 const server = app.listen(PORT, () => {
   // eslint-disable-next-line no-console
@@ -23,6 +30,10 @@ const server = app.listen(PORT, () => {
 // Open the Postgres LISTEN/NOTIFY connection for billing realtime. It retries
 // in the background if it can't connect, so this is fire-and-forget.
 void connectListener();
+
+// Open the Postgres LISTEN/NOTIFY connection for repository realtime (CI,
+// deployments, activity). Also retries in the background.
+void connectRepoListener();
 
 process.on('SIGTERM', () => {
   // eslint-disable-next-line no-console

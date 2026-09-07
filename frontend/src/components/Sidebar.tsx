@@ -18,7 +18,8 @@ import {
   ChevronRight,
   Crown,
   X,
-  Plug
+  Plug,
+  GitBranch
 } from 'lucide-react';
 import { NavigationTab } from '../types/api';
 import { useAuth } from '../context/AuthContext';
@@ -46,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const workspaceNav = [
+    { id: 'repositories', label: 'Repositories', icon: GitBranch },
     { id: 'my-apis', label: 'My APIs', icon: Layers },
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
     { id: 'playground', label: 'Playground', icon: Terminal },

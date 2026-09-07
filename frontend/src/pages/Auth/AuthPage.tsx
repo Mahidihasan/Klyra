@@ -27,6 +27,7 @@ export type AuthMode =
   | 'verify-email'
   | '2fa'
   | 'forgot-password'
+  | 'forgot-otp'
   | 'reset-password';
 
 interface AuthPageProps {
@@ -67,6 +68,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // Email OTP verification state (registration + forgot password)
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
+
   // Feedback states
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +93,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         channel.postMessage({ type: 'RESET_PASSWORD_COMPLETE', message });
         channel.close();
       }
-    } catch {}
+    } catch { }
 
     try {
       localStorage.setItem(
@@ -100,7 +104,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           timestamp: Date.now(),
         }),
       );
-    } catch {}
+    } catch { }
   };
 
   // Sync mode if initialMode prop changes (e.g. switching between login and register modals)
@@ -205,7 +209,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         try {
           const parsed = JSON.parse(e.newValue);
           handleAuthSync(parsed);
-        } catch {}
+        } catch { }
       }
     };
     window.addEventListener('storage', handleStorage);
@@ -281,12 +285,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     return () => clearInterval(timer);
   }, [resetRedirectSeconds]);
 
-  // Auto-verify email if in verify-email mode with token
+  // Auto-focus OTP entry when entering an OTP mode
   useEffect(() => {
-    if (mode === 'verify-email' && token) {
-      handleVerifyEmailToken(token);
+    if (mode === 'verify-email' || mode === 'forgot-otp') {
+      setOtpDigits(['', '', '', '', '', '']);
+      const t = setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
+      return () => clearTimeout(t);
     }
-  }, [mode, token]);
+  }, [mode]);
 
   const openDemoInbox = () => {
     authApi.openDemoInbox();
@@ -355,7 +361,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       await authApi.register(name, email, password);
       setPassword('');
       setConfirmPassword('');
-      setMode('verify-pending');
+      setPendingVerificationEmail(email.trim().toLowerCase());
+      setMode('verify-email');
       setResendCooldown(60);
     } catch (err: any) {
       setError(err.message || 'Registration failed.');
@@ -484,24 +491,25 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }
   };
 
-  // 5. Handle Resend Verification Email
+  // 5. Handle Resend Verification Code
   const handleResendVerification = async () => {
     if (resendCooldown > 0) return;
+    const targetEmail = pendingVerificationEmail || email;
     setIsLoading(true);
     setError(null);
     try {
-      await authApi.resendVerification(email);
-      setSuccessMessage('A fresh verification link has been sent to your email.');
+      await authApi.resendVerification(targetEmail);
+      setSuccessMessage('A new verification code has been sent to your email.');
       setResendCooldown(60);
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
-      setError(err.message || 'Failed to resend verification email.');
+      setError(err.message || 'Failed to resend verification code.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 6. Handle Email Verification Token
+  // 6. Handle Email Verification via 6-digit OTP
   const completeEmailVerification = (message: string) => {
     setSuccessMessage(message);
     onEmailVerified?.(message);
@@ -515,24 +523,27 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }, 5000);
   };
 
-  const handleVerifyEmailToken = async (tokenToVerify: string) => {
+  const handleVerifyEmailOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
     setIsLoading(true);
     setError(null);
     try {
-      const res = await authApi.verifyEmail(tokenToVerify);
+      const res = await authApi.verifyEmail(pendingVerificationEmail || email, otpDigits.join(''));
       completeEmailVerification(res.message || 'Email verified successfully! You can now log in.');
     } catch (err: any) {
       if (err.message?.includes('already verified')) {
         completeEmailVerification('Email verified successfully! You can now log in.');
       } else {
         setError(err.message || 'Email verification failed.');
+        setOtpDigits(['', '', '', '', '', '']);
+        otpInputRefs.current[0]?.focus();
       }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 7. Handle Forgot Password
+  // 7. Handle Forgot Password (sends reset OTP)
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -540,8 +551,46 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     try {
       const res = await authApi.forgotPassword(email);
       setSuccessMessage(res.message);
+      setResendCooldown(60);
+      setMode('forgot-otp');
     } catch (err: any) {
       setError(err.message || 'Failed to request password reset.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 7b. Handle Reset OTP verification -> short-lived single-use reset token
+  const handleVerifyResetOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await authApi.verifyResetOtp(email, otpDigits.join(''));
+      setToken(res.resetToken);
+      setSuccessMessage(res.message);
+      setMode('reset-password');
+    } catch (err: any) {
+      setError(err.message || 'Verification failed.');
+      setOtpDigits(['', '', '', '', '', '']);
+      otpInputRefs.current[0]?.focus();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 7c. Handle Resend password-reset OTP
+  const handleResendResetOtp = async () => {
+    if (resendCooldown > 0) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await authApi.forgotPassword(email);
+      setSuccessMessage(res.message);
+      setResendCooldown(60);
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to resend verification code.');
     } finally {
       setIsLoading(false);
     }
@@ -612,39 +661,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top-Right Card Actions: Contextual Demo Email Inbox button & Modal Close button */}
-        <div className="card-top-actions">
-          {['verify-pending', '2fa', 'forgot-password', 'reset-password'].includes(mode) && (
-            <button
-              type="button"
-              className="card-demo-inbox-btn"
-              onClick={openDemoInbox}
-              title="Open Demo Email Inbox in a new tab"
-            >
-              <Mail size={13} />
-              <span>Demo Email Inbox</span>
-              <ExternalLink size={11} />
-            </button>
-          )}
-
-          {isModal && onClose && !['verify-pending', '2fa', 'forgot-password'].includes(mode) && (
-            <button
-              type="button"
-              className="auth-modal-close-btn"
-              onClick={handleModalClose}
-              aria-label="Close modal"
-              title="Close (Esc)"
-            >
-              <X size={16} />
-            </button>
-          )}
-        </div>
 
         {/* Header Branding */}
         <div className="auth-header">
           <div className="auth-logo-badge">
-            <img src={klyraLogo} alt="Klyra Logo" className="auth-logo-img" />
+            <div className='auth_logo'>
+              <img src={klyraLogo} alt="Klyra Logo" className="auth-logo-img" />
+            </div>
+            <h1 className="auth-brand-name">KLYRA</h1>
           </div>
-          <h1 className="auth-brand-name">KLYRA</h1>
+
           <p className="auth-tagline">API Marketplace & Developer Platform</p>
         </div>
 
@@ -1049,52 +1075,147 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           </form>
         )}
 
-        {/* ================= VIEW: VERIFY EMAIL (TOKEN HANDLER) ================= */}
+        {/* ================= VIEW: VERIFY EMAIL (OTP ENTRY) ================= */}
         {mode === 'verify-email' && !isEmailVerifySuccess && (
-          <div className="auth-view-card animate-fade-in">
-            {isLoading ? (
-              <div className="token-loading-state">
-                <RefreshCw size={36} className="spin-icon" color="#8b5cf6" />
-                <h2>Activating your account...</h2>
-                <p>Verifying your email token with Klyra security service.</p>
-              </div>
-            ) : error ? (
-              <div className="token-error-state">
-                <AlertTriangle size={36} color="#ef4444" />
-                <h2>Verification Unsuccessful</h2>
-                <p>{error}</p>
-                <button
-                  className="auth-submit-btn"
-                  onClick={() => {
-                    setError(null);
-                    setMode('login');
-                  }}
-                >
-                  Return to Sign In
-                </button>
-              </div>
-            ) : (
-              <div className="token-success-state">
-                <CheckCircle2 size={44} color="#22c55e" />
-                <h2>Email Verified Successfully!</h2>
-                <p>Your Klyra account is now fully active. Sign in to access the API platform.</p>
-                <button
-                  type="button"
-                  className="auth-submit-btn"
-                  onClick={() => {
-                    setError(null);
-                    setSuccessMessage(null);
-                    setPassword('');
-                    setConfirmPassword('');
-                    setMode('login');
-                  }}
-                >
-                  <span>Login</span>
-                  <ArrowRight size={16} />
-                </button>
-              </div>
-            )}
-          </div>
+          <form className="auth-form animate-fade-in" onSubmit={handleVerifyEmailOtp}>
+            <div className="form-title-group">
+              <h2 className="form-title">Verify your email</h2>
+              <p className="form-subtitle">
+                A 6-digit verification code was sent to{' '}
+                <strong style={{ color: '#f8fafc' }}>{pendingVerificationEmail || email}</strong>. Enter it below to
+                activate your account.
+              </p>
+            </div>
+
+            <div className="otp-boxes-row">
+              {otpDigits.map((digit, idx) => (
+                <input
+                  key={idx}
+                  ref={(el) => (otpInputRefs.current[idx] = el)}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={1}
+                  className="otp-digit-input"
+                  value={digit}
+                  onChange={(e) => handleOtpChange(idx, e.target.value)}
+                  onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                  autoFocus={idx === 0}
+                />
+              ))}
+            </div>
+
+            <button
+              type="submit"
+              className="auth-submit-btn"
+              disabled={isLoading || otpDigits.join('').length !== 6}
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw size={16} className="spin-icon" />
+                  <span>Verifying Code...</span>
+                </>
+              ) : (
+                <>
+                  <KeyRound size={16} />
+                  <span>Verify Email</span>
+                </>
+              )}
+            </button>
+
+            <div className="two-factor-actions">
+              <button
+                type="button"
+                className="secondary-btn-inline"
+                onClick={handleResendVerification}
+                disabled={isLoading || resendCooldown > 0}
+              >
+                {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Code'}
+              </button>
+              <button
+                type="button"
+                className="secondary-btn-inline"
+                onClick={() => {
+                  setError(null);
+                  setSuccessMessage(null);
+                  setMode('login');
+                }}
+              >
+                Back to Sign In
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ================= VIEW: FORGOT PASSWORD OTP ENTRY ================= */}
+        {mode === 'forgot-otp' && (
+          <form className="auth-form animate-fade-in" onSubmit={handleVerifyResetOtp}>
+            <div className="form-title-group">
+              <h2 className="form-title">Enter verification code</h2>
+              <p className="form-subtitle">
+                A 6-digit reset code was sent to{' '}
+                <strong style={{ color: '#f8fafc' }}>{email}</strong>. Enter it below to continue.
+              </p>
+            </div>
+
+            <div className="otp-boxes-row">
+              {otpDigits.map((digit, idx) => (
+                <input
+                  key={idx}
+                  ref={(el) => (otpInputRefs.current[idx] = el)}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={1}
+                  className="otp-digit-input"
+                  value={digit}
+                  onChange={(e) => handleOtpChange(idx, e.target.value)}
+                  onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                  autoFocus={idx === 0}
+                />
+              ))}
+            </div>
+
+            <button
+              type="submit"
+              className="auth-submit-btn"
+              disabled={isLoading || otpDigits.join('').length !== 6}
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw size={16} className="spin-icon" />
+                  <span>Verifying Code...</span>
+                </>
+              ) : (
+                <>
+                  <KeyRound size={16} />
+                  <span>Verify Code</span>
+                </>
+              )}
+            </button>
+
+            <div className="two-factor-actions">
+              <button
+                type="button"
+                className="secondary-btn-inline"
+                onClick={handleResendResetOtp}
+                disabled={isLoading || resendCooldown > 0}
+              >
+                {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Code'}
+              </button>
+              <button
+                type="button"
+                className="secondary-btn-inline"
+                onClick={() => {
+                  setError(null);
+                  setSuccessMessage(null);
+                  setMode('forgot-password');
+                }}
+              >
+                Back
+              </button>
+            </div>
+          </form>
         )}
 
         {/* ================= VIEW: FORGOT PASSWORD ================= */}
@@ -1127,11 +1248,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               {isLoading ? (
                 <>
                   <RefreshCw size={16} className="spin-icon" />
-                  <span>Sending Link...</span>
+                  <span>Sending Code...</span>
                 </>
               ) : (
                 <>
-                  <span>Send Reset Link</span>
+                  <span>Send Verification Code</span>
                   <ArrowRight size={16} />
                 </>
               )}
@@ -1394,18 +1515,28 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           margin-bottom: 28px;
         }
 
-        .auth-logo-badge {
+     .auth-logo-badge {
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       width: fit-content;
+       height: auto;
+       margin: 0 auto 12px;
+       gap: 5px;
+      }
+
+        .auth_logo {
           width: 52px;
           height: 52px;
-          margin: 0 auto 12px;
+          flex-shrink: 0;
           display: flex;
           align-items: center;
           justify-content: center;
         }
 
         .auth-logo-img {
-          width: 100%;
-          height: 100%;
+          width: 52px;
+          height: 52px;
           object-fit: contain;
           border-radius: 12px;
         }
@@ -1416,6 +1547,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           font-weight: 700;
           letter-spacing: -0.03em;
           color: #ffffff;
+          white-space: nowrap;
+          line-height: 1;
         }
 
         .auth-tagline {

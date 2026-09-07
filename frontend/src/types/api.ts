@@ -52,6 +52,7 @@ export interface NotificationItem {
 export type NavigationTab = 
   | 'home'
   | 'apis'
+  | 'repositories'
   | 'my-apis'
   | 'subscriptions'
   | 'playground'

@@ -2,6 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { pool } from '../../services/database.service';
 import { ensureReposSchema } from './repos.db';
+import { verifyJwt } from '../auth/jwt.util';
 
 export interface KlyraUser {
   id: number;
@@ -70,12 +71,40 @@ async function issueToken(userId: number): Promise<string> {
 }
 
 async function userFromToken(token: string): Promise<KlyraUser | null> {
-  const result = await pool.query(
-    `SELECT u.id, u.username, u.email, u.display_name, u.avatar_color
-     FROM kr_tokens t JOIN kr_users u ON u.id = t.user_id WHERE t.token = $1`,
-    [token]
+  if (token.startsWith('kly_')) {
+    const result = await pool.query(
+      `SELECT u.id, u.username, u.email, u.display_name, u.avatar_color
+       FROM kr_tokens t JOIN kr_users u ON u.id = t.user_id WHERE t.token = $1`,
+      [token]
+    );
+    return (result.rows[0] as KlyraUser) || null;
+  }
+
+  // Bridge to the main authentication module: a JWT issued by /api/auth/*
+  // (users table) authorizes the Repository system as well. The matching
+  // kr_users identity is provisioned on first use, keyed by account email,
+  // so a single login works across the whole platform.
+  const payload = verifyJwt(token);
+  if (!payload || !payload.email) return null;
+
+  await ensureReposSchema();
+  const username = payload.email;
+  const existing = await pool.query(
+    `SELECT id, username, email, display_name, avatar_color FROM kr_users WHERE username = $1`,
+    [username],
   );
-  return (result.rows[0] as KlyraUser) || null;
+  if (existing.rows.length > 0) return existing.rows[0] as KlyraUser;
+
+  const colors = ['#8b5cf6', '#22c55e', '#f59e0b', '#22d3ee', '#ef4444', '#d946ef'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  const provisioned = await pool.query(
+    `INSERT INTO kr_users (username, password_hash, email, display_name, avatar_color)
+     VALUES ($1, 'jwt-managed-account', $1, $2, $3)
+     ON CONFLICT (username) DO UPDATE SET email = EXCLUDED.email
+     RETURNING id, username, email, display_name, avatar_color`,
+    [username, username.split('@')[0] || 'Klyra User', color],
+  );
+  return provisioned.rows[0] as KlyraUser;
 }
 
 /**

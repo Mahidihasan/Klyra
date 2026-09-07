@@ -88,16 +88,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 export const authApi = {
   // Register
   register: (name: string, email: string, password: string) =>
-    request<{ message: string; email: string }>('/register', {
+    request<{ success: boolean; message: string; email: string }>('/register', {
       method: 'POST',
       body: JSON.stringify({ name, email, password }),
     }),
 
-  // Email verification
-  verifyEmail: (token: string) =>
+  // Email verification (6-digit OTP)
+  verifyEmail: (email: string, otp: string) =>
     request<{ success: boolean; message: string }>('/verify-email', {
       method: 'POST',
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ email, otp }),
     }),
 
   // Resend verification
@@ -133,6 +133,13 @@ export const authApi = {
     request<{ success: boolean; message: string }>('/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
+    }),
+
+  // Verify password reset OTP -> returns short-lived single-use reset token
+  verifyResetOtp: (email: string, otp: string) =>
+    request<{ success: boolean; message: string; resetToken: string }>('/verify-reset-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp }),
     }),
 
   // Reset password

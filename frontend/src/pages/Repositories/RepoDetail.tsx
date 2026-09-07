@@ -9,9 +9,10 @@ import { ErrorBox, Loading, timeAgo } from './shared';
 import { CodePage } from './CodePage';
 import { BranchesTab, CommitsTab } from './GitTabs';
 import { PullsTab, IssuesTab, CollaboratorsTab } from './CollabTabs';
-import { ApiTab, DocsTab, TestsTab, DeploymentsTab, ReleasesTab, MarketplaceTab, SettingsTab } from './OpsTabs';
+import { ApiTab, DocsTab, TestsTab, ReleasesTab, MarketplaceTab, SettingsTab } from './OpsTabs';
 import { ProjectsTab } from './ProjectsTab';
 import { InsightsTab } from './InsightsTab';
+import { useRepoLiveRefresh } from './useRepoLiveRefresh';
 
 interface Props {
   repoId: string;
@@ -31,7 +32,24 @@ export const RepoDetail: React.FC<Props> = ({ repoId, onBack }) => {
     finally { setLoading(false); }
   }, [repoId]);
 
+  // Background refresh for realtime — updates the repo without a full-screen
+  // spinner, so live events don't make the page flash.
+  const refreshRepo = React.useCallback(async () => {
+    try { setRepo(await reposApi.get(repoId)); }
+    catch (e: any) { /* keep last good data on a transient failure */ }
+  }, [repoId]);
+
   React.useEffect(() => { load(); }, [load]);
+
+  // Push-driven realtime via SSE (/api/repos/:id/events) + a safety-net poll.
+  const live = useRepoLiveRefresh(repoId);
+
+  // Whenever a repo event lands (CI finished, deployment, activity, meta
+  // change), refresh the header/deploy status in the background.
+  React.useEffect(() => {
+    if (live.refreshKey > 0) refreshRepo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live.refreshKey]);
 
   // GitHub-style primary navigation. Secondary destinations (branches, tags,
   // docs, collaborators, marketplace) are reachable from the code toolbar and sidebar.
@@ -65,6 +83,16 @@ export const RepoDetail: React.FC<Props> = ({ repoId, onBack }) => {
                 {repo.visibility}
               </span>
               {repo.role && <span className={`role-badge ${repo.role}`}>{repo.role === 'owner' ? 'Owner' : repo.role}</span>}
+              {live.status !== 'disabled' && (
+                <span
+                  className="live-badge"
+                  title={`Realtime updates ${live.status === 'connected' ? 'connected' : live.status === 'reconnecting' ? 'reconnecting' : 'connecting…'}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: live.status === 'connected' ? '#4ade80' : '#f59e0b', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 999, padding: '2px 8px' }}
+                >
+                  <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: live.status === 'connected' ? '#4ade80' : live.status === 'reconnecting' ? '#f59e0b' : '#94a3b8' }} />
+                  Live
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -91,7 +119,7 @@ export const RepoDetail: React.FC<Props> = ({ repoId, onBack }) => {
         {tab === 'releases' && <ReleasesTab repo={repo} isOwner={isOwner} canWrite={canWrite} />}
         {tab === 'api' && <ApiTab repo={repo} />}
         {tab === 'docs' && <DocsTab repo={repo} />}
-        {tab === 'tests' && <TestsTab repo={repo} canWrite={canWrite} />}
+        {tab === 'tests' && <TestsTab repo={repo} canWrite={canWrite} refreshKey={live.refreshKey} />}
         {tab === 'deployments' && <ProjectsTab repo={repo} isOwner={isOwner} />}
         {tab === 'marketplace' && <MarketplaceTab repo={repo} isOwner={isOwner} canWrite={canWrite} />}
         {tab === 'settings' && <SettingsTab repo={repo} isOwner={isOwner} onChanged={load} onBack={onBack} />}

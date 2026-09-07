@@ -14,7 +14,8 @@ import {
   generate2FACode,
   generateDeviceFingerprint,
 } from './jwt.util';
-import { EmailService } from './email.service';
+import { EmailService, OtpEmailService, EmailDeliveryError } from './email.service';
+import { issueOtp, verifyOtp, OtpError, OTP_ERROR_MESSAGES } from './otp.service';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -40,9 +41,15 @@ function maskEmail(email: string): string {
 
 export class AuthService {
   /**
-   * Register a new platform user.
+   * Register a new platform user (unverified) and email an OTP for
+   * email verification. On email delivery failure the created user is
+   * rolled back so the database never contains an unnotified account.
    */
-  static async register(name: string, email: string, password: string): Promise<{ message: string; email: string }> {
+  static async register(
+    name: string,
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; message: string; email: string }> {
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
 
@@ -68,7 +75,7 @@ export class AuthService {
     // Hash password with bcrypt using 12 rounds
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    // Create user in users table
+    // Create user in users table (unverified state — email_verified_at is NULL)
     const userRes = await pool.query(
       `INSERT INTO users (
         name, email, password_hash, role, status, is_active, metadata
@@ -79,71 +86,61 @@ export class AuthService {
 
     const user = userRes.rows[0];
 
-    // Generate email verification token
-    const rawToken = generateRandomToken(32);
-    const tokenHash = sha256(rawToken);
+    try {
+      const otp = await issueOtp(user.id, 'EMAIL_VERIFICATION');
+      await OtpEmailService.sendVerificationOTP(cleanEmail, otp);
+    } catch (err) {
+      // Keep the database consistent: remove the just-created user + OTP.
+      await pool.query('DELETE FROM email_verifications WHERE user_id = $1', [user.id]);
+      await pool.query('DELETE FROM users WHERE id = $1', [user.id]);
 
-    await pool.query(
-      `INSERT INTO email_verifications (
-        user_id, token_hash, type, expires_at
-      ) VALUES ($1, $2, 'VERIFY_EMAIL', NOW() + INTERVAL '24 hours')`,
-      [user.id, tokenHash]
-    );
-
-    // Send demo verification email
-    await EmailService.sendVerificationEmail(cleanEmail, cleanName, rawToken);
+      if (err instanceof OtpError) throw err;
+      if (err instanceof EmailDeliveryError) throw err;
+      // eslint-disable-next-line no-console
+      console.error('[auth] Registration email delivery failed unexpectedly.');
+      throw new EmailDeliveryError();
+    }
 
     return {
-      message: 'Account registered successfully. A verification email has been sent.',
+      success: true,
+      message: 'Verification code sent to your email.',
       email: cleanEmail,
     };
   }
 
   /**
-   * Verify email using single-use token.
+   * Verify a registration email using a 6-digit OTP.
    */
-  static async verifyEmail(token: string): Promise<{ success: boolean; message: string }> {
-    if (!token || typeof token !== 'string') {
-      throw new Error('Verification token is required.');
+  static async verifyEmail(email: string, otp: string): Promise<{ success: boolean; message: string }> {
+    if (!email || !otp) {
+      throw new Error('Email address and verification code are required.');
     }
 
-    const tokenHash = sha256(token.trim());
-
-    const verifRes = await pool.query(
-      `SELECT ev.id, ev.user_id, ev.expires_at, ev.used_at, u.email_verified_at
-       FROM email_verifications ev
-       JOIN users u ON u.id = ev.user_id
-       WHERE ev.token_hash = $1 AND ev.type = 'VERIFY_EMAIL'`,
-      [tokenHash]
+    const cleanEmail = email.trim().toLowerCase();
+    const userRes = await pool.query(
+      'SELECT id, email_verified_at FROM users WHERE email = $1 AND deleted_at IS NULL',
+      [cleanEmail]
     );
-
-    const record = verifRes.rows[0];
-    if (!record) {
-      throw new Error('Invalid verification link.');
+    const user = userRes.rows[0];
+    if (!user) {
+      throw new OtpError('OTP_INVALID', OTP_ERROR_MESSAGES.OTP_INVALID);
     }
 
-    if (record.email_verified_at) {
+    if (user.email_verified_at) {
       return { success: true, message: 'This email address is already verified. Please sign in.' };
     }
 
-    if (record.used_at) {
-      throw new Error('This verification link is no longer valid. Please use the latest verification link or request a new one.');
-    }
+    await verifyOtp(user.id, 'EMAIL_VERIFICATION', otp);
 
-    if (new Date(record.expires_at) < new Date()) {
-      throw new Error('This verification link has expired. Please request a new verification email.');
-    }
-
-    // Mark token used and user verified
+    // Mark user verified and record audit trail
     await pool.query('BEGIN');
     try {
-      await pool.query('UPDATE email_verifications SET used_at = NOW() WHERE id = $1', [record.id]);
-      await pool.query('UPDATE users SET email_verified_at = NOW() WHERE id = $1', [record.user_id]);
+      await pool.query('UPDATE users SET email_verified_at = NOW() WHERE id = $1', [user.id]);
       await pool.query(
         `INSERT INTO audit_logs (
           user_id, action, entity_type, entity_id, new_values
         ) VALUES ($1, 'UPDATE', 'users', $1, '{"email_verified": true}')`,
-        [record.user_id]
+        [user.id]
       );
       await pool.query('COMMIT');
     } catch (err) {
@@ -151,11 +148,11 @@ export class AuthService {
       throw err;
     }
 
-    return { success: true, message: 'Email successfully verified! You can now log in.' };
+    return { success: true, message: 'Email verified successfully.' };
   }
 
   /**
-   * Resend verification email.
+   * Resend the email-verification OTP.
    */
   static async resendVerification(email: string): Promise<{ success: boolean; message: string }> {
     const cleanEmail = email.trim().toLowerCase();
@@ -164,32 +161,16 @@ export class AuthService {
 
     if (!user) {
       // Return success to avoid email discovery
-      return { success: true, message: 'If an account exists, a new verification link has been sent.' };
+      return { success: true, message: 'If an account exists, a new verification code has been sent.' };
     }
 
     if (user.email_verified_at) {
       return { success: true, message: 'Your email address is already verified. You can log in directly.' };
     }
 
-    // Invalidate prior unused tokens
-    await pool.query(
-      `UPDATE email_verifications SET used_at = NOW()
-       WHERE user_id = $1 AND type = 'VERIFY_EMAIL' AND used_at IS NULL`,
-      [user.id]
-    );
-
-    const rawToken = generateRandomToken(32);
-    const tokenHash = sha256(rawToken);
-
-    await pool.query(
-      `INSERT INTO email_verifications (
-        user_id, token_hash, type, expires_at
-      ) VALUES ($1, $2, 'VERIFY_EMAIL', NOW() + INTERVAL '24 hours')`,
-      [user.id, tokenHash]
-    );
-
-    await EmailService.sendVerificationEmail(user.email, user.name, rawToken);
-    return { success: true, message: 'Verification link resent. Please check your inbox.' };
+    const otp = await issueOtp(user.id, 'EMAIL_VERIFICATION');
+    await OtpEmailService.sendVerificationOTP(user.email, otp);
+    return { success: true, message: 'A new verification code has been sent to your email.' };
   }
 
   /**
@@ -524,7 +505,8 @@ export class AuthService {
   }
 
   /**
-   * Request password reset link.
+   * Request a password-reset OTP. The response never reveals whether the
+   * email exists (no email enumeration).
    */
   static async forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
     const cleanEmail = email.trim().toLowerCase();
@@ -537,30 +519,66 @@ export class AuthService {
     // Generic response prevents email enumeration
     const genericResponse = {
       success: true,
-      message: 'If an account exists for this email address, a password reset link has been sent.',
+      message: 'If an account exists for this email address, a verification code has been sent.',
     };
 
     if (!user) return genericResponse;
 
-    // Invalidate earlier reset tokens
-    await pool.query(
-      `UPDATE email_verifications SET used_at = NOW()
-       WHERE user_id = $1 AND type = 'RESET_PASSWORD' AND used_at IS NULL`,
-      [user.id]
-    );
+    try {
+      const otp = await issueOtp(user.id, 'PASSWORD_RESET');
+      await OtpEmailService.sendPasswordResetOTP(user.email, otp);
+    } catch (err) {
+      if (err instanceof OtpError) throw err;
+      if (err instanceof EmailDeliveryError) throw err;
+      // eslint-disable-next-line no-console
+      console.error('[auth] Password reset email delivery failed unexpectedly.');
+      throw new EmailDeliveryError();
+    }
 
-    const rawToken = generateRandomToken(32);
-    const tokenHash = sha256(rawToken);
+    return genericResponse;
+  }
+
+  /**
+   * Verify a PASSWORD_RESET OTP and issue a short-lived, single-use reset
+   * authorization token. The reset token reuses the existing RESET_PASSWORD
+   * token flow consumed by resetPassword() below.
+   */
+  static async verifyResetOtp(
+    email: string,
+    otp: string
+  ): Promise<{ success: boolean; message: string; resetToken: string }> {
+    if (!email || !otp) {
+      throw new Error('Email address and verification code are required.');
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const userRes = await pool.query(
+      'SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL',
+      [cleanEmail]
+    );
+    const user = userRes.rows[0];
+    if (!user) {
+      throw new OtpError('OTP_INVALID', OTP_ERROR_MESSAGES.OTP_INVALID);
+    }
+
+    await verifyOtp(user.id, 'PASSWORD_RESET', otp);
+
+    // Issue a short-lived (10 min), single-use reset authorization token.
+    const rawResetToken = generateRandomToken(32);
+    const tokenHash = sha256(rawResetToken);
 
     await pool.query(
       `INSERT INTO email_verifications (
         user_id, token_hash, type, expires_at
-      ) VALUES ($1, $2, 'RESET_PASSWORD', NOW() + INTERVAL '1 hour')`,
+      ) VALUES ($1, $2, 'RESET_PASSWORD', NOW() + INTERVAL '10 minutes')`,
       [user.id, tokenHash]
     );
 
-    await EmailService.sendPasswordResetEmail(user.email, user.name, rawToken);
-    return genericResponse;
+    return {
+      success: true,
+      message: 'Code verified. You can now set a new password.',
+      resetToken: rawResetToken,
+    };
   }
 
   /**
