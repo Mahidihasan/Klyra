@@ -5,6 +5,8 @@ import {
   getInvoiceById,
   getUserPayments,
   getBillingOverview,
+  getMonthlySpending,
+  getSpendingByApi,
   isValidStatusFilter,
   isValidPaymentStatusFilter,
   isUuid,
@@ -429,6 +431,65 @@ router.get('/events', (req: RequestWithUser, res: Response) => {
 
   // Keep the HTTP layer from buffering/time-ing out the long-lived stream.
   subscribeBillingEvents(userId, res);
+});
+
+// ============ Monthly Spending ============
+// GET /api/billing/spending?months=6
+router.get('/spending', async (req: RequestWithUser, res: Response) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return unauthorized(res);
+
+    const months = req.query.months ? Number(req.query.months) : 6;
+    if (Number.isNaN(months)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_MONTHS', message: 'months must be a number' },
+      });
+    }
+
+    const points = await getMonthlySpending(userId, months);
+
+    res.json({
+      success: true,
+      data: { points },
+      message: 'Spending retrieved successfully',
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to get spending', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to get spending' },
+    });
+  }
+});
+
+// ============ Spending By API ============
+// GET /api/billing/spending/by-api
+//
+// Must be registered before nothing in particular, but note it sits above the
+// invoice routes only for readability — the paths don't overlap.
+router.get('/spending/by-api', async (req: RequestWithUser, res: Response) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return unauthorized(res);
+
+    const breakdown = await getSpendingByApi(userId);
+
+    res.json({
+      success: true,
+      data: { breakdown },
+      message: 'Spending by API retrieved successfully',
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to get spending by API', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to get spending by API' },
+    });
+  }
 });
 
 // ============ Get Single Invoice ============

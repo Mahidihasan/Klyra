@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { getDevUserId } from '../../config/devAuth';
-import { NavigationTab } from '../../types/api';
 import { OverviewTab } from './OverviewTab';
 import { InvoicesTab } from './InvoicesTab';
 import { PaymentsTab } from './PaymentsTab';
@@ -9,70 +8,47 @@ import { PaymentMethodsTab } from './PaymentMethodsTab';
 import { BillingInfoTab } from './BillingInfoTab';
 import { useLiveRefresh } from './useLiveRefresh';
 
-interface BillingPageProps {
-  /** Which billing screen the sidebar has selected. */
-  activeTab: NavigationTab;
-  /** Lets in-page links move the sidebar selection too. */
-  onNavigate: (tab: NavigationTab) => void;
-}
+export type BillingSection =
+  | 'overview'
+  | 'payments'
+  | 'invoices'
+  | 'methods'
+  | 'info';
 
-const TITLES: Record<string, { title: string; subtitle: string }> = {
-  billing: {
-    title: 'Billing',
-    subtitle: 'Invoices, payments and spending for your API subscriptions.',
-  },
-  'billing-invoices': {
-    title: 'Invoices',
-    subtitle: 'Every invoice raised against your account.',
-  },
-  'billing-payments': {
-    title: 'Payment history',
-    subtitle: 'Every charge attempted on your payment methods.',
-  },
-  'billing-methods': {
-    title: 'Payment methods',
-    subtitle: 'Cards and other methods used to pay invoices.',
-  },
-  'billing-info': {
-    title: 'Billing information',
-    subtitle: 'Details that appear on your invoices.',
-  },
-};
-
-/** Screens that load their own data and so need the Refresh button. */
-const REFRESHABLE = [
-  'billing',
-  'billing-invoices',
-  'billing-payments',
-  'billing-methods',
-  'billing-info',
+const SECTIONS: { id: BillingSection; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'payments', label: 'Payment History' },
+  { id: 'invoices', label: 'Invoices' },
+  { id: 'methods', label: 'Payment Methods' },
+  { id: 'info', label: 'Billing Information' },
 ];
 
-export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate }) => {
+export const BillingPage: React.FC = () => {
+  const [section, setSection] = useState<BillingSection>('overview');
   const [refreshToken, setRefreshToken] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
   const devUserId = getDevUserId();
-  // True on data-driven screens with a user — that's where live updates apply.
-  const liveEnabled = Boolean(devUserId) && REFRESHABLE.includes(activeTab);
+  // True when a user is present — that's where live updates apply.
+  const liveEnabled = Boolean(devUserId);
   // Push-driven: SSE bumps the key when this user's billing data changes.
   const { refreshKey: liveRefreshKey, status: liveStatus } = useLiveRefresh(
     liveEnabled,
     devUserId,
   );
 
-  // Each screen reports its own loading state so Refresh can disable.
+  // Each tab reports its own loading state so Refresh can disable.
   const handleLoadingChange = useCallback((next: boolean) => {
     setIsLoading(next);
   }, []);
 
-  const copy = TITLES[activeTab] ?? TITLES.billing;
-
   const header = (
     <div className="billing-header">
       <div>
-        <h1 className="billing-title">{copy.title}</h1>
-        <p className="billing-subtitle">{copy.subtitle}</p>
+        <h1 className="billing-title">Billing</h1>
+        <p className="billing-subtitle">
+          Invoices, payments and spending for your API subscriptions.
+        </p>
       </div>
       {liveEnabled && (
         <div className="billing-header-actions">
@@ -110,7 +86,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate 
   );
 
   // Auth middleware isn't built yet, so these screens need a user id to query.
-  if (!devUserId && REFRESHABLE.includes(activeTab)) {
+  if (!devUserId) {
     return (
       <div className="billing-page">
         {header}
@@ -135,39 +111,52 @@ export const BillingPage: React.FC<BillingPageProps> = ({ activeTab, onNavigate 
     <div className="billing-page">
       {header}
 
-      {activeTab === 'billing-invoices' ? (
+      <div className="billing-tabs" role="tablist">
+        {SECTIONS.map((item) => (
+          <button
+            key={item.id}
+            role="tab"
+            aria-selected={section === item.id}
+            className={`billing-tab ${section === item.id ? 'active' : ''}`}
+            onClick={() => setSection(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {section === 'overview' ? (
+        <OverviewTab
+          refreshToken={refreshToken}
+          liveRefreshKey={liveRefreshKey}
+          onLoadingChange={handleLoadingChange}
+          onViewInvoices={() => setSection('invoices')}
+          onViewPayments={() => setSection('payments')}
+          onViewMethods={() => setSection('methods')}
+        />
+      ) : section === 'invoices' ? (
         <InvoicesTab
           refreshToken={refreshToken}
           liveRefreshKey={liveRefreshKey}
           onLoadingChange={handleLoadingChange}
         />
-      ) : activeTab === 'billing-payments' ? (
+      ) : section === 'payments' ? (
         <PaymentsTab
           refreshToken={refreshToken}
           liveRefreshKey={liveRefreshKey}
           onLoadingChange={handleLoadingChange}
         />
-      ) : activeTab === 'billing-methods' ? (
+      ) : section === 'methods' ? (
         <PaymentMethodsTab
           refreshToken={refreshToken}
           liveRefreshKey={liveRefreshKey}
           onLoadingChange={handleLoadingChange}
         />
-      ) : activeTab === 'billing-info' ? (
+      ) : (
         <BillingInfoTab
           refreshToken={refreshToken}
           liveRefreshKey={liveRefreshKey}
           onLoadingChange={handleLoadingChange}
-        />
-      ) : (
-        <OverviewTab
-          refreshToken={refreshToken}
-          liveRefreshKey={liveRefreshKey}
-          onLoadingChange={handleLoadingChange}
-          onViewInvoices={() => onNavigate('billing-invoices')}
-          onViewPayments={() => onNavigate('billing-payments')}
-          onViewMethods={() => onNavigate('billing-methods')}
-          onViewInformation={() => onNavigate('billing-info')}
         />
       )}
 
@@ -292,6 +281,45 @@ const BillingStyles: React.FC = () => (
 
     @media (prefers-reduced-motion: reduce) {
       .spinning { animation: none; }
+    }
+
+    .billing-tabs {
+      display: flex;
+      gap: 22px;
+      border-bottom: 1px solid var(--border-card);
+      overflow-x: auto;
+    }
+
+    .billing-tab {
+      position: relative;
+      padding: 0 2px 11px 2px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s ease;
+    }
+
+    .billing-tab:hover {
+      color: var(--text-secondary);
+    }
+
+    .billing-tab.active {
+      color: var(--text-primary);
+    }
+
+    .billing-tab.active::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      background: var(--accent-purple);
+      border-radius: 2px 2px 0 0;
     }
 
     .billing-filters {

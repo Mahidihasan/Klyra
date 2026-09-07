@@ -36,10 +36,15 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+import authRouter from './modules/auth/auth.routes';
+
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'api-marketplace-backend' });
 });
+
+// Authentication and Demo Email routes
+app.use('/api/auth', authRouter);
 
 // Playground routes
 app.use('/api/playground', playgroundRouter);

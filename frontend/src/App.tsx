@@ -1,21 +1,23 @@
 import React, { useState, useMemo, useEffect } from 'react';
-
-import { ApiBuildEntry } from './components/ApiBuildEntry';
-import { ApiDetailModal } from './components/ApiDetailModal';
-import { ApiTesterModal } from './components/ApiTesterModal';
-import { CategoryFilter } from './components/CategoryFilter';
-import { CommandPalette } from './components/CommandPalette';
-import { CreateCollectionModal } from './components/CreateCollectionModal';
-import { HeroBanner } from './components/HeroBanner';
 import { Sidebar } from './components/Sidebar';
-import { TabViews } from './components/TabViews';
 import { Topbar } from './components/Topbar';
+import { HeroBanner } from './components/HeroBanner';
 import { TrendingApiCard } from './components/TrendingApiCard';
+import { CategoryFilter } from './components/CategoryFilter';
+import { ApiTesterModal } from './components/ApiTesterModal';
+import { ApiDetailModal } from './components/ApiDetailModal';
+import { CreateCollectionModal } from './components/CreateCollectionModal';
+import { CommandPalette } from './components/CommandPalette';
+import { TabViews } from './components/TabViews';
+import { PlaygroundPage } from './pages/Playground/index';
+import { ApiBuildEntry } from './components/ApiBuildEntry';
 import { ApiBuilder } from './pages/ApiBuilder/index';
 import { BillingPage } from './pages/Billing/index';
-import { PlaygroundPage } from './pages/Playground/index';
-import { RepositoriesPage } from './pages/Repositories/index';
 import './pages/Playground/styles.css';
+
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthPage, AuthMode } from './pages/Auth/AuthPage';
+import { DemoInboxPage } from './pages/Auth/DemoInboxPage';
 
 import {
   MOCK_TRENDING_APIS,
@@ -25,21 +27,105 @@ import {
   MOCK_COLLECTIONS,
 } from './data/mockData';
 import { ApiItem, ApiProject, CollectionItem, NavigationTab } from './types/api';
+import { ChevronRight, TrendingUp, Sparkles, Rocket, Star, RefreshCw } from 'lucide-react';
 
-import { ChevronRight, TrendingUp, Sparkles, Rocket, Star } from 'lucide-react';
-
-export function App() {
+function AppContent() {
+  const { isAuthenticated, isLoading } = useAuth();
   // Persist active tab in localStorage to survive refresh
   const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('activeTab');
-      // Default to playground if no saved value, otherwise use saved value
-      return (saved as NavigationTab) || 'playground';
+      // Default to home if no saved value
+      return (saved as NavigationTab) || 'home';
     }
-    return 'playground';
+    return 'home';
   });
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Auth modal overlay state
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return Boolean(params.get('auth') || params.get('token'));
+    }
+    return false;
+  });
+  const [authModalMode, setAuthModalMode] = useState<AuthMode>(() => {
+    if (typeof window !== 'undefined') {
+      const auth = new URLSearchParams(window.location.search).get('auth');
+      if (auth === 'register') return 'register';
+      if (auth === 'verify-email') return 'verify-email';
+      if (auth === 'reset-password') return 'reset-password';
+      if (auth === 'forgot-password') return 'forgot-password';
+      if (auth === '2fa') return '2fa';
+    }
+    return 'login';
+  });
+  const [authModalToken, setAuthModalToken] = useState<string | undefined>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('token') || undefined;
+    }
+    return undefined;
+  });
+
+  // Listen to popstate or url changes for auth query params
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleUrlChange = () => {
+      const params = new URLSearchParams(window.location.search);
+      const auth = params.get('auth');
+      const token = params.get('token');
+      if (auth || token) {
+        setAuthModalToken(token || undefined);
+        if (auth === 'register') setAuthModalMode('register');
+        else if (auth === 'verify-email') setAuthModalMode('verify-email');
+        else if (auth === 'reset-password') setAuthModalMode('reset-password');
+        else if (auth === 'forgot-password') setAuthModalMode('forgot-password');
+        else setAuthModalMode('login');
+        setShowAuthModal(true);
+      }
+    };
+    window.addEventListener('popstate', handleUrlChange);
+    return () => window.removeEventListener('popstate', handleUrlChange);
+  }, []);
+
+  // Listen for sync from Demo Inbox tab (to open modal if closed)
+  useEffect(() => {
+    const handleSync = (type: string, token?: string) => {
+      if (type === 'EMAIL_VERIFIED') {
+        setAuthModalMode('verify-email');
+        setShowAuthModal(true);
+      } else if (type === 'START_RESET_PASSWORD') {
+        setAuthModalToken(token);
+        setAuthModalMode('reset-password');
+        setShowAuthModal(true);
+      }
+    };
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel('klyra_auth_channel');
+      channel.onmessage = (e) => {
+        if (e.data?.type) handleSync(e.data.type, e.data.token);
+      };
+    }
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'klyra_auth_sync' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed.type) handleSync(parsed.type, parsed.token);
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      if (channel) channel.close();
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
 
   // Modals state
   const [selectedApi, setSelectedApi] = useState<ApiItem | null>(null);
@@ -107,6 +193,33 @@ export function App() {
     setCollections((prev) => [newCol, ...prev]);
   };
 
+  // 1. Check if user opened Demo Inbox (dedicated window or view param)
+  const isDemoInboxRoute =
+    typeof window !== 'undefined' &&
+    (window.location.pathname === '/demo-inbox' ||
+      new URLSearchParams(window.location.search).get('view') === 'demo-inbox');
+
+  if (isDemoInboxRoute) {
+    return <DemoInboxPage />;
+  }
+
+  // 2. Loading state during auth check
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0b0c12',
+        }}
+      >
+        <RefreshCw className="spin-icon" size={32} color="#8b5cf6" />
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       {/* When in Playground, hide the main Klyra topbar & sidebar entirely */}
@@ -135,8 +248,6 @@ export function App() {
             setActiveTab('api-builder');
           }}
         />
-      ) : activeTab === 'repositories' ? (
-        <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
       ) : (
         <>
           {/* Top Header Bar - Full Width */}
@@ -145,6 +256,14 @@ export function App() {
             setSearchQuery={setSearchQuery}
             onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
             onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
+            onOpenLogin={() => {
+              setAuthModalMode('login');
+              setShowAuthModal(true);
+            }}
+            onOpenRegister={() => {
+              setAuthModalMode('register');
+              setShowAuthModal(true);
+            }}
           />
 
           {/* Body: Sidebar + Main Content */}
@@ -335,9 +454,9 @@ export function App() {
                     </section>
                   </div>
                 </main>
-              ) : activeTab.startsWith('billing') ? (
+              ) : activeTab === 'billing' ? (
                 <main className="content-page-wrapper">
-                  <BillingPage activeTab={activeTab} onNavigate={setActiveTab} />
+                  <BillingPage />
                 </main>
               ) : (
                 <main className="content-page-wrapper">
@@ -397,6 +516,28 @@ export function App() {
         onSelectApi={(api) => setSelectedApi(api)}
         onOpenTester={() => handleOpenTester()}
       />
+
+      {/* 5. Auth Modal (Login / Sign Up / 2FA / Password Reset) */}
+      {showAuthModal && (
+        <AuthPage
+          isModal={true}
+          initialMode={authModalMode}
+          initialToken={authModalToken}
+          onClose={() => {
+            setShowAuthModal(false);
+            if (typeof window !== 'undefined' && window.location.search.includes('auth')) {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+          }}
+          onLoginSuccess={() => {
+            setShowAuthModal(false);
+            if (typeof window !== 'undefined' && window.location.search.includes('auth')) {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+            setActiveTab('home');
+          }}
+        />
+      )}
 
       <style>{`
         .center-column {
@@ -538,5 +679,13 @@ export function App() {
         }
       `}</style>
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

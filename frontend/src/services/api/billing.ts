@@ -1,4 +1,5 @@
 import {
+  ApiSpending,
   BillingInformation,
   BillingInformationField,
   BillingOverview,
@@ -8,6 +9,7 @@ import {
   InvoiceListResult,
   PaymentListResult,
   PaymentMethod,
+  SpendingPoint,
 } from '../../types/billing';
 import { getDevUserId } from '../../config/devAuth';
 
@@ -112,6 +114,19 @@ export const billingApi = {
       `${API_BASE_URL}/payments${withDevUserId(pagedParams(query))}`,
     );
     return handleResponse<PaymentListResult>(res);
+  },
+
+  async fetchSpending(months = 6): Promise<{ points: SpendingPoint[] }> {
+    const params = new URLSearchParams({ months: String(months) });
+    const res = await fetch(`${API_BASE_URL}/spending${withDevUserId(params)}`);
+    return handleResponse<{ points: SpendingPoint[] }>(res);
+  },
+
+  async fetchSpendingByApi(): Promise<{ breakdown: ApiSpending[] }> {
+    const res = await fetch(
+      `${API_BASE_URL}/spending/by-api${withDevUserId(new URLSearchParams())}`,
+    );
+    return handleResponse<{ breakdown: ApiSpending[] }>(res);
   },
 
   async fetchPaymentMethods(): Promise<{ paymentMethods: PaymentMethod[] }> {
