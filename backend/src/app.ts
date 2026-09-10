@@ -1,5 +1,11 @@
 import express from 'express';
 
+import adminRouter from './modules/admin/admin.routes';
+// The auth module's authOptional decodes the JWT only — no database round
+// trip — so the admin dashboard can still serve its mock fallback when
+// Postgres is unreachable. (repos/auth.service exports a same-named middleware
+// that DOES hit the database; they are not interchangeable here.)
+import { authOptional as authOptionalJwt } from './modules/auth/auth.middleware';
 import billingRouter from './modules/billing/billing.routes';
 import playgroundRouter from './modules/playground/playground.routes';
 import { authOptional } from './modules/repos/auth.service';
@@ -51,6 +57,10 @@ app.use('/api/playground', playgroundRouter);
 
 // Billing routes
 app.use('/api/billing', billingRouter);
+
+// Admin dashboard (platform overview). Registered before the `/api` catch-all
+// below so the repos router can't shadow it.
+app.use('/api/v1/admin', authOptionalJwt, adminRouter);
 
 // API Repository system (repos, branches, PRs, issues, releases, CI, marketplace)
 app.use('/api', authOptional, reposRouter);

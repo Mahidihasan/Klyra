@@ -1,0 +1,554 @@
+/**
+ * Admin user-management service.
+ *
+ * Reads degrade to deterministic sample data when Postgres is unreachable, the
+ * same as the platform overview. Writes never do: you cannot pretend to suspend
+ * someone, so a mutation against a dead database fails loudly instead.
+ *
+ * Every mutation writes an `audit_logs` row in the same transaction as the
+ * change itself. The schema was built for this — `audit_action` already has
+ * SUSPEND and BAN values and the table is commented "Immutable audit trail of
+ * all admin and system actions for compliance" — so a status change that
+ * committed without its audit row would be a silent compliance hole.
+ */
+
+import {
+  loadPool,
+  PoolClient,
+  QUERY_TIMEOUT_MS,
+  QueryablePool,
+  toIso,
+  toIsoOrNull,
+  toNumber,
+  withTimeout,
+  withTransaction,
+} from './admin.db';
+import { buildMockUserList, findMockUser } from './admin.users.mock';
+import {
+  canChangeRole,
+  canChangeStatus,
+  canImpersonate,
+  guardLastAdmin,
+  PolicyActor,
+} from './admin.users.policy';
+import {
+  AdminUserActivity,
+  AdminUserList,
+  AdminUserListQuery,
+  AdminUserMutationResult,
+  AdminUserProfile,
+  AdminUserRow,
+  GuardrailFailure,
+  UserRoleValue,
+  UserStatusValue,
+} from './admin.users.types';
+
+/** Thrown when a guardrail refuses the action. The route maps this to 403. */
+export class GuardrailError extends Error {
+  readonly code: GuardrailFailure['code'];
+
+  constructor(failure: GuardrailFailure) {
+    super(failure.message);
+    this.name = 'GuardrailError';
+    this.code = failure.code;
+  }
+}
+
+/** Thrown when the target account doesn't exist. The route maps this to 404. */
+export class UserNotFoundError extends Error {
+  constructor(id: string) {
+    super(`No user with id ${id}`);
+    this.name = 'UserNotFoundError';
+  }
+}
+
+/** Thrown when a write is attempted with no database. The route maps this to 503. */
+export class DatabaseUnavailableError extends Error {
+  constructor() {
+    super('The database is unavailable, so this change cannot be saved.');
+    this.name = 'DatabaseUnavailableError';
+  }
+}
+
+/**
+ * ORDER BY cannot be parameterised, so the sort field maps through a fixed
+ * lookup. Anything not in this table never reaches the query string.
+ */
+const SORT_COLUMN: Record<AdminUserListQuery['sort'], string> = {
+  joined: 'u.created_at',
+  name: 'u.name',
+  email: 'u.email',
+  role: 'u.role',
+  status: 'u.status',
+  apisOwned: 'apis_owned',
+};
+
+/** Columns shared by the list and the single-user lookup. */
+const USER_SELECT = `
+  u.id,
+  u.name,
+  u.email,
+  u.avatar_url,
+  u.role,
+  u.status,
+  u.email_verified_at,
+  u.created_at,
+  u.last_login_at,
+  (
+    SELECT COUNT(*) FROM apis a
+    WHERE a.owner_id = u.id AND a.deleted_at IS NULL
+  ) AS apis_owned,
+  (
+    SELECT COUNT(*) FROM user_subscriptions s
+    WHERE s.user_id = u.id AND s.status = 'ACTIVE'
+  ) AS apis_subscribed
+`;
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `users.id` is a uuid column, so a malformed id makes Postgres raise
+ * "invalid input syntax for type uuid" — a 500 for what is really a 404. The
+ * ids handed out by the mock generator are not uuids either, so a stale link
+ * from a degraded session would hit exactly that. Reject early instead.
+ */
+function assertLookupableId(id: string): void {
+  if (!UUID_PATTERN.test(id)) throw new UserNotFoundError(id);
+}
+
+function mapUserRow(row: Record<string, unknown>): AdminUserRow {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ''),
+    email: String(row.email ?? ''),
+    avatarUrl: (row.avatar_url as string | null) ?? null,
+    role: row.role as UserRoleValue,
+    status: row.status as UserStatusValue,
+    isPendingVerification: row.email_verified_at === null || row.email_verified_at === undefined,
+    apisOwned: toNumber(row.apis_owned),
+    apisSubscribed: toNumber(row.apis_subscribed),
+    joinedAt: toIso(row.created_at),
+    lastLoginAt: toIsoOrNull(row.last_login_at),
+  };
+}
+
+// ============================================================================
+// List
+// ============================================================================
+
+interface WhereClause {
+  sql: string;
+  values: unknown[];
+}
+
+/**
+ * Build the WHERE fragment for the list query.
+ *
+ * Every user-supplied value goes in as a bind parameter; only the column names
+ * are interpolated, and those come from constants in this file.
+ */
+export function buildUserWhere(query: AdminUserListQuery): WhereClause {
+  const conditions: string[] = ['u.deleted_at IS NULL'];
+  const values: unknown[] = [];
+
+  if (query.search) {
+    values.push(`%${query.search}%`);
+    const like = `$${values.length}`;
+    // id is a uuid, so it needs an explicit cast before ILIKE will touch it.
+    conditions.push(`(u.name ILIKE ${like} OR u.email ILIKE ${like} OR u.id::text ILIKE ${like})`);
+  }
+
+  if (query.role) {
+    values.push(query.role);
+    conditions.push(`u.role = $${values.length}::user_role`);
+  }
+
+  if (query.status === 'PENDING') {
+    // Derived, not stored: "signed up but never verified".
+    conditions.push('u.email_verified_at IS NULL');
+  } else if (query.status) {
+    values.push(query.status);
+    conditions.push(`u.status = $${values.length}::user_status`);
+  }
+
+  return { sql: conditions.join(' AND '), values };
+}
+
+async function queryUserList(
+  pool: QueryablePool,
+  query: AdminUserListQuery,
+): Promise<AdminUserList> {
+  const where = buildUserWhere(query);
+  const orderColumn = SORT_COLUMN[query.sort];
+  const orderDirection = query.direction === 'asc' ? 'ASC' : 'DESC';
+  const offset = (query.page - 1) * query.limit;
+
+  const values = [...where.values, query.limit, offset];
+  const limitPlaceholder = `$${where.values.length + 1}`;
+  const offsetPlaceholder = `$${where.values.length + 2}`;
+
+  // COUNT(*) OVER () gives the unpaginated total in the same round trip, so the
+  // count can't disagree with the page under concurrent writes.
+  const { rows } = await withTimeout(
+    pool.query<Record<string, unknown>>(
+      `
+      SELECT ${USER_SELECT}, COUNT(*) OVER () AS total_count
+      FROM users u
+      WHERE ${where.sql}
+      ORDER BY ${orderColumn} ${orderDirection} NULLS LAST, u.id ASC
+      LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}
+      `,
+      values,
+    ),
+    QUERY_TIMEOUT_MS,
+    'admin user list',
+  );
+
+  const total = rows.length > 0 ? toNumber(rows[0].total_count) : 0;
+
+  return {
+    users: rows.map(mapUserRow),
+    meta: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / query.limit)),
+    },
+    source: 'live',
+  };
+}
+
+export async function listUsers(query: AdminUserListQuery): Promise<AdminUserList> {
+  const pool = loadPool();
+  if (!pool) {
+    return buildMockUserList(query, 'No database connection is configured.');
+  }
+
+  try {
+    return await queryUserList(pool, query);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error('[admin] user list query failed, serving sample data:', reason);
+    return buildMockUserList(query, `Live user data is unavailable (${reason}).`);
+  }
+}
+
+// ============================================================================
+// Single user
+// ============================================================================
+
+async function fetchUserRow(db: QueryablePool | PoolClient, id: string): Promise<AdminUserRow> {
+  assertLookupableId(id);
+
+  const { rows } = await withTimeout(
+    db.query<Record<string, unknown>>(
+      `SELECT ${USER_SELECT} FROM users u WHERE u.id = $1 AND u.deleted_at IS NULL`,
+      [id],
+    ),
+    QUERY_TIMEOUT_MS,
+    'admin user lookup',
+  );
+
+  if (rows.length === 0) throw new UserNotFoundError(id);
+  return mapUserRow(rows[0]);
+}
+
+export async function getUserProfile(id: string): Promise<AdminUserProfile> {
+  const pool = loadPool();
+
+  if (!pool) {
+    const mock = findMockUser(id);
+    if (!mock) throw new UserNotFoundError(id);
+    return {
+      ...mock,
+      bio: null,
+      company: null,
+      website: null,
+      emailVerifiedAt: mock.isPendingVerification ? null : mock.joinedAt,
+      twoFactorEnabled: false,
+      updatedAt: mock.joinedAt,
+      recentActivity: [],
+      source: 'mock',
+    };
+  }
+
+  assertLookupableId(id);
+
+  const { rows } = await withTimeout(
+    pool.query<Record<string, unknown>>(
+      `
+      SELECT ${USER_SELECT},
+             u.bio,
+             u.company,
+             u.website,
+             u.two_factor_enabled,
+             u.updated_at
+      FROM users u
+      WHERE u.id = $1 AND u.deleted_at IS NULL
+      `,
+      [id],
+    ),
+    QUERY_TIMEOUT_MS,
+    'admin user profile',
+  );
+  if (rows.length === 0) throw new UserNotFoundError(id);
+  const row = rows[0];
+
+  return {
+    ...mapUserRow(row),
+    bio: (row.bio as string | null) ?? null,
+    company: (row.company as string | null) ?? null,
+    website: (row.website as string | null) ?? null,
+    emailVerifiedAt: toIsoOrNull(row.email_verified_at),
+    twoFactorEnabled: Boolean(row.two_factor_enabled),
+    updatedAt: toIso(row.updated_at),
+    recentActivity: await queryRecentActivity(pool, id),
+    source: 'live',
+  };
+}
+
+/** Best-effort: the drawer is still useful if the audit trail can't be read. */
+async function queryRecentActivity(
+  pool: QueryablePool,
+  userId: string,
+): Promise<AdminUserActivity[]> {
+  try {
+    const { rows } = await withTimeout(
+      pool.query<Record<string, unknown>>(
+        `
+        SELECT id, action, entity_type, created_at, ip_address
+        FROM audit_logs
+        WHERE user_id = $1 OR entity_id = $1
+        ORDER BY created_at DESC
+        LIMIT 8
+        `,
+        [userId],
+      ),
+      QUERY_TIMEOUT_MS,
+      'admin user activity',
+    );
+
+    return rows.map((row) => ({
+      id: String(row.id),
+      action: String(row.action),
+      entityType: String(row.entity_type),
+      createdAt: toIso(row.created_at),
+      ipAddress: (row.ip_address as string | null) ?? null,
+    }));
+  } catch (err) {
+    console.warn('[admin] could not read audit history:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+// ============================================================================
+// Audit
+// ============================================================================
+
+export interface AuditContext {
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+/**
+ * Map a status change to the closest `audit_action` enum value.
+ *
+ * The enum has no IMPERSONATE, so impersonation is logged as LOGIN — which is
+ * what it functionally is — with the detail carried in new_values.
+ */
+function auditActionForStatus(status: UserStatusValue): string {
+  if (status === 'SUSPENDED') return 'SUSPEND';
+  if (status === 'BANNED') return 'BAN';
+  return 'UPDATE';
+}
+
+async function writeAuditRow(
+  client: PoolClient,
+  params: {
+    actorId: string;
+    action: string;
+    entityId: string;
+    oldValues: Record<string, unknown> | null;
+    newValues: Record<string, unknown> | null;
+    context: AuditContext;
+  },
+): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO audit_logs
+      (user_id, action, entity_type, entity_id, old_values, new_values, ip_address, user_agent)
+    VALUES ($1, $2::audit_action, 'user', $3, $4::jsonb, $5::jsonb, $6::inet, $7)
+    `,
+    [
+      params.actorId,
+      params.action,
+      params.entityId,
+      params.oldValues ? JSON.stringify(params.oldValues) : null,
+      params.newValues ? JSON.stringify(params.newValues) : null,
+      params.context.ipAddress,
+      params.context.userAgent,
+    ],
+  );
+}
+
+// ============================================================================
+// Mutations
+// ============================================================================
+
+export async function updateUserStatus(
+  actor: PolicyActor,
+  targetId: string,
+  nextStatus: UserStatusValue,
+  reason: string | undefined,
+  context: AuditContext,
+): Promise<AdminUserMutationResult> {
+  const pool = loadPool();
+  if (!pool) throw new DatabaseUnavailableError();
+
+  const target = await fetchUserRow(pool, targetId);
+
+  const refusal = canChangeStatus(actor, { id: target.id, role: target.role }, nextStatus);
+  if (refusal) throw new GuardrailError(refusal);
+
+  return withTransaction(pool, async (client) => {
+    const { rows } = await client.query<Record<string, unknown>>(
+      `
+      UPDATE users
+      SET status = $1::user_status,
+          -- is_active is a denormalised mirror of status; keep them in step.
+          is_active = ($1 = 'ACTIVE'),
+          updated_at = NOW()
+      WHERE id = $2 AND deleted_at IS NULL
+      RETURNING id
+      `,
+      [nextStatus, targetId],
+    );
+
+    if (rows.length === 0) throw new UserNotFoundError(targetId);
+
+    await writeAuditRow(client, {
+      actorId: actor.id,
+      action: auditActionForStatus(nextStatus),
+      entityId: targetId,
+      oldValues: { status: target.status },
+      newValues: { status: nextStatus, reason: reason ?? null },
+      context,
+    });
+
+    const updated = await fetchUserRow(client, targetId);
+    return { user: updated, auditLogged: true };
+  });
+}
+
+export async function updateUserRole(
+  actor: PolicyActor,
+  targetId: string,
+  nextRole: UserRoleValue,
+  context: AuditContext,
+): Promise<AdminUserMutationResult> {
+  const pool = loadPool();
+  if (!pool) throw new DatabaseUnavailableError();
+
+  const target = await fetchUserRow(pool, targetId);
+
+  const refusal = canChangeRole(actor, { id: target.id, role: target.role });
+  if (refusal) throw new GuardrailError(refusal);
+
+  // No-op changes short-circuit so they don't pollute the audit trail.
+  if (target.role === nextRole) {
+    return { user: target, auditLogged: false };
+  }
+
+  const activeAdmins = await countActiveAdmins(pool);
+  const lockout = guardLastAdmin({ id: target.id, role: target.role }, nextRole, activeAdmins);
+  if (lockout) throw new GuardrailError(lockout);
+
+  return withTransaction(pool, async (client) => {
+    const { rows } = await client.query<Record<string, unknown>>(
+      `
+      UPDATE users
+      SET role = $1::user_role, updated_at = NOW()
+      WHERE id = $2 AND deleted_at IS NULL
+      RETURNING id
+      `,
+      [nextRole, targetId],
+    );
+
+    if (rows.length === 0) throw new UserNotFoundError(targetId);
+
+    await writeAuditRow(client, {
+      actorId: actor.id,
+      action: 'UPDATE',
+      entityId: targetId,
+      oldValues: { role: target.role },
+      newValues: { role: nextRole },
+      context,
+    });
+
+    const updated = await fetchUserRow(client, targetId);
+    return { user: updated, auditLogged: true };
+  });
+}
+
+async function countActiveAdmins(pool: QueryablePool): Promise<number> {
+  const { rows } = await withTimeout(
+    pool.query<Record<string, unknown>>(
+      `SELECT COUNT(*) AS n FROM users
+       WHERE role = 'ADMIN' AND status = 'ACTIVE' AND deleted_at IS NULL`,
+    ),
+    QUERY_TIMEOUT_MS,
+    'active admin count',
+  );
+
+  return rows.length > 0 ? toNumber(rows[0].n) : 0;
+}
+
+// ============================================================================
+// Impersonation
+// ============================================================================
+
+/** Deliberately short: long enough for a support task, short enough to expire. */
+export const IMPERSONATION_TTL_SECONDS = 600;
+
+/**
+ * Check the guardrails and return the target, ready for the route to mint a
+ * token. Token signing lives in the route so this module stays free of auth
+ * imports and remains easy to test.
+ */
+export async function prepareImpersonation(
+  actor: PolicyActor,
+  targetId: string,
+  context: AuditContext,
+): Promise<AdminUserRow> {
+  const pool = loadPool();
+  if (!pool) throw new DatabaseUnavailableError();
+
+  const target = await fetchUserRow(pool, targetId);
+
+  const refusal = canImpersonate(actor, { id: target.id, role: target.role });
+  if (refusal) throw new GuardrailError(refusal);
+
+  if (target.status !== 'ACTIVE') {
+    throw new GuardrailError({
+      code: 'IMPERSONATE_PRIVILEGED',
+      message: `This account is ${target.status.toLowerCase()} and cannot be impersonated.`,
+    });
+  }
+
+  await withTransaction(pool, async (client) => {
+    await writeAuditRow(client, {
+      actorId: actor.id,
+      action: 'LOGIN',
+      entityId: targetId,
+      oldValues: null,
+      newValues: {
+        impersonation: true,
+        targetEmail: target.email,
+        ttlSeconds: IMPERSONATION_TTL_SECONDS,
+      },
+      context,
+    });
+  });
+
+  return target;
+}

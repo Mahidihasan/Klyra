@@ -9,11 +9,20 @@ import { ApiDetailModal } from './components/ApiDetailModal';
 import { CreateCollectionModal } from './components/CreateCollectionModal';
 import { CommandPalette } from './components/CommandPalette';
 import { TabViews } from './components/TabViews';
-import { PlaygroundPage } from './pages/Playground/index';
-import { ApiBuildEntry } from './components/ApiBuildEntry';
-import { ApiBuilder } from './pages/ApiBuilder/index';
+import { PlaygroundPage } from './pages/Playground';
+import { ApiBuildEntry } from './pages/ApiBuildEntry';
+import { ApiBuilder } from './components/api-builder/ApiBuilder';
 import { BillingPage } from './pages/Billing/index';
 import { RepositoriesPage } from './pages/Repositories/index';
+import { AdminOverviewPage } from './pages/AdminOverview/index';
+import { AdminUsersPage } from './pages/AdminUsers/index';
+import { AdminApisPage } from './pages/AdminApis/index';
+import { AdminMarketplacePage } from './pages/AdminMarketplace/index';
+import { AdminRevenuePage } from './pages/AdminRevenue/index';
+import { AdminSubscriptionsPage } from './pages/AdminSubscriptions/index';
+import { AdminUsagePage } from './pages/AdminUsage/index';
+import { AdminActivityPage } from './pages/AdminActivity/index';
+import { ImpersonationBanner } from './components/ImpersonationBanner';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -28,10 +37,12 @@ import {
   MOCK_COLLECTIONS,
 } from './data/mockData';
 import { ApiItem, ApiProject, CollectionItem, NavigationTab } from './types/api';
+import { hasAdminAccess } from './config/adminAccess';
+import { getImpersonationSession } from './services/impersonation';
 import { ChevronRight, TrendingUp, Sparkles, Rocket, Star, RefreshCw } from 'lucide-react';
 
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   // Persist active tab in localStorage to survive refresh
   const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
     if (typeof window !== 'undefined') {
@@ -145,6 +156,19 @@ function AppContent() {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
+  // The admin tabs persist like any other, so a demoted or signed-out account
+  // could land back on one after a reload. Once auth has settled, send them home
+  // rather than leaving them on a screen the API will only answer with a 403.
+  // Impersonating counts as not being an admin: the token in play belongs to
+  // the target user, so every admin request would be refused anyway.
+  const isAdmin = hasAdminAccess(user?.role) && !getImpersonationSession();
+  useEffect(() => {
+    const isAdminTab = activeTab === 'admin-overview' || activeTab === 'admin-users' || activeTab === 'admin-apis' || activeTab === 'admin-marketplace' || activeTab === 'admin-revenue' || activeTab === 'admin-subscriptions' || activeTab === 'admin-usage' || activeTab === 'admin-activity';
+    if (!isLoading && isAdminTab && !isAdmin) {
+      setActiveTab('home');
+    }
+  }, [isLoading, activeTab, isAdmin]);
+
   // All combined APIs
   const allApis = useMemo(() => {
     return [
@@ -223,6 +247,10 @@ function AppContent() {
 
   return (
     <div className="app-container">
+      {/* Sits above every mode, including the full-screen Playground and API
+          Builder, so an impersonated session is never invisible. */}
+      <ImpersonationBanner />
+
       {/* When in Playground, hide the main Klyra topbar & sidebar entirely */}
       {activeTab === 'playground' ? (
         <PlaygroundPage apiProject={activeApiProject} onBackToKlyra={() => setActiveTab('home')} />
@@ -462,6 +490,38 @@ function AppContent() {
               ) : activeTab === 'repositories' ? (
                 <main>
                   <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
+                </main>
+              ) : activeTab === 'admin-overview' ? (
+                <main className="content-page-wrapper">
+                  <AdminOverviewPage />
+                </main>
+              ) : activeTab === 'admin-users' ? (
+                <main className="content-page-wrapper">
+                  <AdminUsersPage />
+                </main>
+              ) : activeTab === 'admin-apis' ? (
+                <main className="content-page-wrapper">
+                  <AdminApisPage />
+                </main>
+              ) : activeTab === 'admin-marketplace' ? (
+                <main className="content-page-wrapper">
+                  <AdminMarketplacePage />
+                </main>
+              ) : activeTab === 'admin-revenue' ? (
+                <main className="content-page-wrapper">
+                  <AdminRevenuePage />
+                </main>
+              ) : activeTab === 'admin-subscriptions' ? (
+                <main className="content-page-wrapper">
+                  <AdminSubscriptionsPage />
+                </main>
+              ) : activeTab === 'admin-usage' ? (
+                <main className="content-page-wrapper">
+                  <AdminUsagePage />
+                </main>
+              ) : activeTab === 'admin-activity' ? (
+                <main className="content-page-wrapper">
+                  <AdminActivityPage />
                 </main>
               ) : (
                 <main className="content-page-wrapper">

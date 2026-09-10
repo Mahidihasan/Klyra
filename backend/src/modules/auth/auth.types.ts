@@ -63,6 +63,14 @@ export interface JwtPayload {
   role: string;
   name: string;
   sessionId?: string;
+  /**
+   * Set only on admin impersonation tokens: the id of the admin who minted it.
+   *
+   * Its presence is what keeps an impersonated session distinguishable from a
+   * real login, so downstream code can attribute the action to the real
+   * operator and refuse anything that shouldn't be done by proxy.
+   */
+  impersonatedBy?: string;
   iat: number;
   exp: number;
 }
