@@ -14,6 +14,11 @@ import { AdminDataSource } from './admin.types';
 export const USER_ROLES = ['USER', 'PROVIDER', 'MODERATOR', 'ADMIN'] as const;
 export type UserRoleValue = (typeof USER_ROLES)[number];
 
+export interface ViewerIdentity {
+  id: string;
+  role: UserRoleValue;
+}
+
 /** Mirrors the `user_status` enum. */
 export const USER_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED'] as const;
 export type UserStatusValue = (typeof USER_STATUSES)[number];

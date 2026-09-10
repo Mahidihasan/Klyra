@@ -4,7 +4,7 @@ import { ViewerIdentity } from './admin.users.types';
 
 export class AdminSubscriptionsService {
   async getSubscriptions(filters: { status?: string; search?: string }): Promise<AdminSubscriptionRow[]> {
-    let query = \`
+    let query = `
       SELECT 
         us.id,
         u.name AS "subscriberName",
@@ -21,22 +21,22 @@ export class AdminSubscriptionsService {
       JOIN apis a ON a.id = us.api_id
       JOIN subscription_plans sp ON sp.id = us.plan_id
       WHERE 1=1
-    \`;
+    `;
     const params: any[] = [];
     let paramIndex = 1;
 
     if (filters.status) {
-      query += \` AND us.status = $\${paramIndex++}\`;
+      query += ` AND us.status = $${paramIndex++}`;
       params.push(filters.status);
     }
 
     if (filters.search) {
-      query += \` AND (u.email ILIKE $\${paramIndex} OR u.name ILIKE $\${paramIndex})\`;
-      params.push(\`%\${filters.search}%\`);
+      query += ` AND (u.email ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`;
+      params.push(`%${filters.search}%`);
       paramIndex++;
     }
 
-    query += \` ORDER BY us.created_at DESC LIMIT 100\`;
+    query += ` ORDER BY us.created_at DESC LIMIT 100`;
 
     const result = await db.query(query, params);
     return result.rows;
@@ -44,12 +44,12 @@ export class AdminSubscriptionsService {
 
   async cancelSubscription(viewer: ViewerIdentity, id: string): Promise<void> {
     const result = await db.query(
-      \`
+      `
       UPDATE user_subscriptions
       SET status = 'CANCELED', cancelled_at = NOW(), auto_renew = FALSE, updated_at = NOW()
       WHERE id = $1 AND status != 'CANCELED'
       RETURNING id, user_id, api_id
-      \`,
+      `,
       [id]
     );
 
@@ -58,16 +58,16 @@ export class AdminSubscriptionsService {
     }
 
     await db.query(
-      \`
+      `
       INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
       VALUES ($1, 'UPDATE', 'SUBSCRIPTION', $2, $3)
-      \`,
+      `,
       [viewer.id, id, { status: 'CANCELED', manual_override: true }]
     );
   }
 
   async getGlobalTierTemplates(): Promise<GlobalTierTemplate[]> {
-    const result = await db.query(\`SELECT value FROM system_settings WHERE key = 'global_tier_templates'\`);
+    const result = await db.query(`SELECT value FROM system_settings WHERE key = 'global_tier_templates'`);
     if (result.rows.length === 0 || !result.rows[0].value) {
       // Return defaults if none exist
       return [
@@ -80,22 +80,22 @@ export class AdminSubscriptionsService {
 
   async saveGlobalTierTemplates(viewer: ViewerIdentity, templates: GlobalTierTemplate[]): Promise<void> {
     await db.query(
-      \`
+      `
       INSERT INTO system_settings (key, value, updated_by, updated_at)
       VALUES ('global_tier_templates', $1::jsonb, $2, NOW())
       ON CONFLICT (key) DO UPDATE SET 
         value = EXCLUDED.value,
         updated_by = EXCLUDED.updated_by,
         updated_at = NOW()
-      \`,
+      `,
       [JSON.stringify(templates), viewer.id]
     );
 
     await db.query(
-      \`
+      `
       INSERT INTO audit_logs (user_id, action, resource_type, details)
       VALUES ($1, 'UPDATE', 'TIER_TEMPLATES', $2)
-      \`,
+      `,
       [viewer.id, { templates }]
     );
   }

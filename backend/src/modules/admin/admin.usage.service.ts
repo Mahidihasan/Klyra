@@ -10,7 +10,7 @@ export class AdminUsageService {
     // 1. Top Metrics
     // Calculate global stats
     const metricsResult = await db.query(
-      \`
+      `
       SELECT 
         COUNT(*) as total_requests,
         COALESCE(AVG(latency_ms), 0) as avg_latency,
@@ -18,7 +18,7 @@ export class AdminUsageService {
         SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count
       FROM api_analytics
       WHERE created_at >= NOW() - $1::interval
-      \`,
+      `,
       [interval]
     );
 
@@ -40,7 +40,7 @@ export class AdminUsageService {
 
     // 2. Top Endpoints
     const endpointsResult = await db.query(
-      \`
+      `
       SELECT 
         request_method as method,
         endpoint as path,
@@ -52,7 +52,7 @@ export class AdminUsageService {
       GROUP BY request_method, endpoint
       ORDER BY hits DESC
       LIMIT 10
-      \`,
+      `,
       [interval]
     );
 
@@ -66,7 +66,7 @@ export class AdminUsageService {
 
     // 3. Throttling Incidents
     const throttlingResult = await db.query(
-      \`
+      `
       SELECT 
         aa.ip_address,
         a.name as api_name,
@@ -78,7 +78,7 @@ export class AdminUsageService {
       GROUP BY aa.ip_address, a.name
       ORDER BY hits DESC
       LIMIT 10
-      \`,
+      `,
       [interval]
     );
 
@@ -91,7 +91,7 @@ export class AdminUsageService {
 
     // 4. Time Series (Live spike chart - group by minute for the last hour)
     const timeSeriesResult = await db.query(
-      \`
+      `
       SELECT 
         DATE_TRUNC('minute', created_at) as ts,
         COUNT(*) as requests,
@@ -100,7 +100,7 @@ export class AdminUsageService {
       WHERE created_at >= NOW() - $1::interval
       GROUP BY DATE_TRUNC('minute', created_at)
       ORDER BY ts ASC
-      \`,
+      `,
       [interval]
     );
 

@@ -10,11 +10,11 @@ export class AdminRevenueService {
 
     // 1. Gross Volume
     const grossResult = await db.query(
-      \`
+      `
       SELECT COALESCE(SUM(amount), 0) as total
       FROM payments
       WHERE status = 'SUCCESS' AND created_at >= NOW() - $1::interval
-      \`,
+      `,
       [interval]
     );
     const grossVolume = parseFloat(grossResult.rows[0].total);
@@ -22,11 +22,11 @@ export class AdminRevenueService {
 
     // 2. Pending Payouts
     const pendingResult = await db.query(
-      \`
+      `
       SELECT COALESCE(SUM(amount), 0) as total
       FROM provider_payouts
       WHERE status = 'PENDING'
-      \`
+      `
     );
     const pendingPayouts = parseFloat(pendingResult.rows[0].total);
 
@@ -37,7 +37,7 @@ export class AdminRevenueService {
     const truncFormat = range === '1y' ? 'month' : 'day';
     
     const timeSeriesResult = await db.query(
-      \`
+      `
       SELECT 
         DATE_TRUNC($2, created_at) as date,
         COALESCE(SUM(amount), 0) as volume
@@ -45,7 +45,7 @@ export class AdminRevenueService {
       WHERE status = 'SUCCESS' AND created_at >= NOW() - $1::interval
       GROUP BY DATE_TRUNC($2, created_at)
       ORDER BY date ASC
-      \`,
+      `,
       [interval, truncFormat]
     );
 
@@ -66,7 +66,7 @@ export class AdminRevenueService {
 
   async getPayouts(): Promise<ProviderPayoutRow[]> {
     const result = await db.query(
-      \`
+      `
       SELECT 
         p.id,
         p.provider_id AS "providerId",
@@ -82,7 +82,7 @@ export class AdminRevenueService {
       JOIN users u ON u.id = p.provider_id
       ORDER BY p.created_at DESC
       LIMIT 100
-      \`
+      `
     );
     return result.rows.map(row => ({
       ...row,
@@ -92,12 +92,12 @@ export class AdminRevenueService {
 
   async approvePayout(viewer: ViewerIdentity, id: string): Promise<void> {
     const result = await db.query(
-      \`
+      `
       UPDATE provider_payouts
       SET status = 'PROCESSED', processed_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND status = 'PENDING'
       RETURNING id, provider_id, amount
-      \`,
+      `,
       [id]
     );
 
@@ -106,10 +106,10 @@ export class AdminRevenueService {
     }
 
     await db.query(
-      \`
+      `
       INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
       VALUES ($1, 'UPDATE', 'PAYOUT', $2, $3)
-      \`,
+      `,
       [viewer.id, id, { status: 'PROCESSED' }]
     );
   }
