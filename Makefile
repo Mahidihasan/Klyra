@@ -1,17 +1,18 @@
-.PHONY: help dev build lint test clean migrate seed deploy backup restore
+.PHONY: help dev build lint test clean migrate migrate-status seed deploy backup restore
 
 help:
 	@echo 'Available commands:'
-	@echo '  make dev        - Start development environment with hot reload'
-	@echo '  make build      - Build production assets'
-	@echo '  make lint       - Run linter'
-	@echo '  make test       - Run tests'
-	@echo '  make clean      - Clean build artifacts'
-	@echo '  make migrate    - Run database migrations'
-	@echo '  make seed       - Seed database with initial data'
-	@echo '  make deploy     - Deploy to production'
-	@echo '  make backup     - Backup database'
-	@echo '  make restore    - Restore database from backup'
+	@echo '  make dev           - Start development environment with hot reload'
+	@echo '  make build         - Build production assets'
+	@echo '  make lint          - Run linter'
+	@echo '  make test          - Run tests'
+	@echo '  make clean         - Clean build artifacts'
+	@echo '  make migrate       - Apply database migrations'
+	@echo '  make migrate-status- Show applied/pending migrations'
+	@echo '  make seed          - Seed database with initial data'
+	@echo '  make deploy        - Deploy to production'
+	@echo '  make backup        - Backup database'
+	@echo '  make restore       - Restore database from backup'
 
 dev:
 	pnpm dev
@@ -31,7 +32,10 @@ clean:
 	rm -rf **/.turbo
 
 migrate:
-	cd backend && pnpm prisma migrate dev
+	cd backend && pnpm db:migrate
+
+migrate-status:
+	cd backend && pnpm db:migrate:status
 
 seed:
 	cd backend && pnpm prisma db seed

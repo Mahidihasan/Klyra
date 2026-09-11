@@ -12,6 +12,8 @@ export interface RepoSummary {
   owner_id: number;
   owner_username: string;
   description: string;
+  website?: string;
+  topics?: string;
   visibility: 'private' | 'public' | string;
   license: string;
   language: string;

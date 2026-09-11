@@ -132,58 +132,51 @@ export const DiffView: React.FC<{ patch: string }> = ({ patch }) => {
   );
 };
 
-// ---------- tiny markdown renderer for README / docs ----------
-function inlineMd(text: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)]+\))/g;
-  let last = 0, m: RegExpExecArray | null, k = 0;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) nodes.push(text.slice(last, m.index));
-    if (m[1]) nodes.push(<code key={k++}>{m[1].slice(1, -1)}</code>);
-    else if (m[2]) nodes.push(<strong key={k++}>{m[2].slice(2, -2)}</strong>);
-    else if (m[3]) {
-      const parts = m[3].match(/\[([^\]]+)\]\(([^)]+)\)/);
-      if (parts) nodes.push(<a key={k++} href={parts[2]} target="_blank" rel="noreferrer">{parts[1]}</a>);
-    }
-    last = m.index + m[0].length;
+// ---------- GFM markdown renderer for README / docs (marked + DOMPurify, LaTeX math via KaTeX) ----------
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+
+marked.setOptions({ gfm: true, breaks: true });
+
+// Extract math segments BEFORE marked parses, so $..$, \(..\), $$..$$, \[..\]
+// are never mangled by the markdown parser, then restore them as KaTeX HTML.
+const MATH_TOKEN = 'KLvraMATH';
+function extractMath(src: string): { text: string; segments: { tex: string; display: boolean }[] } {
+  const segments: { tex: string; display: boolean }[] = [];
+  const stash = (tex: string, display: boolean) => {
+    segments.push({ tex, display });
+    return `${MATH_TOKEN}${segments.length - 1}END`;
+  };
+  let text = src
+    // fenced/inline code must be left alone
+    .replace(/(`+)([\s\S]*?)\1/g, (m) => m.replace(/\$/g, '\u0001DOLLAR\u0001'))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => stash(tex, true))
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => stash(tex, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => stash(tex, false))
+    .replace(/(?<![\\$\w])\$(?!\s)((?:[^$\n\\]|\\.)+?(?<!\\))\$(?!\d)/g, (_, tex) => stash(tex, false));
+  text = text.replace(/\u0001DOLLAR\u0001/g, '$');
+  return { text, segments };
+}
+
+function renderMathHtml(tex: string, display: boolean): string {
+  try {
+    return katex.renderToString(tex, { displayMode: display, throwOnError: false, strict: false });
+  } catch {
+    return `<code>${tex.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code>`;
   }
-  if (last < text.length) nodes.push(text.slice(last));
-  return nodes;
 }
 
 export const MiniMarkdown: React.FC<{ source: string }> = ({ source }) => {
-  const blocks: React.ReactNode[] = [];
-  const lines = source.split('\n');
-  let i = 0, key = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.startsWith('```')) {
-      const buf: string[] = []; i++;
-      while (i < lines.length && !lines[i].startsWith('```')) { buf.push(lines[i]); i++; }
-      i++;
-      blocks.push(<pre key={key++}>{buf.join(nl())}</pre>);
-      continue;
-    }
-    const h = line.match(/^(#{1,4})\s+(.*)$/);
-    if (h) {
-      const Tag = `h${h[1].length}` as any;
-      blocks.push(<Tag key={key++}>{inlineMd(h[2])}</Tag>);
-      i++; continue;
-    }
-    if (/^[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^[-*]\s+/.test(lines[i])) { items.push(lines[i].replace(/^[-*]\s+/, '')); i++; }
-      blocks.push(<ul key={key++}>{items.map((t, j) => <li key={j}>{inlineMd(t)}</li>)}</ul>);
-      continue;
-    }
-    if (line.trim() === '') { i++; continue; }
-    const para: string[] = [];
-    while (i < lines.length && lines[i].trim() !== '' && !lines[i].startsWith('#') && !lines[i].startsWith('```') && !/^[-*]\s+/.test(lines[i])) {
-      para.push(lines[i]); i++;
-    }
-    blocks.push(<p key={key++}>{inlineMd(para.join(' '))}</p>);
-  }
-  return <div className="readme-body">{blocks}</div>;
+  const { text, segments } = extractMath(source || '');
+  let html = marked.parse(text, { async: false }) as string;
+  html = DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+  // Restore math (KaTeX output is trusted, generated locally)
+  html = html.replace(new RegExp(`${MATH_TOKEN}(\\d+)END`, 'g'), (_, idx) =>
+    renderMathHtml(segments[Number(idx)]?.tex ?? '', segments[Number(idx)]?.display ?? false));
+  const html1 = html;
+  return <div className="readme-body gfm" dangerouslySetInnerHTML={{ __html: html1 }} />;
 };
 
 const nl = () => String.fromCharCode(10);

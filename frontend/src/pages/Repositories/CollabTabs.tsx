@@ -387,7 +387,7 @@ const PullRequestView: React.FC<{ repo: RepoDetail; number: number; canMerge: bo
 };
 
 // ============================ ISSUES ============================
-export const IssuesTab: React.FC<{ repo: RepoDetail; canWrite: boolean }> = ({ repo, canWrite }) => {
+export const IssuesTab: React.FC<{ repo: RepoDetail; canWrite: boolean; refreshKey?: number }> = ({ repo, canWrite, refreshKey = 0 }) => {
   const [issues, setIssues] = React.useState<Issue[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
@@ -408,6 +408,23 @@ export const IssuesTab: React.FC<{ repo: RepoDetail; canWrite: boolean }> = ({ r
   }, [repo.id]);
 
   React.useEffect(() => { load(); }, [load]);
+
+  // Realtime: when the repository live-refresh key bumps (SSE push from another
+  // session — e.g. someone files/closes an issue or comments elsewhere), refetch
+  // silently: keep current content visible, never flip back to a loading screen.
+  const firstLive = React.useRef(true);
+  React.useEffect(() => {
+    if (firstLive.current) { firstLive.current = false; return; }
+    (async () => {
+      try {
+        setIssues(await issuesApi.list(repo.id));
+        if (open !== null) {
+          setIssue(await issuesApi.get(repo.id, open));
+        }
+      } catch { /* transient — the fallback poll will retry */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   const view = async (n: number) => {
     setOpen(n); setIssue(null); setActionError('');

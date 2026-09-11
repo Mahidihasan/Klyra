@@ -227,9 +227,26 @@ export class AuthService {
       }
     }
 
-    // 2. Check if email is verified
+    // 2. Check if email is verified — if not, re-issue and send a fresh
+    //    verification OTP so the user can verify and then log in. If the resend
+    //    is on cooldown / rate-limited / undeliverable we still return
+    //    EMAIL_NOT_VERIFIED but surface the relevant guidance to the client.
     if (!user.email_verified_at) {
-      const err = new Error('Please verify your email address before logging in. A verification link was sent to your inbox.') as any;
+      let verificationNote =
+        'Please verify your email address before logging in. A new verification code has been sent to your email.';
+
+      try {
+        const otp = await issueOtp(user.id, 'EMAIL_VERIFICATION');
+        await OtpEmailService.sendVerificationOTP(user.email, otp);
+      } catch (err: any) {
+        if (err instanceof OtpError || err instanceof EmailDeliveryError) {
+          verificationNote = `Please verify your email address before logging in. ${err.message}`;
+        } else {
+          verificationNote = 'Please verify your email address before logging in. A verification link was sent to your inbox.';
+        }
+      }
+
+      const err = new Error(verificationNote) as any;
       err.code = 'EMAIL_NOT_VERIFIED';
       throw err;
     }

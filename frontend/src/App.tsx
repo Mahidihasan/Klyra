@@ -10,8 +10,8 @@ import { CreateCollectionModal } from './components/CreateCollectionModal';
 import { CommandPalette } from './components/CommandPalette';
 import { TabViews } from './components/TabViews';
 import { PlaygroundPage } from './pages/Playground/index';
-import { ApiBuildEntry } from './components/ApiBuildEntry';
 import { ApiBuilder } from './pages/ApiBuilder/index';
+import { ApiBuildPage } from './pages/ApiBuild';
 import { BillingPage } from './pages/Billing/index';
 import { RepositoriesPage } from './pages/Repositories/index';
 import './pages/Playground/styles.css';
@@ -28,7 +28,7 @@ import {
   MOCK_COLLECTIONS,
 } from './data/mockData';
 import { ApiItem, ApiProject, CollectionItem, NavigationTab } from './types/api';
-import { ChevronRight, TrendingUp, Sparkles, Rocket, Star, RefreshCw } from 'lucide-react';
+import { ChevronRight, TrendingUp, Sparkles, Rocket, Star, RefreshCw, FlaskConical, X, ArrowLeft } from 'lucide-react';
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -140,6 +140,28 @@ function AppContent() {
   // Collections state
   const [collections, setCollections] = useState<CollectionItem[]>(MOCK_COLLECTIONS);
 
+  // Repository → API → Playground bridge: repository screens dispatch
+  // `klyra:open-playground`; the shell exits fullscreen repo mode and lands on
+  // the Playground with the originating repo/endpoint as context.
+  // NOTE: must be declared before any early returns (Rules of Hooks).
+  const [playgroundContext, setPlaygroundContext] = useState<{ repoId: string; repoName: string; endpoint?: { method: string; path: string } } | null>(() => {
+    try {
+      const raw = localStorage.getItem('klyra_playground_context');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.repoId) return;
+      setPlaygroundContext(detail);
+      setActiveTab('playground');
+      try { localStorage.setItem('activeTab', 'playground'); } catch { /* ignore */ }
+    };
+    window.addEventListener('klyra:open-playground', handler);
+    return () => window.removeEventListener('klyra:open-playground', handler);
+  }, []);
+
   // Persist active tab to localStorage
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -221,11 +243,52 @@ function AppContent() {
     );
   }
 
+  // Repository → API → Playground bridge hooks are declared at the top of the
+  // component (before the early returns) to satisfy the Rules of Hooks.
+
   return (
     <div className="app-container">
       {/* When in Playground, hide the main Klyra topbar & sidebar entirely */}
       {activeTab === 'playground' ? (
-        <PlaygroundPage apiProject={activeApiProject} onBackToKlyra={() => setActiveTab('home')} />
+        <div style={{ position: 'relative' }}>
+          {playgroundContext && (
+            <div
+              style={{
+                position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 50,
+                display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)',
+                background: 'rgba(20,20,28,0.92)', border: '1px solid rgba(139,92,246,0.4)',
+                borderRadius: 999, padding: '6px 8px 6px 12px', maxWidth: '92vw',
+              }}
+            >
+              <FlaskConical size={13} />
+              <span>From repository <b>{playgroundContext.repoName}</b></span>
+              {playgroundContext.endpoint && (
+                <span style={{ fontFamily: 'var(--font-mono)' }}>{playgroundContext.endpoint.method} {playgroundContext.endpoint.path}</span>
+              )}
+              <button
+                type="button" title="Dismiss repository context"
+                onClick={() => { setPlaygroundContext(null); try { localStorage.removeItem('klyra_playground_context'); } catch { /* ignore */ } }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex' }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
+          <PlaygroundPage apiProject={activeApiProject} onBackToKlyra={() => setActiveTab('home')} />
+        </div>
+      ) : activeTab === 'api-build' ? (
+        /* API Build opens as a full-page workspace (no marketplace topbar/sidebar) */
+        <div style={{ position: 'relative', minHeight: '100vh', background: 'var(--bg-primary, #0b0c12)' }}>
+          <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}>
+          </div>
+          <ApiBuildPage
+            onOpenPlayground={() => {
+              setPlaygroundContext({ repoId: activeApiProject?.id || '', repoName: activeApiProject?.name || 'API Project' });
+              setActiveTab('playground');
+              try { localStorage.setItem('activeTab', 'playground'); } catch { /* ignore */ }
+            }}
+          />
+        </div>
       ) : activeTab === 'api-builder' && activeApiProject ? (
         <ApiBuilder
           project={activeApiProject}
@@ -239,14 +302,6 @@ function AppContent() {
                 projects.map((item: ApiProject) => (item.id === project.id ? project : item)),
               ),
             );
-          }}
-        />
-      ) : activeTab === 'api-build' ? (
-        <ApiBuildEntry
-          onBack={() => setActiveTab('home')}
-          onOpenProject={(project) => {
-            setActiveApiProject(project);
-            setActiveTab('api-builder');
           }}
         />
       ) : (

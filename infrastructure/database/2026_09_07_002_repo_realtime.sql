@@ -20,8 +20,19 @@ DECLARE
     v_repo_id  UUID;
     v_payload  TEXT;
 BEGIN
-    -- NEW on INSERT/UPDATE, OLD on DELETE. Repo-scoped tables carry repo_id.
-    v_repo_id := COALESCE(NEW.repo_id, OLD.repo_id);
+    -- NEW on INSERT/UPDATE, OLD on DELETE. kr_repositories is identified by its
+    -- own primary key `id`; the child tables (kr_ci_runs, kr_deployments,
+    -- kr_activity) carry a repo_id column. Resolve the repo-scoped key per
+    -- table so this never throws on kr_repositories (which has no repo_id).
+    IF TG_TABLE_NAME = 'kr_repositories' THEN
+        v_repo_id := COALESCE((NEW).id, (OLD).id);
+    ELSIF TG_TABLE_NAME = 'kr_issue_comments' THEN
+        -- comments carry issue_id, not repo_id; resolve via the parent issue
+        SELECT repo_id INTO v_repo_id FROM kr_issues
+        WHERE id = COALESCE((NEW).issue_id, (OLD).issue_id);
+    ELSE
+        v_repo_id := COALESCE(NEW.repo_id, OLD.repo_id);
+    END IF;
     IF v_repo_id IS NULL THEN
         RETURN COALESCE(NEW, OLD);
     END IF;

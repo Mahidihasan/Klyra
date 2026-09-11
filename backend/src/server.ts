@@ -13,6 +13,7 @@ dotenv.config();
 import app from './app';
 import { connectListener } from './modules/billing/realtime.service';
 import { connectRepoListener } from './modules/repos/realtime.service';
+import { startApiBuildQueue } from './modules/api-build/api-build.queue';
 
 const PORT = process.env.PORT || 4000;
 
@@ -34,6 +35,7 @@ void connectListener();
 // Open the Postgres LISTEN/NOTIFY connection for repository realtime (CI,
 // deployments, activity). Also retries in the background.
 void connectRepoListener();
+startApiBuildQueue();
 
 process.on('SIGTERM', () => {
   // eslint-disable-next-line no-console

@@ -2,13 +2,16 @@ import React from 'react';
 import {
   Zap, RefreshCw, Beaker, Rocket, Tag, Store, Settings as SettingsIcon, GitBranch, ArrowLeftRight,
   ShieldCheck, ShieldAlert, Cpu, Terminal, Play, CheckCircle2, XCircle, Clock, Server, Trash2,
-  Lock, Globe, AlertTriangle, Key, Layers, ExternalLink,
+  Lock, Globe, AlertTriangle, Key, Layers, ExternalLink, FlaskConical,
 } from 'lucide-react';
 import { apiDetectApi, ciApi, releasesApi, deploymentsApi, marketplaceApi, gitApi, reposApi, gitRemoteUrl } from '../../services/api/repos';
 import { RepoDetail, Detection, CiRun, Release, MarketplaceListing, Deployment } from '../../types/repos';
+import { openPlayground } from './OverviewTab';
 import { CloneBox, DiffView, EmptyState, ErrorBox, Loading, MiniMarkdown, Modal, StatusPill, timeAgo } from './shared';
 
-// ============================ SECURITY & QUALITY (API TAB) ============================
+// ============================ API (derived from this repository) ============================
+// Repository → API → Playground: this tab shows the API the repo powers.
+// Security/quality scan details are preserved below the API-first header.
 type AuditTabType = 'secrets' | 'openapi' | 'api-findings' | 'dependencies' | 'quality';
 
 export const ApiTab: React.FC<{ repo: RepoDetail }> = ({ repo }) => {
@@ -52,17 +55,22 @@ export const ApiTab: React.FC<{ repo: RepoDetail }> = ({ repo }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ShieldCheck size={20} color="var(--accent-purple)" /> Security & Quality
+              <Cpu size={20} color="var(--accent-purple)" /> API
             </h3>
             <div className="list-sub" style={{ marginTop: 2 }}>
-              Automated repository security audit, code quality metrics, and dependency scanning. Click any metric or finding to inspect details.
+              The API derived from this repository's source. Test it in the Playground or inspect the source scan below.
             </div>
           </div>
 
-          <button type="button" className="kr-btn primary" disabled={busy} onClick={run}>
-            <RefreshCw size={14} className={busy ? 'kr-spin' : ''} />
-            {busy ? 'Scanning codebase…' : 'Run full scan'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="kr-btn primary" onClick={() => openPlayground({ repoId: repo.id, repoName: repo.name })}>
+              <FlaskConical size={14} /> Open Playground
+            </button>
+            <button type="button" className="kr-btn" disabled={busy} onClick={run}>
+              <RefreshCw size={14} className={busy ? 'kr-spin' : ''} />
+              {busy ? 'Syncing…' : 'Sync repository'}
+            </button>
+          </div>
         </div>
 
         {/* Metrics Grid */}
@@ -205,24 +213,36 @@ export const ApiTab: React.FC<{ repo: RepoDetail }> = ({ repo }) => {
             </div>
           </div>
 
-          {/* Endpoints Table */}
+          {/* Endpoints Table — each row opens the Playground with that endpoint context */}
           <div className="kr-card mt16">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
               <h4 style={{ margin: 0 }}>API Endpoints ({detected.endpoints.length})</h4>
-              <button type="button" className="kr-btn action-btn" onClick={() => setInspectModalTab('api-findings')}>
-                Inspect API Audit Findings
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="kr-btn" onClick={() => openPlayground({ repoId: repo.id, repoName: repo.name })}>
+                  <FlaskConical size={13} /> Open Playground
+                </button>
+                <button type="button" className="kr-btn action-btn" onClick={() => setInspectModalTab('api-findings')}>
+                  Inspect API Audit Findings
+                </button>
+              </div>
             </div>
             {detected.endpoints.length === 0 ? (
               <div className="list-sub mt8">No API routes detected in source files.</div>
             ) : (
               <div className="mt8">
                 {detected.endpoints.map((e, i) => (
-                  <div key={i} className="endpoint-row">
+                  <button
+                    key={i}
+                    type="button"
+                    className="endpoint-row"
+                    style={{ width: '100%', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer', textAlign: 'left' }}
+                    title={`Test ${e.method} ${e.path} in the Playground`}
+                    onClick={() => openPlayground({ repoId: repo.id, repoName: repo.name, endpoint: { method: e.method, path: e.path } })}
+                  >
                     <span className={"method-pill " + e.method}>{e.method}</span>
                     <span className="endpoint-path">{e.path}</span>
                     <span className="endpoint-file">{e.sourceFile}:{e.line}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}

@@ -251,7 +251,20 @@ export function ensureReposSchema(): Promise<void> {
             v_repo_id  UUID;
             v_payload  TEXT;
         BEGIN
-            v_repo_id := COALESCE(NEW.repo_id, OLD.repo_id);
+            -- kr_repositories is identified by its own primary key [id],
+            -- whereas the child tables (kr_ci_runs, kr_deployments,
+            -- kr_activity) carry a repo_id foreign-key column. Resolve the
+            -- correct repo-scoped key per table so the trigger never throws
+            -- 'record new has no field repo_id' on kr_repositories.
+            IF TG_TABLE_NAME = 'kr_repositories' THEN
+                v_repo_id := COALESCE((NEW).id, (OLD).id);
+            ELSIF TG_TABLE_NAME = 'kr_issue_comments' THEN
+                -- comments carry issue_id, not repo_id; resolve via parent issue
+                SELECT repo_id INTO v_repo_id FROM kr_issues
+                WHERE id = COALESCE((NEW).issue_id, (OLD).issue_id);
+            ELSE
+                v_repo_id := COALESCE(NEW.repo_id, OLD.repo_id);
+            END IF;
             IF v_repo_id IS NULL THEN
                 RETURN COALESCE(NEW, OLD);
             END IF;
@@ -286,6 +299,20 @@ export function ensureReposSchema(): Promise<void> {
         CREATE TRIGGER trg_repo_change_repositories
             AFTER INSERT OR UPDATE OR DELETE ON kr_repositories
             FOR EACH ROW EXECUTE FUNCTION notify_repo_change();
+
+        DROP TRIGGER IF EXISTS trg_repo_change_issues ON kr_issues;
+        CREATE TRIGGER trg_repo_change_issues
+            AFTER INSERT OR UPDATE OR DELETE ON kr_issues
+            FOR EACH ROW EXECUTE FUNCTION notify_repo_change();
+
+        DROP TRIGGER IF EXISTS trg_repo_change_issue_comments ON kr_issue_comments;
+        CREATE TRIGGER trg_repo_change_issue_comments
+            AFTER INSERT OR UPDATE OR DELETE ON kr_issue_comments
+            FOR EACH ROW EXECUTE FUNCTION notify_repo_change();
+
+        /* About-section columns (idempotent — safe on pre-existing databases) */
+        ALTER TABLE kr_repositories ADD COLUMN IF NOT EXISTS website TEXT DEFAULT '';
+        ALTER TABLE kr_repositories ADD COLUMN IF NOT EXISTS topics TEXT DEFAULT '';
       `);
     })();
   }

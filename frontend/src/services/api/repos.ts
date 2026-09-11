@@ -56,7 +56,7 @@ export const reposApi = {
   list: () => request<RepoSummary[]>('/repos'),
   get: (id: string) => request<RepoDetail>(`/repos/${id}`),
   create: (payload: Partial<RepoSummary> & { name: string }) => post<{ id: string }>('/repos', payload),
-  import: (payload: { name: string; clone_url: string; description?: string; visibility?: string; default_branch?: string }) =>
+  import: (payload: { name: string; clone_url: string; description?: string; visibility?: string; default_branch?: string; github_token?: string }) =>
     post<{ id: string }>('/repos/import', payload),
   update: (id: string, payload: any) =>
     request<RepoDetail>(`/repos/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),

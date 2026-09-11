@@ -393,6 +393,19 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       }
     } catch (err: any) {
       setPassword('');
+
+      // Account exists but email isn't verified yet — the backend re-sent a
+      // fresh verification OTP on this login attempt, so drop the user into
+      // the verify-email (OTP) view to complete verification and then log in.
+      if (err.code === 'EMAIL_NOT_VERIFIED') {
+        setPendingVerificationEmail(email.trim().toLowerCase());
+        setMode('verify-email');
+        setResendCooldown(60);
+        setError(err.message || 'Please verify your email address before logging in.');
+        setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
+        return;
+      }
+
       setError(err.message || 'Login failed.');
 
       // Check if account locked
@@ -443,9 +456,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setOtpDigits(nextDigits);
         const nextFocus = Math.min(cleanVal.length, 5);
         otpInputRefs.current[nextFocus]?.focus();
-        if (cleanVal.length === 6) {
+        if (mode === '2fa' && cleanVal.length === 6) {
           setTimeout(() => {
-            // Auto-submit if 6 digits provided
+            // Auto-submit 2FA if 6 digits provided
             authApi
               .verify2FA(twoFactorTempToken, cleanVal)
               .then(() => {

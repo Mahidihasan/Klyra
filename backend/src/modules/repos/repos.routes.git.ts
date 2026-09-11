@@ -78,7 +78,7 @@ router.get('/repos/:id/commits', requireAuth, async (req, res) => {
   try {
     const ctx = await loadRepoFor(req, res, 'read');
     if (!ctx) return;
-    const ref = String(req.query.ref || ctx.repo.default_branch);
+    const ref = await git.resolveRef(ctx.repo.id, String(req.query.ref || ctx.repo.default_branch));
     const limit = Math.min(parseInt(String(req.query.limit) || '30', 10) || 30, 100);
     const page = Math.max(parseInt(String(req.query.page) || '0', 10) || 0, 0);
     const pathFilter = req.query.path ? String(req.query.path) : undefined;
@@ -104,7 +104,7 @@ router.get('/repos/:id/tree', requireAuth, async (req, res) => {
   try {
     const ctx = await loadRepoFor(req, res, 'read');
     if (!ctx) return;
-    const ref = String(req.query.ref || ctx.repo.default_branch);
+    const ref = await git.resolveRef(ctx.repo.id, String(req.query.ref || ctx.repo.default_branch));
     const dir = String(req.query.path || '');
     const recursive = req.query.recursive === '1';
     const entries = await git.listTree(ctx.repo.id, ref, dir, recursive);
@@ -117,7 +117,7 @@ router.get('/repos/:id/file', requireAuth, async (req, res) => {
   try {
     const ctx = await loadRepoFor(req, res, 'read');
     if (!ctx) return;
-    const ref = String(req.query.ref || ctx.repo.default_branch);
+    const ref = await git.resolveRef(ctx.repo.id, String(req.query.ref || ctx.repo.default_branch));
     const filePath = String(req.query.path || '');
     if (!filePath || filePath.includes('..')) return res.status(400).json({ error: 'Invalid file path' });
     const content = await git.readFileAt(ctx.repo.id, ref, filePath);

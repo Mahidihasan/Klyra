@@ -1,6 +1,7 @@
 import React from 'react';
 import {
-  GitBranch, Tag, History, ChevronDown, Copy, Search, BookOpen, Users, Store, Settings, Cpu, Rocket,
+  GitBranch, Tag, History, ChevronDown, Copy, Search, BookOpen, Users, Store, Settings, Cpu, Rocket, Globe,
+  Lock, Unlock, Scale,
 } from 'lucide-react';
 import { gitApi, apiDetectApi, reposApi, gitRemoteUrl } from '../../services/api/repos';
 import { RepoDetail, TreeEntry, RepoTab, Detection, Overview, CommitInfo } from '../../types/repos';
@@ -15,7 +16,7 @@ import { RepoCodeViewer } from './components/RepoCodeViewer';
 // Root View: Main root file table + README.md + Right About sidebar
 // Code / Directory View: Left persistent file tree + Right main content (Breadcrumbs → Code viewer / Subfolder table)
 
-export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => void }> = ({ repo, onNavigate }) => {
+export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => void; onChanged?: () => void }> = ({ repo, onNavigate, onChanged }) => {
   // Deep-link support: #/repo/<id>/tree/<path> | #/repo/<id>/blob/<path>
   const initialHash = React.useMemo(() => {
     const m = window.location.hash.match(new RegExp(`^#/repo/${repo.id}/(tree|blob)/?(.*)$`));
@@ -45,6 +46,51 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
 
   // Responsive / collapsible left directory panel
   const [treeCollapsed, setTreeCollapsed] = React.useState(false);
+
+  // ---------- About section inline editing (edits ONLY About metadata; never Repository Settings) ----------
+  const WRITE_ROLES = ['owner', 'maintainer', 'developer'];
+  const canEditAbout = !!repo.role && WRITE_ROLES.includes(repo.role);
+  const [aboutEditing, setAboutEditing] = React.useState(false);
+  const [aboutDraft, setAboutDraft] = React.useState({ description: '', website: '', topics: '', license: '' });
+  const [aboutSaving, setAboutSaving] = React.useState(false);
+  const [aboutMsg, setAboutMsg] = React.useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  const startAboutEdit = () => {
+    setAboutDraft({
+      description: repo.description || '',
+      website: repo.website || '',
+      topics: repo.topics || '',
+      license: repo.license || '',
+    });
+    setAboutMsg(null);
+    setAboutEditing(true);
+  };
+  const cancelAboutEdit = () => { setAboutEditing(false); setAboutMsg(null); };
+  const saveAbout = async () => {
+    if (aboutDraft.website.trim() && !/^(https?:\/\/)?[\w.-]+\.[a-z]{2,}([/?#].*)?$/i.test(aboutDraft.website.trim())) {
+      setAboutMsg({ kind: 'err', text: 'Website must be a valid URL (e.g. https://example.com).' });
+      return;
+    }
+    setAboutSaving(true); setAboutMsg(null);
+    try {
+      await reposApi.update(repo.id, {
+        description: aboutDraft.description.trim(),
+        website: aboutDraft.website.trim(),
+        topics: aboutDraft.topics.split(',').map(t => t.trim().toLowerCase().replace(/\s+/g, '-')).filter(Boolean).join(','),
+        license: aboutDraft.license.trim(),
+      });
+      setAboutMsg({ kind: 'ok', text: 'Saved.' });
+      onChanged?.();
+      setAboutEditing(false);
+    } catch (e: any) {
+      setAboutMsg({ kind: 'err', text: e?.message || 'Failed to save. Check your permissions.' });
+    } finally { setAboutSaving(false); }
+  };
+  const topicList = React.useMemo(
+    () => (repo.topics || '').split(',').map(t => t.trim()).filter(Boolean),
+    [repo.topics],
+  );
+
 
   // Fetch single folder tree (for directory list)
   const loadTree = React.useCallback(async (r: string, p: string) => {
@@ -183,14 +229,14 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
     setPath(folderPath);
   };
 
-  const backToParentFolder = () => {
-    if (!path) return;
-    const segs = path.split('/').filter(Boolean);
-    if (segs.length <= 1) {
-      openFolder('');
-    } else {
-      openFolder(segs.slice(0, segs.length - 1).join('/'));
-    }
+  // "← Back to files" returns to the Repository Code ROOT view
+  // (repo-code-main + About), leaving the file-browser state entirely.
+  const backToRoot = () => {
+    setFile(null);
+    setBlobPending(false);
+    setError('');
+    setFilter('');
+    setPath('');
   };
 
   const moreItems: { id: RepoTab; label: string; icon: any }[] = [
@@ -322,12 +368,124 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
             <section>
               <div className="gh-about-settings">
                 <h3>About</h3>
-                <button className="gh-side-link gh-side-settings" onClick={() => onNavigate('settings')}>
-                  <Settings size={16} />
-                </button>
+                {canEditAbout && !aboutEditing && (
+                  <button
+                    className="gh-side-link gh-side-settings"
+                    onClick={startAboutEdit}
+                    title="Edit About information"
+                  >
+                    <Settings size={16} />
+                  </button>
+                )}
               </div>
-              <p className="gh-about-desc">{repo.description || 'No description.'}</p>
-              <div className="gh-side-row">{repo.license} license</div>
+
+              {aboutEditing ? (
+                /* ---------- INLINE EDIT MODE: the About panel itself becomes the editor ---------- */
+                <div className="about-inline">
+                  <label className="about-field">
+                    <span>Description</span>
+                    <textarea
+                      rows={3}
+                      maxLength={350}
+                      autoFocus
+                      value={aboutDraft.description}
+                      placeholder="A short description of your repository"
+                      onChange={e => setAboutDraft(d => ({ ...d, description: e.target.value }))}
+                    />
+                  </label>
+                  <label className="about-field">
+                    <span><Globe size={11} /> Website</span>
+                    <input
+                      type="url"
+                      value={aboutDraft.website}
+                      placeholder="https://example.com"
+                      onChange={e => setAboutDraft(d => ({ ...d, website: e.target.value }))}
+                    />
+                  </label>
+                  <label className="about-field">
+                    <span><Tag size={11} /> Topics</span>
+                    <input
+                      type="text"
+                      value={aboutDraft.topics}
+                      placeholder="api, rest, typescript (comma-separated)"
+                      onChange={e => setAboutDraft(d => ({ ...d, topics: e.target.value }))}
+                    />
+                  </label>
+
+                  <label className="about-field">
+                    <span><Scale size={11} /> License</span>
+                    <select
+                      value={aboutDraft.license}
+                      onChange={e => setAboutDraft(d => ({ ...d, license: e.target.value }))}
+                    >
+                      {['MIT', 'Apache-2.0', 'GPL-3.0', 'BSD-3-Clause', 'MPL-2.0', 'Unlicense', 'Proprietary', ''].map(l => (
+                        <option key={l || 'none'} value={l}>{l || 'No license'}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {aboutMsg && (
+                    <div className={`about-msg ${aboutMsg.kind === 'ok' ? 'about-msg-ok' : 'about-msg-err'}`}>
+                      {aboutMsg.text}
+                    </div>
+                  )}
+
+                  <div className="about-actions">
+                    <button type="button" className="kr-btn" onClick={cancelAboutEdit} disabled={aboutSaving}>Cancel</button>
+                    <button type="button" className="kr-btn primary" onClick={saveAbout} disabled={aboutSaving}>
+                      {aboutSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ---------- NORMAL MODE: compact clickable metadata rows ---------- */
+                <>
+                  {repo.website ? (
+                    <a className="gh-side-row gh-about-link" href={repo.website} target="_blank" rel="noreferrer noopener">
+                      <Globe size={13} /> <span>{repo.website.replace(/^https?:\/\//, '')}</span>
+                    </a>
+                  ) : (
+                    <div className="gh-side-row gh-side-sub"><Globe size={13} /> <span>No website link</span></div>
+                  )}
+
+                  {topicList.length > 0 ? (
+                    <div className="gh-about-topics">
+                      {topicList.map(t => <span key={t} className="topic-tag">{t}</span>)}
+                    </div>
+                  ) : (
+                    <div className="gh-side-sub gh-about-topics-empty">No topics yet.</div>
+                  )}
+
+                  <div className="gh-side-row">
+                    <Scale size={13} /> <span>{repo.license ? `${repo.license} license` : 'No license'}</span>
+                  </div>
+
+                  {repo.language && (
+                    <div className="gh-side-row" title="Primary language">
+                      <Cpu size={13} /> <span><b>{repo.language}</b></span>
+                    </div>
+                  )}
+
+                  <div className="gh-side-row">
+                    {repo.visibility === 'public' ? <Unlock size={13} /> : <Lock size={13} />}
+                    <span><b>{repo.visibility}</b> repository</span>
+                  </div>
+
+                  <button type="button" className="gh-side-row gh-side-row-btn" onClick={() => onNavigate('branches')} title="View branches">
+                    <GitBranch size={13} /> <span>Default branch: <b>{repo.default_branch}</b></span>
+                  </button>
+
+                  {tagCount !== null && (
+                    <button type="button" className="gh-side-row gh-side-row-btn" onClick={() => onNavigate('releases')} title="View tags & releases">
+                      <Tag size={13} /> <span><b>{tagCount}</b> tag{tagCount === 1 ? '' : 's'}</span>
+                    </button>
+                  )}
+
+                  <button type="button" className="gh-side-row gh-side-row-btn" onClick={() => onNavigate('commits')} title="Commit history">
+                    <History size={13} /> <span>Updated {timeAgo(repo.updated_at)}</span>
+                  </button>
+                </>
+              )}
             </section>
 
             <section>
@@ -396,7 +554,7 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
               path={path}
               isFile={Boolean(file)}
               onNavigateFolder={openFolder}
-              onBackToFiles={backToParentFolder}
+              onBackToFiles={backToRoot}
             />
 
             {file ? (
@@ -424,7 +582,8 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
                 <RepoCodeViewer content={file.content} history={file.history} />
               </div>
             ) : (
-              /* Subfolder Directory Listing Experience */
+              /* Subfolder Directory Listing Experience — folder contents only;
+                 README.md renders exclusively on the repository ROOT view */
               <div className="repo-folder-container">
                 <RepoDirectoryList
                   entries={tree}
@@ -436,21 +595,12 @@ export const CodePage: React.FC<{ repo: RepoDetail; onNavigate: (t: RepoTab) => 
                   filter={filter}
                   onRetry={() => loadTree(ref, path)}
                 />
-
-                {/* Subfolder README Preview (if available) */}
-                {readme && tree.some(t => t.path.toLowerCase() === 'readme.md') && (
-                  <div className="gh-readme">
-                    <header>
-                      <BookOpen size={13} /> {readme.name}
-                    </header>
-                    <MiniMarkdown source={readme.content} />
-                  </div>
-                )}
               </div>
             )}
           </main>
         </div>
       )}
+
     </div>
   );
 };

@@ -74,6 +74,15 @@ export const RepositoriesPage: React.FC<{ onBackToKlyra?: () => void }> = ({ onB
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  // Full-screen Repository workspace: while a single repository is open, flag
+  // the document so the global Klyra sidebar/topbar are removed and the repo
+  // shell owns the entire viewport. Leaving the repo (hub, back/forward,
+  // "All repositories") automatically restores the normal dashboard layout.
+  React.useEffect(() => {
+    document.body.classList.toggle('repo-fullscreen', Boolean(selectedId));
+    return () => document.body.classList.remove('repo-fullscreen');
+  }, [selectedId]);
+
   // hub state
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState<RepoFilter>('all');
@@ -500,6 +509,7 @@ const CreateRepoModal: React.FC<{ onClose: () => void; onCreated: (id: string) =
   const [mode, setMode] = React.useState<'create' | 'import'>('create');
   const [name, setName] = React.useState('');
   const [cloneUrl, setCloneUrl] = React.useState('');
+  const [githubToken, setGithubToken] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [visibility, setVisibility] = React.useState('private');
   const [license, setLicense] = React.useState('MIT');
@@ -514,7 +524,14 @@ const CreateRepoModal: React.FC<{ onClose: () => void; onCreated: (id: string) =
     try {
       const res = mode === 'create'
         ? await reposApi.create({ name, description, visibility, license, language, framework, default_branch: branch })
-        : await reposApi.import({ name, clone_url: cloneUrl, description, visibility, default_branch: branch });
+        : await reposApi.import({
+          name,
+          clone_url: cloneUrl,
+          description,
+          visibility,
+          ...(branch.trim() ? { default_branch: branch.trim() } : {}),
+          ...(githubToken.trim() ? { github_token: githubToken.trim() } : {}),
+        });
       onCreated(res.id);
     } catch (e: any) { setError(e.message); }
     finally { setBusy(false); }
@@ -529,8 +546,8 @@ const CreateRepoModal: React.FC<{ onClose: () => void; onCreated: (id: string) =
       onClose={onClose}
     >
       <div className="tab-switch">
-        <button className={mode === 'create' ? 'active' : ''} onClick={() => setMode('create')}>Create new</button>
-        <button className={mode === 'import' ? 'active' : ''} onClick={() => setMode('import')}>
+        <button className={mode === 'create' ? 'active' : ''} onClick={() => { setMode('create'); setBranch('main'); }}>Create new</button>
+        <button className={mode === 'import' ? 'active' : ''} onClick={() => { setMode('import'); setBranch(''); }}>
           <Download size={12} style={{ verticalAlign: -2, marginRight: 4 }} /> Import from Git
         </button>
       </div>
@@ -539,6 +556,8 @@ const CreateRepoModal: React.FC<{ onClose: () => void; onCreated: (id: string) =
         <>
           <label className="kr-label">Clone URL (https:// or ssh://)</label>
           <input className="kr-input" placeholder="https://github.com/user/repo.git" value={cloneUrl} onChange={e => setCloneUrl(e.target.value)} />
+          <label className="kr-label">GitHub token (optional for private repositories)</label>
+          <input className="kr-input" type="password" autoComplete="off" placeholder="ghp_…" value={githubToken} onChange={e => setGithubToken(e.target.value)} />
         </>
       )}
 
@@ -558,7 +577,7 @@ const CreateRepoModal: React.FC<{ onClose: () => void; onCreated: (id: string) =
         </div>
         <div>
           <label className="kr-label">Default branch</label>
-          <input className="kr-input" value={branch} onChange={e => setBranch(e.target.value)} />
+          <input className="kr-input" placeholder={mode === 'import' ? 'Auto-detect from source' : 'main'} value={branch} onChange={e => setBranch(e.target.value)} />
         </div>
         {mode === 'create' && (
           <>
