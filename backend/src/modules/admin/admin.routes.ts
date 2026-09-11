@@ -13,8 +13,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 
 import { getOverviewStats, getPlatformMetrics, getTrafficSeries } from './admin.service';
 import { isTrafficRange, TrafficRange } from './admin.types';
-import { adminUsersRouter } from './admin.users.routes';
-import { adminApisRouter } from './admin.apis.routes';
+import adminUsersRouter from './admin.users.routes';
+import adminApisRouter from './admin.apis.routes';
 import { adminMarketplaceRouter } from './admin.marketplace.routes';
 import { adminRevenueRouter } from './admin.revenue.routes';
 import { adminSubscriptionsRouter } from './admin.subscriptions.routes';
@@ -83,7 +83,7 @@ router.use(requireAdmin);
 
 // ============ User management (/api/v1/admin/users/...) ============
 // Mounted below requireAdmin so the users routes inherit the same gate.
-router.use('/users', usersRouter);
+router.use('/users', adminUsersRouter);
 
 // ============ API management (/api/v1/admin/apis/...) ============
 import apisRouter from './admin.apis.routes';

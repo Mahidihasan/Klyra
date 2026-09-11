@@ -94,21 +94,21 @@ export const AdminRevenuePage: React.FC = () => {
               <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Revenue Growth</h2>
               <div style={{ display: 'flex', background: 'var(--bg-pill)', padding: '2px', borderRadius: '6px' }}>
                 <button 
-                  className={\`au-ghost-btn \${range === '7d' ? 'active-range' : ''}\`} 
+                  className={`au-ghost-btn ${range === '7d' ? 'active-range' : ''}`} 
                   onClick={() => setRange('7d')}
                   style={{ padding: '4px 12px', height: '28px', fontSize: '13px' }}
                 >
                   7D
                 </button>
                 <button 
-                  className={\`au-ghost-btn \${range === '30d' ? 'active-range' : ''}\`} 
+                  className={`au-ghost-btn ${range === '30d' ? 'active-range' : ''}`} 
                   onClick={() => setRange('30d')}
                   style={{ padding: '4px 12px', height: '28px', fontSize: '13px' }}
                 >
                   30D
                 </button>
                 <button 
-                  className={\`au-ghost-btn \${range === '1y' ? 'active-range' : ''}\`} 
+                  className={`au-ghost-btn ${range === '1y' ? 'active-range' : ''}`} 
                   onClick={() => setRange('1y')}
                   style={{ padding: '4px 12px', height: '28px', fontSize: '13px' }}
                 >

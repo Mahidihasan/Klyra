@@ -42,10 +42,10 @@ export const LiveSpikeChart: React.FC<Props> = ({ data }) => {
     return { xPct, yPx };
   });
 
-  const reqPathD = reqPoints.map((p, i) => \`\${i === 0 ? 'M' : 'L'} \${p.xPct} \${p.yPx}\`).join(' ');
-  const reqAreaD = \`\${reqPathD} L 100 \${PAD.top + plotHeight} L 0 \${PAD.top + plotHeight} Z\`;
+  const reqPathD = reqPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.xPct} ${p.yPx}`).join(' ');
+  const reqAreaD = `${reqPathD} L 100 ${PAD.top + plotHeight} L 0 ${PAD.top + plotHeight} Z`;
 
-  const latPathD = latPoints.map((p, i) => \`\${i === 0 ? 'M' : 'L'} \${p.xPct} \${p.yPx}\`).join(' ');
+  const latPathD = latPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.xPct} ${p.yPx}`).join(' ');
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>

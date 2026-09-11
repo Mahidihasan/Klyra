@@ -1,4 +1,4 @@
-import { db } from '../../../database';
+import { pool as db } from '../../services/database.service';
 import { RevenueAnalytics, ProviderPayoutRow } from './admin.revenue.types';
 import { ViewerIdentity } from './admin.users.types';
 
@@ -49,7 +49,7 @@ export class AdminRevenueService {
       [interval, truncFormat]
     );
 
-    const timeSeries = timeSeriesResult.rows.map(r => ({
+    const timeSeries = timeSeriesResult.rows.map((r: any) => ({
       date: new Date(r.date).toISOString(),
       volume: parseFloat(r.volume)
     }));
@@ -84,7 +84,7 @@ export class AdminRevenueService {
       LIMIT 100
       `
     );
-    return result.rows.map(row => ({
+    return result.rows.map((row: any) => ({
       ...row,
       amount: parseFloat(row.amount)
     }));

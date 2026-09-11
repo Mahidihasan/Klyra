@@ -6,7 +6,7 @@ const API_BASE_URL = '/api/v1/admin/activity';
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('klyra_access_token');
-  if (token) headers['Authorization'] = \`Bearer \${token}\`;
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   
   const devRole = localStorage.getItem('klyra-dev-role');
   if (!token && devRole) headers['x-klyra-role'] = devRole;
@@ -19,14 +19,14 @@ async function handleResponse<T>(res: Response): Promise<T> {
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
-    throw new AdminApiError(text || \`HTTP \${res.status}: \${res.statusText}\`, null, res.status);
+    throw new AdminApiError(text || `HTTP ${res.status}: ${res.statusText}`, null, res.status);
   }
 
   const body = json as { success?: boolean; data?: T; error?: { code?: string; message?: string } } | null;
 
   if (!res.ok || body?.success === false) {
     throw new AdminApiError(
-      body?.error?.message || \`HTTP \${res.status}: \${res.statusText}\`,
+      body?.error?.message || `HTTP ${res.status}: ${res.statusText}`,
       body?.error?.code ?? null,
       res.status,
     );
@@ -41,7 +41,7 @@ export const adminActivityApi = {
     if (filters.entity) params.append('entity', filters.entity);
     if (filters.search) params.append('search', filters.search);
     const qs = params.toString();
-    const url = \`\${API_BASE_URL}/logs\${qs ? '?' + qs : ''}\`;
+    const url = `${API_BASE_URL}/logs${qs ? '?' + qs : ''}`;
 
     const res = await fetch(url, { headers: authHeaders(), signal });
     return handleResponse<AdminAuditLog[]>(res);

@@ -121,7 +121,7 @@ export const ApiTable: React.FC<Props> = ({
             <td>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <div style={{ width: '40px', height: '4px', background: 'var(--border-subtle)', borderRadius: '2px', overflow: 'hidden' }}>
-                  <div style={{ width: \`\${api.healthScore}%\`, height: '100%', background: api.healthScore > 70 ? 'var(--status-active)' : api.healthScore > 40 ? 'var(--status-beta)' : 'var(--status-error)' }} />
+                  <div style={{ width: `${api.healthScore}%`, height: '100%', background: api.healthScore > 70 ? 'var(--status-active)' : api.healthScore > 40 ? 'var(--status-beta)' : 'var(--status-error)' }} />
                 </div>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{Math.round(api.healthScore)}</span>
               </div>

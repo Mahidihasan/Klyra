@@ -184,3 +184,8 @@ export interface GuardrailFailure {
   code: GuardrailCode;
   message: string;
 }
+
+export interface AuditContext {
+  ipAddress: string | null;
+  userAgent: string | null;
+}

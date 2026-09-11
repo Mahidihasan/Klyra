@@ -25,7 +25,7 @@ import {
   Database,
   Store,
   DollarSign,
-  CreditCard,
+
   Activity,
   List
 } from 'lucide-react';

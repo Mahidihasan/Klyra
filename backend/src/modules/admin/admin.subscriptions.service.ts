@@ -1,4 +1,4 @@
-import { db } from '../../../database';
+import { pool as db } from '../../services/database.service';
 import { AdminSubscriptionRow, GlobalTierTemplate } from './admin.subscriptions.types';
 import { ViewerIdentity } from './admin.users.types';
 

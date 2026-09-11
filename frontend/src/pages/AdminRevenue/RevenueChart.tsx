@@ -39,8 +39,8 @@ export const RevenueChart: React.FC<Props> = ({ data, range }) => {
   ];
 
   const formatY = (v: number) => {
-    if (v >= 1000) return \`$\${(v / 1000).toFixed(1)}k\`;
-    return \`$\${Math.round(v)}\`;
+    if (v >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+    return `$${Math.round(v)}`;
   };
 
   const formatX = (dateStr: string) => {
@@ -60,9 +60,9 @@ export const RevenueChart: React.FC<Props> = ({ data, range }) => {
     return { xPct, yPx, volume: d.volume, dateStr: d.date };
   });
 
-  const pathD = points.map((p, i) => \`\${i === 0 ? 'M' : 'L'} \${p.xPct} \${p.yPx}\`).join(' ');
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.xPct} ${p.yPx}`).join(' ');
   // Area needs to close down to the bottom
-  const areaD = \`\${pathD} L 100 \${PAD.top + plotHeight} L 0 \${PAD.top + plotHeight} Z\`;
+  const areaD = `${pathD} L 100 ${PAD.top + plotHeight} L 0 ${PAD.top + plotHeight} Z`;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -119,7 +119,7 @@ export const RevenueChart: React.FC<Props> = ({ data, range }) => {
           {points.map((p, i) => (
             <circle
               key={i}
-              cx={\`\${p.xPct}%\`}
+              cx={`${p.xPct}%`}
               cy={p.yPx}
               r="4"
               fill="var(--bg-base)"

@@ -63,7 +63,7 @@ export const ActivityTable: React.FC<Props> = ({ logs, isLoading }) => {
                         <span style={{ 
                           fontSize: '11px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
                           color: getSeverityColor(log.severity),
-                          border: \`1px solid \${getSeverityColor(log.severity)}\`,
+                          border: `1px solid ${getSeverityColor(log.severity)}`,
                           opacity: 0.8
                         }}>
                           {log.severity || 'INFO'}
@@ -74,7 +74,7 @@ export const ActivityTable: React.FC<Props> = ({ logs, isLoading }) => {
                           {log.action}
                         </span>
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          {log.resourceType} {log.resourceId ? \`#\${log.resourceId.substring(0,8)}\` : ''}
+                          {log.resourceType} {log.resourceId ? `#${log.resourceId.substring(0,8)}` : ''}
                         </div>
                       </td>
                       <td>

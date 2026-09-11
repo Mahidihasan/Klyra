@@ -1,4 +1,4 @@
-import { db } from '../../../database';
+import { pool as db } from '../../services/database.service';
 import { TelemetryPayload, TopMetrics, EndpointStat, ThrottlingIncident, TimeSeriesPoint } from './admin.usage.types';
 
 export class AdminUsageService {

@@ -72,7 +72,7 @@ export const ApiReviewModal: React.FC<Props> = ({
            <label className="au-field-label" style={{ marginBottom: '8px', display: 'block' }}>Action</label>
            <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                className={\`au-ghost-btn \${selectedAction === 'APPROVED' ? 'active-approve' : ''}\`}
+                className={`au-ghost-btn ${selectedAction === 'APPROVED' ? 'active-approve' : ''}`}
                 onClick={() => setSelectedAction('APPROVED')}
                 style={{ flex: 1, borderColor: selectedAction === 'APPROVED' ? 'var(--status-active)' : undefined, color: selectedAction === 'APPROVED' ? 'var(--status-active)' : undefined, background: selectedAction === 'APPROVED' ? 'rgba(34, 197, 94, 0.1)' : undefined }}
               >
@@ -80,7 +80,7 @@ export const ApiReviewModal: React.FC<Props> = ({
                 Approve
               </button>
               <button
-                className={\`au-ghost-btn \${selectedAction === 'REJECTED' ? 'active-reject' : ''}\`}
+                className={`au-ghost-btn ${selectedAction === 'REJECTED' ? 'active-reject' : ''}`}
                 onClick={() => setSelectedAction('REJECTED')}
                 style={{ flex: 1, borderColor: selectedAction === 'REJECTED' ? 'var(--status-error)' : undefined, color: selectedAction === 'REJECTED' ? 'var(--status-error)' : undefined, background: selectedAction === 'REJECTED' ? 'rgba(239, 68, 68, 0.1)' : undefined }}
               >
@@ -88,7 +88,7 @@ export const ApiReviewModal: React.FC<Props> = ({
                 Reject
               </button>
               <button
-                className={\`au-ghost-btn \${selectedAction === 'DEPRECATED' ? 'active-deprecate' : ''}\`}
+                className={`au-ghost-btn ${selectedAction === 'DEPRECATED' ? 'active-deprecate' : ''}`}
                 onClick={() => setSelectedAction('DEPRECATED')}
                 style={{ flex: 1, borderColor: selectedAction === 'DEPRECATED' ? 'var(--status-beta)' : undefined, color: selectedAction === 'DEPRECATED' ? 'var(--status-beta)' : undefined, background: selectedAction === 'DEPRECATED' ? 'rgba(245, 158, 11, 0.1)' : undefined }}
               >

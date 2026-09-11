@@ -1,4 +1,4 @@
-import { db } from '../../../database';
+import { pool as db } from '../../services/database.service';
 import { AdminAuditLog } from './admin.activity.types';
 
 export class AdminActivityService {

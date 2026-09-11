@@ -45,13 +45,13 @@ export const AdminSubscriptionsPage: React.FC = () => {
 
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px', marginBottom: '8px' }}>
         <button
-          className={\`au-ghost-btn \${activeTab === 'active' ? 'active-tab-btn' : ''}\`}
+          className={`au-ghost-btn ${activeTab === 'active' ? 'active-tab-btn' : ''}`}
           onClick={() => setActiveTab('active')}
         >
           Active Subscriptions
         </button>
         <button
-          className={\`au-ghost-btn \${activeTab === 'templates' ? 'active-tab-btn' : ''}\`}
+          className={`au-ghost-btn ${activeTab === 'templates' ? 'active-tab-btn' : ''}`}
           onClick={() => setActiveTab('templates')}
         >
           Global Tier Templates

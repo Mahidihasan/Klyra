@@ -6,7 +6,7 @@ const API_BASE_URL = '/api/v1/admin/subscriptions';
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('klyra_access_token');
-  if (token) headers['Authorization'] = \`Bearer \${token}\`;
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   
   const devRole = localStorage.getItem('klyra-dev-role');
   if (!token && devRole) headers['x-klyra-role'] = devRole;
@@ -19,14 +19,14 @@ async function handleResponse<T>(res: Response): Promise<T> {
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
-    throw new AdminApiError(text || \`HTTP \${res.status}: \${res.statusText}\`, null, res.status);
+    throw new AdminApiError(text || `HTTP ${res.status}: ${res.statusText}`, null, res.status);
   }
 
   const body = json as { success?: boolean; data?: T; error?: { code?: string; message?: string } } | null;
 
   if (!res.ok || body?.success === false) {
     throw new AdminApiError(
-      body?.error?.message || \`HTTP \${res.status}: \${res.statusText}\`,
+      body?.error?.message || `HTTP ${res.status}: ${res.statusText}`,
       body?.error?.code ?? null,
       res.status,
     );
@@ -40,14 +40,14 @@ export const adminSubscriptionsApi = {
     if (filters.status) params.append('status', filters.status);
     if (filters.search) params.append('search', filters.search);
     const qs = params.toString();
-    const url = \`\${API_BASE_URL}\${qs ? '?' + qs : ''}\`;
+    const url = `${API_BASE_URL}${qs ? '?' + qs : ''}`;
 
     const res = await fetch(url, { headers: authHeaders(), signal });
     return handleResponse<AdminSubscriptionRow[]>(res);
   },
 
   async cancelSubscription(id: string) {
-    const res = await fetch(\`\${API_BASE_URL}/\${encodeURIComponent(id)}/cancel\`, {
+    const res = await fetch(`${API_BASE_URL}/${encodeURIComponent(id)}/cancel`, {
       method: 'POST',
       headers: authHeaders(),
     });
@@ -55,12 +55,12 @@ export const adminSubscriptionsApi = {
   },
 
   async getGlobalTierTemplates(signal?: AbortSignal) {
-    const res = await fetch(\`\${API_BASE_URL}/templates\`, { headers: authHeaders(), signal });
+    const res = await fetch(`${API_BASE_URL}/templates`, { headers: authHeaders(), signal });
     return handleResponse<GlobalTierTemplate[]>(res);
   },
 
   async saveGlobalTierTemplates(templates: GlobalTierTemplate[]) {
-    const res = await fetch(\`\${API_BASE_URL}/templates\`, {
+    const res = await fetch(`${API_BASE_URL}/templates`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify({ templates }),

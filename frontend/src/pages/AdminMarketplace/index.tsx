@@ -47,19 +47,19 @@ export const AdminMarketplacePage: React.FC = () => {
 
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px', marginBottom: '8px' }}>
         <button
-          className={\`au-ghost-btn \${activeTab === 'featured' ? 'active-tab-btn' : ''}\`}
+          className={`au-ghost-btn ${activeTab === 'featured' ? 'active-tab-btn' : ''}`}
           onClick={() => setActiveTab('featured')}
         >
           Featured APIs
         </button>
         <button
-          className={\`au-ghost-btn \${activeTab === 'categories' ? 'active-tab-btn' : ''}\`}
+          className={`au-ghost-btn ${activeTab === 'categories' ? 'active-tab-btn' : ''}`}
           onClick={() => setActiveTab('categories')}
         >
           Categories
         </button>
         <button
-          className={\`au-ghost-btn \${activeTab === 'reviews' ? 'active-tab-btn' : ''}\`}
+          className={`au-ghost-btn ${activeTab === 'reviews' ? 'active-tab-btn' : ''}`}
           onClick={() => setActiveTab('reviews')}
         >
           Reviews Moderation

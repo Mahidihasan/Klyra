@@ -161,7 +161,7 @@ export const AdminApisPage: React.FC = () => {
     try {
       await adminApi.moderateApi(reviewApi.id, action, reason);
       setReviewApi(null);
-      setToast(\`API \${reviewApi.name} has been \${action.toLowerCase()}.\`);
+      setToast(`API ${reviewApi.name} has been ${action.toLowerCase()}.`);
       void load(query, 'refresh');
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : 'The action could not be completed.');
@@ -248,13 +248,13 @@ export const AdminApisPage: React.FC = () => {
 
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px', marginBottom: '8px' }}>
         <button
-          className={\`au-ghost-btn \${viewMode === 'inventory' ? 'active-tab-btn' : ''}\`}
+          className={`au-ghost-btn ${viewMode === 'inventory' ? 'active-tab-btn' : ''}`}
           onClick={() => setViewMode('inventory')}
         >
           All APIs Inventory
         </button>
         <button
-          className={\`au-ghost-btn \${viewMode === 'queue' ? 'active-tab-btn' : ''}\`}
+          className={`au-ghost-btn ${viewMode === 'queue' ? 'active-tab-btn' : ''}`}
           onClick={() => setViewMode('queue')}
         >
           Pending Approval Queue

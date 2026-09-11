@@ -18,7 +18,7 @@ import {
   ApiStatusValue,
   ModerateAction,
 } from './admin.apis.types';
-import { AuditContext } from './admin.users.routes';
+import { AuditContext } from './admin.users.types';
 
 const SORT_COLUMN: Record<AdminApiListQuery['sort'], string> = {
   created: 'a.created_at',

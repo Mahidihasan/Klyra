@@ -6,7 +6,7 @@ const API_BASE_URL = '/api/v1/admin/usage';
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('klyra_access_token');
-  if (token) headers['Authorization'] = \`Bearer \${token}\`;
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   
   const devRole = localStorage.getItem('klyra-dev-role');
   if (!token && devRole) headers['x-klyra-role'] = devRole;
@@ -19,14 +19,14 @@ async function handleResponse<T>(res: Response): Promise<T> {
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
-    throw new AdminApiError(text || \`HTTP \${res.status}: \${res.statusText}\`, null, res.status);
+    throw new AdminApiError(text || `HTTP ${res.status}: ${res.statusText}`, null, res.status);
   }
 
   const body = json as { success?: boolean; data?: T; error?: { code?: string; message?: string } } | null;
 
   if (!res.ok || body?.success === false) {
     throw new AdminApiError(
-      body?.error?.message || \`HTTP \${res.status}: \${res.statusText}\`,
+      body?.error?.message || `HTTP ${res.status}: ${res.statusText}`,
       body?.error?.code ?? null,
       res.status,
     );
@@ -36,7 +36,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 export const adminUsageApi = {
   async getTelemetry(signal?: AbortSignal) {
-    const res = await fetch(\`\${API_BASE_URL}/telemetry\`, { headers: authHeaders(), signal });
+    const res = await fetch(`${API_BASE_URL}/telemetry`, { headers: authHeaders(), signal });
     return handleResponse<TelemetryPayload>(res);
   }
 };
