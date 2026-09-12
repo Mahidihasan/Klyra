@@ -98,6 +98,21 @@ export class EmailService {
       </div>
     `;
 
+    const textContent = [
+      `Hi ${name},`,
+      '',
+      'A login was attempted from a new device or browser. To verify it\'s you, enter this 6-digit security code:',
+      code,
+      '',
+      `IP Address: ${ip}`,
+      `Device/Browser: ${userAgent}`,
+      '',
+      'This code is valid for 10 minutes and is single-use only.',
+      'If you did not initiate this login, please reset your password immediately.',
+      '',
+      '— Klyra Security Team',
+    ].join('\n');
+
     const email: DemoEmail = {
       id: generateRandomToken(8),
       to,
@@ -110,6 +125,13 @@ export class EmailService {
       createdAt: new Date().toISOString(),
       read: false,
     };
+
+    // Route through the configured provider. In production (EMAIL_PROVIDER=brevo)
+    // deliver the code via Brevo; only store it in the demo inbox for local dev.
+    if (getEmailProvider() === 'brevo') {
+      await sendViaBrevo({ to, subject, htmlContent, textContent });
+      return email;
+    }
 
     demoEmails.unshift(email);
     if (demoEmails.length > 50) demoEmails.pop();

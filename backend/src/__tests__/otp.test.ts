@@ -8,7 +8,7 @@ process.env.DATABASE_URL =
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { generateOtp, checkResendWindow } = require('../modules/auth/otp.service');
-const { buildOtpEmail } = require('../modules/auth/email.service');
+const { buildOtpEmail, EmailService } = require('../modules/auth/email.service');
 const {
   getFromAddress,
   getEmailProvider,
@@ -136,4 +136,27 @@ test('email provider defaults to demo', () => {
   delete process.env.EMAIL_PROVIDER;
   assert.equal(getEmailProvider(), 'demo');
   if (prev !== undefined) process.env.EMAIL_PROVIDER = prev;
+});
+
+// ---------------------------------------------------------------------------
+// 2FA email delivery
+// ---------------------------------------------------------------------------
+test('send2FAEmail delivers the 6-digit code with device details', async () => {
+  const prevProvider = process.env.EMAIL_PROVIDER;
+  process.env.EMAIL_PROVIDER = 'demo';
+  EmailService.clearDemoEmails();
+
+  await EmailService.send2FAEmail('me@example.com', 'Ada', '987654', '203.0.113.9', 'Windows (Chrome)');
+
+  const sent = EmailService.getDemoEmails();
+  assert.equal(sent.length, 1);
+  const email = sent[0];
+  assert.equal(email.category, 'TWO_FACTOR_CODE');
+  assert.equal(email.to, 'me@example.com');
+  assert.ok(email.htmlContent.includes('987654'), '2FA code must appear in the email body');
+  assert.ok(email.subject.includes('987654'), '2FA code must be in the subject');
+  assert.ok(email.htmlContent.includes('203.0.113.9'), 'IP address must be included');
+
+  EmailService.clearDemoEmails();
+  process.env.EMAIL_PROVIDER = prevProvider;
 });

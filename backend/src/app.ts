@@ -11,6 +11,7 @@ import playgroundRouter from './modules/playground/playground.routes';
 import { authOptional } from './modules/repos/auth.service';
 import { gitHttpHandler } from './modules/repos/git.http';
 import reposRouter from './modules/repos/repos.routes';
+import apiBuildRouter from './modules/api-build/api-build.routes';
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.use('/api/playground', playgroundRouter);
 
 // Billing routes
 app.use('/api/billing', billingRouter);
+app.use('/api/api-build', apiBuildRouter);
 
 // Admin dashboard (platform overview). Registered before the `/api` catch-all
 // below so the repos router can't shadow it.

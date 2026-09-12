@@ -16,7 +16,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { authApi, LoginResponse } from '../../services/api/auth';
+import { authApi, LoginResponse, UserProfile } from '../../services/api/auth';
 import { useAuth } from '../../context/AuthContext';
 import klyraLogo from '../../assets/images/klyra_logo.png';
 
@@ -33,7 +33,7 @@ export type AuthMode =
 interface AuthPageProps {
   initialMode?: AuthMode;
   initialToken?: string;
-  onLoginSuccess?: () => void;
+  onLoginSuccess?: (user?: UserProfile) => void;
   onResetComplete?: () => void;
   onEmailVerified?: (message: string) => void;
   isModal?: boolean;
@@ -389,10 +389,23 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
       } else {
         // Direct login succeeded
-        if (onLoginSuccess) onLoginSuccess();
+        if (onLoginSuccess) onLoginSuccess(res.user);
       }
     } catch (err: any) {
       setPassword('');
+
+      // Account exists but email isn't verified yet — the backend re-sent a
+      // fresh verification OTP on this login attempt, so drop the user into
+      // the verify-email (OTP) view to complete verification and then log in.
+      if (err.code === 'EMAIL_NOT_VERIFIED') {
+        setPendingVerificationEmail(email.trim().toLowerCase());
+        setMode('verify-email');
+        setResendCooldown(60);
+        setError(err.message || 'Please verify your email address before logging in.');
+        setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
+        return;
+      }
+
       setError(err.message || 'Login failed.');
 
       // Check if account locked
@@ -421,8 +434,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      await verify2FA(twoFactorTempToken, code);
-      if (onLoginSuccess) onLoginSuccess();
+      const verifiedUser = await verify2FA(twoFactorTempToken, code);
+      if (onLoginSuccess) onLoginSuccess(verifiedUser);
     } catch (err: any) {
       setError(err.message || 'Verification failed. Please check the code.');
     } finally {
@@ -443,13 +456,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setOtpDigits(nextDigits);
         const nextFocus = Math.min(cleanVal.length, 5);
         otpInputRefs.current[nextFocus]?.focus();
-        if (cleanVal.length === 6) {
+        if (mode === '2fa' && cleanVal.length === 6) {
           setTimeout(() => {
-            // Auto-submit if 6 digits provided
-            authApi
-              .verify2FA(twoFactorTempToken, cleanVal)
-              .then(() => {
-                if (onLoginSuccess) onLoginSuccess();
+            // Auto-submit 2FA if 6 digits provided
+            verify2FA(twoFactorTempToken, cleanVal)
+              .then((verifiedUser) => {
+                if (onLoginSuccess) onLoginSuccess(verifiedUser);
               })
               .catch((e) => setError(e.message));
           }, 200);

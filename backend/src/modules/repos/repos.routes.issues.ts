@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from './auth.service';
 import { pool } from '../../services/database.service';
 import { logActivity, handleError, loadRepoFor } from './repos.routes.core';
+import { publishRepoChange } from './realtime.service';
 
 const router = Router();
 
@@ -31,6 +32,8 @@ router.post('/repos/:id/issues', requireAuth, async (req, res) => {
       `INSERT INTO kr_issues (repo_id, number, title, body, author_id) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
       [ctx.repo.id, num, title, body || '', ctx.user.id])).rows[0].id;
     await logActivity(ctx.repo.id, ctx.user.id, 'issue_created', { number: num, title });
+    // Realtime: push the new issue to every open repository stream immediately.
+    await publishRepoChange(ctx.repo.id, 'issue_created', { issueNumber: num, title });
     res.status(201).json({ id, number: num, title });
   } catch (err) { handleError(res, err, 'Failed to create issue'); }
 });
@@ -60,6 +63,8 @@ router.post('/repos/:id/issues/:number/comments', requireAuth, async (req, res) 
     if (!body) return res.status(400).json({ error: 'Comment body is required' });
     await pool.query('INSERT INTO kr_issue_comments (issue_id, author_id, body) VALUES ($1,$2,$3)', [issue.id, ctx.user.id, body]);
     await logActivity(ctx.repo.id, ctx.user.id, 'issue_comment', { issue_number: Number(req.params.number) });
+    // Realtime: new comment -> live-update the issue discussion for all viewers.
+    await publishRepoChange(ctx.repo.id, 'issue_comment', { issueNumber: Number(req.params.number) });
     res.status(201).json({ ok: true });
   } catch (err) { handleError(res, err, 'Failed to add comment'); }
 });
@@ -75,6 +80,8 @@ router.post('/repos/:id/issues/:number/status', requireAuth, async (req, res) =>
        WHERE repo_id=$2 AND number=$3 RETURNING number`, [status, ctx.repo.id, req.params.number]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Issue not found' });
     await logActivity(ctx.repo.id, ctx.user.id, status === 'closed' ? 'issue_closed' : 'issue_reopened', { number: Number(req.params.number) });
+    // Realtime: open/closed flip propagates to every viewer instantly.
+    await publishRepoChange(ctx.repo.id, status === 'closed' ? 'issue_closed' : 'issue_reopened', { issueNumber: Number(req.params.number) });
     res.json({ ok: true });
   } catch (err) { handleError(res, err, 'Failed to update issue'); }
 });

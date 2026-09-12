@@ -16,6 +16,8 @@ export interface RepoRow {
   name: string;
   owner_id: number;
   description: string;
+  website: string;
+  topics: string;
   visibility: string;
   license: string;
   language: string;

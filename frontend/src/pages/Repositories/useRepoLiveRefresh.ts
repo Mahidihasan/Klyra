@@ -48,7 +48,16 @@ export function useRepoLiveRefresh(
     let everConnected = false;
 
     try {
-      es = new EventSource(`/api/repos/${encodeURIComponent(repoId)}/events`);
+      // The browser's EventSource cannot send an Authorization header, so the
+      // access token is appended as a query parameter (the backend accepts it
+      // for both kly_ tokens and JWTs). Without it the stream would fall back to
+      // the dev-only anonymous identity and be denied for private repos.
+      const token =
+        localStorage.getItem('klyra_token') ||
+        localStorage.getItem('klyra_access_token') ||
+        '';
+      const suffix = token ? `?access_token=${encodeURIComponent(token)}` : '';
+      es = new EventSource(`/api/repos/${encodeURIComponent(repoId)}/events${suffix}`);
     } catch {
       setStatus('reconnecting');
     }

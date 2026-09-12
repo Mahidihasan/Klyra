@@ -135,7 +135,10 @@ function extractToken(req: Request): string | null {
     } catch { /* ignore */ }
   }
   const qp = req.query['access_token'];
-  if (typeof qp === 'string' && qp.startsWith('kly_')) return qp;
+  // SSE / EventSource cannot set an Authorization header, so clients pass the
+  // access token via the query string (standard for Server-Sent Events). Accept
+  // a JWT or a kly_ token here; userFromToken still validates whichever format.
+  if (typeof qp === 'string' && qp) return qp;
   return null;
 }
 

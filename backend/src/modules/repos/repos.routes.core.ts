@@ -122,7 +122,7 @@ router.patch('/repos/:id', requireAuth, async (req, res) => {
     const fields: string[] = [];
     const values: any[] = [];
     const b = req.body || {};
-    for (const [key, col] of [['description', 'description'], ['license', 'license'], ['language', 'language'], ['framework', 'framework']] as const) {
+    for (const [key, col] of [['description', 'description'], ['license', 'license'], ['language', 'language'], ['framework', 'framework'], ['website', 'website'], ['topics', 'topics']] as const) {
       if (typeof b[key] === 'string') { fields.push(`${col} = $${values.length + 1}`); values.push(b[key]); }
     }
     if (b.visibility && isOwner(ctx.role as any)) {
@@ -146,30 +146,29 @@ router.delete('/repos/:id', requireAuth, async (req, res) => {
   } catch (err) { handleError(res, err, 'Failed to delete repository'); }
 });
 
-// Import an existing Git repository by mirror-cloning its URL into Klyra
+// Import an existing Git repository by mirror-cloning its URL into Klyra.
+// The source is cloned before metadata is created so a failed import cannot
+// leave an empty repository visible in the application.
 router.post('/repos/import', requireAuth, async (req, res) => {
+  let id: string | undefined;
+  let gitDir: string | undefined;
   try {
-    const { name, clone_url, description, visibility, license, language, framework, default_branch } = req.body || {};
-    if (!name || !clone_url) return res.status(400).json({ error: 'Name and clone_url are required' });
-    if (!/^(https?|git|ssh):\/\//.test(clone_url)) {
+    const { name, clone_url, description, visibility, license, language, framework, default_branch, github_token } = req.body || {};
+    const sourceUrl = typeof clone_url === 'string' ? clone_url.trim() : '';
+    if (!name || !sourceUrl || !/^[a-zA-Z0-9._-]+$/.test(name)) {
+      return res.status(400).json({ error: 'A valid repository name and clone_url are required' });
+    }
+    let parsedUrl: URL;
+    try { parsedUrl = new URL(sourceUrl); } catch { return res.status(400).json({ error: 'clone_url must be a valid Git URL' }); }
+    if (!['http:', 'https:', 'git:', 'ssh:'].includes(parsedUrl.protocol)) {
       return res.status(400).json({ error: 'clone_url must be an http(s)://, git:// or ssh:// URL' });
+    }
+    if (github_token && (!parsedUrl.hostname.endsWith('github.com') || !['http:', 'https:'].includes(parsedUrl.protocol))) {
+      return res.status(400).json({ error: 'github_token can only be used with an HTTPS GitHub URL' });
     }
     await ensureReposSchema();
     const dup = await pool.query('SELECT id FROM kr_repositories WHERE name=$1', [name]);
     if (dup.rows.length) return res.status(409).json({ error: 'A repository with that name already exists' });
-
-    const branch = default_branch || 'main';
-    const id = (
-      await pool.query(
-        `INSERT INTO kr_repositories (name, owner_id, description, visibility, license, language, framework, default_branch)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-        [name, req.klyraUser!.id, description || '', visibility === 'public' ? 'public' : 'private',
-         license || 'MIT', language || '', framework || '', branch]
-      )
-    ).rows[0].id;
-    await pool.query(`INSERT INTO kr_collaborators (repo_id, user_id, role) VALUES ($1,$2,'owner')`, [id, req.klyraUser!.id]);
-    await pool.query(`INSERT INTO kr_branches (repo_id, name, protected, created_by) VALUES ($1,$2,TRUE,$3)`, [id, branch, req.klyraUser!.id]);
-    await git.initBareRepo(id, branch);
 
     const path = await import('path');
     const os = await import('os');
@@ -178,17 +177,71 @@ router.post('/repos/import', requireAuth, async (req, res) => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'klyra-import-'));
     const run = (args: string[]) => new Promise<void>((resolve, reject) => {
       execFile('git', args, { timeout: 120000, windowsHide: true, maxBuffer: 50 * 1024 * 1024 },
-        (e: Error | null) => e ? reject(new Error('Import failed: ' + e.message)) : resolve());
+        (e: Error | null, _stdout: string, stderr: string) => e
+          ? reject(new Error(`Import failed: ${(stderr || e.message).trim()}`))
+          : resolve());
     });
     try {
-      await run(['clone', '--mirror', clone_url, tmpDir]);
-      await run(['-C', tmpDir, 'push', '--mirror', git.repoGitDir(id)]);
+      const authArgs = github_token ? ['-c', `http.extraheader=Authorization: Bearer ${github_token}`] : [];
+      await run([...authArgs, 'clone', '--mirror', sourceUrl, tmpDir]);
+      const requestedBranch = typeof default_branch === 'string' ? default_branch.trim() : '';
+      const head = (await new Promise<string>((resolve, reject) => {
+        execFile('git', ['-C', tmpDir, 'symbolic-ref', '--short', 'HEAD'], { windowsHide: true },
+          (e, stdout) => e ? reject(e) : resolve(stdout.trim()));
+      }).catch(() => '')).replace(/^refs\/heads\//, '');
+      const hasBranch = (name: string) => new Promise<boolean>((resolve) => {
+        execFile('git', ['-C', tmpDir, 'show-ref', '--verify', '--quiet', `refs/heads/${name}`], { windowsHide: true },
+          e => resolve(!e));
+      });
+      // Honour the requested default branch only if it exists in the source;
+      // otherwise trust the source's real HEAD so an imported repo whose
+      // default is "master" doesn't get advertised as "main" (which made every
+      // tree/file/overview request 400 in the UI).
+      const branch =
+        (requestedBranch && (await hasBranch(requestedBranch)) && requestedBranch) ||
+        (head && (await hasBranch(head)) && head) ||
+        'main';
+
+      const repoId = (
+        await pool.query(
+          `INSERT INTO kr_repositories (name, owner_id, description, visibility, license, language, framework, default_branch)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+          [name, req.klyraUser!.id, description || '', visibility === 'public' ? 'public' : 'private',
+           license || 'MIT', language || '', framework || '', branch]
+        )
+      ).rows[0].id;
+      id = repoId;
+      await pool.query(`INSERT INTO kr_collaborators (repo_id, user_id, role) VALUES ($1,$2,'owner')`, [repoId, req.klyraUser!.id]);
+      await pool.query(`INSERT INTO kr_branches (repo_id, name, protected, created_by) VALUES ($1,$2,TRUE,$3)`, [repoId, branch, req.klyraUser!.id]);
+      gitDir = await git.initBareRepo(repoId, branch);
+      await run(['-C', tmpDir, 'push', '--mirror', gitDir]);
+      // Reflect the imported repo's real branch set in kr_branches so the UI's
+      // branch picker and protection defaults match what was actually cloned.
+      const pushedRefs = await new Promise<string>((resolve, reject) => {
+        execFile('git', ['-C', gitDir as string, 'for-each-ref', '--format=%(refname:short)', 'refs/heads'],
+          { windowsHide: true }, (e: Error | null, stdout: string) => e ? reject(e) : resolve(stdout));
+      });
+      for (const name of pushedRefs.split('\n').map(s => s.trim()).filter(Boolean)) {
+        await pool.query(
+          `INSERT INTO kr_branches (repo_id, name, protected, created_by) VALUES ($1,$2,$3,$4)
+           ON CONFLICT DO NOTHING`,
+          [repoId, name, name === branch, req.klyraUser!.id]);
+      }
+      await logActivity(repoId, req.klyraUser!.id, 'repo_imported', { name, from: sourceUrl });
+      res.status(201).json({ id: repoId, name, default_branch: branch, imported_from: sourceUrl });
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-    await logActivity(id, req.klyraUser!.id, 'repo_imported', { name, from: clone_url });
-    res.status(201).json({ id, name, default_branch: branch, imported_from: clone_url });
-  } catch (err) { handleError(res, err, 'Failed to import repository'); }
+  } catch (err) {
+    if (id) {
+      await pool.query('DELETE FROM kr_repositories WHERE id=$1', [id]).catch(() => undefined);
+      if (gitDir) {
+        const fs = await import('fs');
+        fs.rmSync(gitDir, { recursive: true, force: true });
+      }
+    }
+    handleError(res, err, 'Failed to import repository');
+  }
 });
 
 // ============================ OVERVIEW ============================
@@ -197,9 +250,10 @@ router.get('/repos/:id/overview', requireAuth, async (req, res) => {
     const ctx = await loadRepoFor(req, res, 'read');
     if (!ctx) return;
     const { repo } = ctx;
+    const defaultRef = await git.resolveRef(repo.id, repo.default_branch);
     let readme: string | null = null;
     for (const candidate of ['README.md', 'readme.md', 'Readme.md', 'README']) {
-      try { readme = await git.readFileAt(repo.id, repo.default_branch, candidate); break; } catch { /* try next */ }
+      try { readme = await git.readFileAt(repo.id, defaultRef, candidate); break; } catch { /* try next */ }
     }
     const [branches, tags, contributors, latest, prOpen, issuesOpen, releases] = await Promise.all([
       git.listBranches(repo.id),
@@ -209,7 +263,7 @@ router.get('/repos/:id/overview', requireAuth, async (req, res) => {
          FROM kr_activity a JOIN kr_users u ON u.id = a.actor_id
          WHERE a.repo_id=$1 AND a.actor_id IS NOT NULL AND a.type IN ('git_push','pr_merged','pr_created')
          GROUP BY u.id ORDER BY commits DESC LIMIT 8`, [repo.id]),
-      git.latestCommit(repo.id, repo.default_branch),
+      git.latestCommit(repo.id, defaultRef),
       pool.query(`SELECT COUNT(*)::int AS n FROM kr_pull_requests WHERE repo_id=$1 AND status='open'`, [repo.id]),
       pool.query(`SELECT COUNT(*)::int AS n FROM kr_issues WHERE repo_id=$1 AND status='open'`, [repo.id]),
       pool.query(`SELECT COUNT(*)::int AS n FROM kr_releases WHERE repo_id=$1 AND status='published'`, [repo.id]),
@@ -222,7 +276,7 @@ router.get('/repos/:id/overview', requireAuth, async (req, res) => {
     res.json({
       readme,
       latest_commit: latest,
-      commit_count: await git.commitCount(repo.id, repo.default_branch),
+      commit_count: await git.commitCount(repo.id, defaultRef),
       branch_count: branches.length,
       tag_count: tags.length,
       contributors: contributors.rows,

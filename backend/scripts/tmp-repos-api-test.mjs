@@ -133,7 +133,7 @@ r = await req(`/repos/${repoId}/issues`, { method: 'POST', token: jwt, body: { t
 const issueNumber = r.data?.number;
 check('POST issue → 2xx', (r.status === 201 || r.status === 200) && !!issueNumber, `status=${r.status} #${issueNumber}`);
 r = await req(`/repos/${repoId}/issues`, { token: jwt });
-check('GET issues → 200 contains issue', r.status === 200 && r.data?.some?.((i) => i.number === issueNumber), `status=${r.status}`);
+check('GET issues → 200 contains issue', r.status === 200 && Array.isArray(r.data) && r.data.some((i) => i.number === issueNumber), `status=${r.status}`);
 r = await req(`/repos/${repoId}/issues/${issueNumber}/comments`, { method: 'POST', token: jwt, body: { body: 'e2e comment' } });
 check('POST issue comment → 2xx', r.status >= 200 && r.status < 300, `status=${r.status}`);
 r = await req(`/repos/${repoId}/issues/${issueNumber}/status`, { method: 'POST', token: jwt, body: { status: 'closed' } });
@@ -146,10 +146,20 @@ check('POST PR → 2xx', r.status >= 200 && r.status < 300 && !!prNumber, `statu
 if (prNumber) {
   r = await req(`/repos/${repoId}/pulls/${prNumber}`, { token: jwt });
   check('GET PR detail → 200', r.status === 200, `status=${r.status}`);
-  r = await req(`/repos/${repoId}/pulls/${prNumber}/reviews`, { method: 'POST', token: jwt, body: { state: 'approve', body: 'lgtm' } });
+  // Provision the second identity, then grant it collaborator access so it can
+  // review. Self-approval is intentionally rejected, so the approval must come
+  // from a different user.
+  await req('/repos', { token: otherJwt });
+  r = await req(`/repos/${repoId}/collaborators`, { method: 'POST', token: jwt, body: { username: otherEmail, role: 'developer' } });
+  check('add collaborator → 2xx', r.status >= 200 && r.status < 300, `status=${r.status}`);
+  r = await req(`/repos/${repoId}/pulls/${prNumber}/reviews`, { method: 'POST', token: otherJwt, body: { state: 'approved', body: 'lgtm' } });
   check('POST PR review → 2xx', r.status >= 200 && r.status < 300, `status=${r.status}`);
   r = await req(`/repos/${repoId}/pulls/${prNumber}/merge`, { method: 'POST', token: jwt });
   check('POST PR merge → 2xx', r.status >= 200 && r.status < 300, `status=${r.status}`);
+  // Revoke the developer access granted above so the ownership-boundary checks
+  // later in the run see this account as a non-member again.
+  r = await req(`/repos/${repoId}/collaborators/${encodeURIComponent(otherEmail)}`, { method: 'DELETE', token: jwt });
+  check('remove collaborator → 2xx', r.status >= 200 && r.status < 300, `status=${r.status}`);
 }
 
 console.log('=== Ops: CI / detection ===');

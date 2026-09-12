@@ -73,6 +73,35 @@ function parseLog(out: string): CommitInfo[] {
   });
 }
 
+/**
+ * Resolve a user-supplied ref to something that actually exists in the repo.
+ *
+ * Returns the ref unchanged when it resolves to a commit; otherwise falls back
+ * to the bare repo's HEAD (then the first branch) so stale/renamed default
+ * branches (e.g. metadata says "main" but the imported repo's HEAD is "master")
+ * never surface as 400s to the UI.
+ */
+export async function resolveRef(repoId: string, ref: string): Promise<string> {
+  const dir = repoGitDir(repoId);
+  const resolves = async (r: string) => {
+    if (!r) return false;
+    try { await git(dir, ['rev-parse', '--verify', '--quiet', `${r}^{commit}`]); return true; }
+    catch { return false; }
+  };
+  if (await resolves(ref)) return ref;
+  try {
+    const head = (await git(dir, ['symbolic-ref', '--short', 'HEAD'])).trim();
+    // A freshly-initialized bare repo can have HEAD on an unborn branch (e.g.
+    // "main" when only "master" was pushed) — only use it if it resolves.
+    if (await resolves(head)) return head;
+  } catch { /* detached / unborn HEAD */ }
+  const branches = await listBranches(repoId);
+  // Prefer a conventional default over an arbitrary first ref (imports can
+  // carry copilot/* / dependabot/* refs that sort first).
+  const conventional = branches.find(b => b.name === 'main' || b.name === 'master');
+  return conventional?.name || branches[0]?.name || ref;
+}
+
 export async function listBranches(repoId: string): Promise<{ name: string; sha: string }[]> {
   const dir = repoGitDir(repoId);
   try {
@@ -85,9 +114,14 @@ export async function listBranches(repoId: string): Promise<{ name: string; sha:
 }
 
 export async function listCommits(repoId: string, ref: string, limit = 50, skip = 0): Promise<CommitInfo[]> {
-  const dir = repoGitDir(repoId);
-  const out = await git(dir, ['log', `--pretty=format:${LOG_FORMAT}`, '-n', String(limit), `--skip=${skip}`, ref]);
-  return parseLog(out);
+  try {
+    const dir = repoGitDir(repoId);
+    const out = await git(dir, ['log', `--pretty=format:${LOG_FORMAT}`, '-n', String(limit), `--skip=${skip}`, ref]);
+    return parseLog(out);
+  } catch {
+    // Empty / unborn repository (no refs pushed yet) — treat as no commits.
+    return [];
+  }
 }
 
 export async function commitCount(repoId: string, ref: string): Promise<number> {
@@ -114,7 +148,13 @@ export async function listTree(repoId: string, ref: string, dir = '', recursive 
   // Recursive listing always starts at the ref root so paths are repo-absolute.
   const spec = dir && !recursive ? `${ref}:${dir}` : ref;
   const args = recursive ? ['ls-tree', '-r', '-l', spec] : ['ls-tree', '-l', spec];
-  const out = await git(repoGitDir(repoId), args);
+  let out: string;
+  try {
+    out = await git(repoGitDir(repoId), args);
+  } catch {
+    // Empty / unborn repository — nothing to list yet.
+    return [];
+  }
   return out.trim().split('\n').filter(Boolean).map(line => {
     const [meta, p] = line.split('\t');
     const [mode, type, sha, size] = meta.split(/\s+/);
@@ -131,12 +171,24 @@ export async function listAllFiles(repoId: string, ref: string): Promise<string[
 }
 
 export async function readFileAt(repoId: string, ref: string, filePath: string): Promise<string> {
-  return git(repoGitDir(repoId), ['show', `${ref}:${filePath}`], 15000);
+  try {
+    return await git(repoGitDir(repoId), ['show', `${ref}:${filePath}`], 15000);
+  } catch (e: any) {
+    // Normalize to a "not found" error so route handlers surface a clean 404 —
+    // e.g. a file requested in an empty / unborn repository that has no ref yet.
+    const detail = String(e?.message || '').trim().split('\n')[0];
+    throw new Error(`File '${filePath}' not found in ref '${ref}'${detail ? ` (${detail})` : ''}`);
+  }
 }
 
 export async function fileCommitHistory(repoId: string, ref: string, filePath: string): Promise<CommitInfo[]> {
-  const out = await git(repoGitDir(repoId), ['log', `--pretty=format:${LOG_FORMAT}`, ref, '--', filePath]);
-  return parseLog(out);
+  try {
+    const out = await git(repoGitDir(repoId), ['log', `--pretty=format:${LOG_FORMAT}`, ref, '--', filePath]);
+    return parseLog(out);
+  } catch {
+    // Empty / unborn repository — no history yet.
+    return [];
+  }
 }
 
 export async function getDiff(repoId: string, fromRef: string, toRef: string, filePath?: string): Promise<string> {
