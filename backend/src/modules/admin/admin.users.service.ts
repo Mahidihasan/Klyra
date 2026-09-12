@@ -599,7 +599,9 @@ export async function updateUserRole(
     const { rows } = await client.query<Record<string, unknown>>(
       `
       UPDATE users
-      SET role = $1::user_role, updated_at = NOW()
+      SET role = $1::user_role, 
+          metadata = jsonb_set(metadata, '{tokenVersion}', to_jsonb(COALESCE((metadata->>'tokenVersion')::int, 0) + 1)),
+          updated_at = NOW()
       WHERE id = $2 AND deleted_at IS NULL
       RETURNING id
       `,
@@ -610,7 +612,7 @@ export async function updateUserRole(
 
     await writeAuditRow(client, {
       actorId: actor.id,
-      action: 'UPDATE',
+      action: 'USER_ROLE_CHANGED',
       entityId: targetId,
       oldValues: { role: target.role },
       newValues: { role: nextRole },

@@ -22,10 +22,10 @@ import { RoleBadge, UserAvatar } from './UserBadges';
 
 /** What each role actually grants, in one line, shown under the picker. */
 const ROLE_CONSEQUENCE: Record<UserRoleValue, string> = {
-  USER: 'Can browse and subscribe to APIs. No publishing rights.',
-  PROVIDER: 'Can publish and manage their own APIs, and see their subscriber analytics.',
+  USER: 'Default subscriber role; permission to browse marketplace, test APIs, and manage subscribed keys.',
+  PROVIDER: 'Permission to publish APIs, view developer telemetry, manage API tiers, and request payouts.',
   MODERATOR: 'Read-only access to every admin screen. Cannot modify accounts.',
-  ADMIN: 'Full control of the platform, including other admins and every account.',
+  ADMIN: 'Full platform control, user moderation, financial overview, and system settings.',
 };
 
 interface Props {

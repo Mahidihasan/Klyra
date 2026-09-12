@@ -148,7 +148,7 @@ export interface AdminUserDetails extends AdminUserProfile {
 
 /** UI label for each role. `USER` reads as "Consumer" everywhere on screen. */
 export const ROLE_LABELS: Record<UserRoleValue, string> = {
-  USER: 'Consumer',
+  USER: 'Consumer / Developer',
   PROVIDER: 'Provider',
   MODERATOR: 'Moderator',
   ADMIN: 'Admin',
