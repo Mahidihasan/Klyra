@@ -17,6 +17,8 @@ import {
   ImpersonationGrant,
   UserRoleValue,
   UserStatusValue,
+  PlatformSubscriptionDetails,
+  SubscriptionOverridePayload,
 } from '../../types/adminUsers';
 import {
   AdminApiList,
@@ -272,6 +274,23 @@ export const adminApi = {
       headers: authHeaders(),
     });
     return handleResponse<ImpersonationGrant>(res);
+  },
+
+  async getSubscriptionDetails(userId: string, options: RequestOptions = {}) {
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}/subscription`, {
+      headers: authHeaders(),
+      signal: options.signal,
+    });
+    return handleResponse<PlatformSubscriptionDetails>(res);
+  },
+
+  async overrideSubscription(userId: string, payload: SubscriptionOverridePayload) {
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}/subscription/override`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<AdminUserMutationResult>(res);
   },
 
   // ========================== API management ==========================

@@ -31,6 +31,8 @@ import {
   updateUserRole,
   updateUserStatus,
   UserNotFoundError,
+  getUserSubscriptionDetails,
+  overrideUserSubscription,
 } from './admin.users.service';
 import {
   AdminUserListQuery,
@@ -395,6 +397,45 @@ router.post('/:id/impersonate', async (req: Request, res: Response) => {
     return res.json({ success: true, data: grant });
   } catch (err) {
     return handleError(res, 'POST /users/:id/impersonate', err);
+  }
+});
+
+// =================== GET /users/:id/subscription ====================
+router.get('/:id/subscription', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    
+    const data = await getUserSubscriptionDetails(req.params.id);
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, 'GET /users/:id/subscription', err);
+  }
+});
+
+// =================== POST /users/:id/subscription/override ====================
+router.post('/:id/subscription/override', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    
+    const { tier, expiresAt, reason } = req.body ?? {};
+    if (!tier || !['FREE', 'PRO', 'ENTERPRISE'].includes(tier)) {
+      return fail(res, 400, 'INVALID_TIER', 'Tier must be FREE, PRO, or ENTERPRISE');
+    }
+    if (!reason || typeof reason !== 'string') {
+      return fail(res, 400, 'INVALID_REASON', 'A reason is required');
+    }
+
+    const data = await overrideUserSubscription(
+      actor, 
+      req.params.id, 
+      { tier, expiresAt, reason }, 
+      auditContext(req)
+    );
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, 'POST /users/:id/subscription/override', err);
   }
 });
 

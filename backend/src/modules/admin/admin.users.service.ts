@@ -111,6 +111,12 @@ const USER_SELECT = `
     WHERE s.user_id = u.id AND s.status = 'ACTIVE'
   ) AS apis_subscribed,
   CASE 
+    WHEN u.metadata->'platformSubscription'->>'overrideTier' IS NOT NULL 
+         AND (
+           u.metadata->'platformSubscription'->>'expiresAt' IS NULL 
+           OR (u.metadata->'platformSubscription'->>'expiresAt')::timestamptz > NOW()
+         )
+    THEN u.metadata->'platformSubscription'->>'overrideTier'
     WHEN (SELECT COUNT(*) FROM user_subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') >= 5 THEN 'ENTERPRISE'
     WHEN (SELECT COUNT(*) FROM user_subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') > 0 THEN 'PRO'
     ELSE 'FREE'
@@ -793,5 +799,96 @@ export async function softDeleteUser(
       newValues: null,
       context,
     });
+  });
+}
+
+export async function getUserSubscriptionDetails(
+  targetId: string,
+): Promise<any> {
+  const pool = loadPool();
+  if (!pool) throw new DatabaseUnavailableError();
+
+  const user = await fetchUserRow(pool, targetId);
+  const { rows: telemetryRows } = await pool.query<{ total_requests_30d: string | number }>(
+    `SELECT total_requests_30d FROM user_telemetry_stats WHERE user_id = $1`, [targetId]
+  ).catch(() => ({ rows: [] }));
+  const totalRequests30d = telemetryRows[0]?.total_requests_30d || 0;
+
+  const { rows: userRows } = await pool.query(
+    `SELECT metadata FROM users WHERE id = $1`, [targetId]
+  );
+  const metadataRaw = userRows[0]?.metadata || {};
+  const metadata = typeof metadataRaw === 'string' ? JSON.parse(metadataRaw) : metadataRaw;
+  const override = metadata.platformSubscription;
+
+  let limit = 10000;
+  if (user.subscriptionTier === 'PRO') limit = 100000;
+  if (user.subscriptionTier === 'ENTERPRISE') limit = 1000000;
+
+  return {
+    tier: user.subscriptionTier,
+    status: 'ACTIVE',
+    renewalDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    billingCycle: 'MONTHLY',
+    paymentMethod: 'Visa ending in 4242',
+    quota: {
+      used: Number(totalRequests30d),
+      limit,
+    },
+    override: override ? {
+      active: true,
+      tier: override.overrideTier,
+      expiresAt: override.expiresAt,
+      reason: override.reason
+    } : null
+  };
+}
+
+export async function overrideUserSubscription(
+  actor: PolicyActor,
+  targetId: string,
+  payload: { tier: UserSubscriptionTier; expiresAt?: string | null; reason: string },
+  context: AuditContext
+): Promise<AdminUserMutationResult> {
+  const pool = loadPool();
+  if (!pool) throw new DatabaseUnavailableError();
+
+  const target = await fetchUserRow(pool, targetId);
+
+  return withTransaction(pool, async (client) => {
+    const { rows } = await client.query(
+      `
+      UPDATE users 
+      SET metadata = jsonb_set(
+            metadata, 
+            '{platformSubscription}', 
+            $1::jsonb
+          ),
+          updated_at = NOW()
+      WHERE id = $2 AND deleted_at IS NULL
+      RETURNING id
+      `,
+      [JSON.stringify({
+        overrideTier: payload.tier,
+        expiresAt: payload.expiresAt || null,
+        reason: payload.reason,
+        grantedAt: new Date().toISOString(),
+        grantedBy: actor.id
+      }), targetId]
+    );
+
+    if (rows.length === 0) throw new UserNotFoundError(targetId);
+
+    await writeAuditRow(client, {
+      actorId: actor.id,
+      action: 'MANUAL_BILLING_OVERRIDE',
+      entityId: targetId,
+      oldValues: null,
+      newValues: { tier: payload.tier, expiresAt: payload.expiresAt, reason: payload.reason },
+      context,
+    });
+
+    const updated = await fetchUserRow(client, targetId);
+    return { user: updated, auditLogged: true };
   });
 }

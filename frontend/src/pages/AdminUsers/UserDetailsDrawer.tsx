@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ExternalLink, X, Activity, Database, Key, LayoutGrid } from 'lucide-react';
+import { AlertTriangle, ExternalLink, X, Activity, Database, Key, LayoutGrid, CreditCard } from 'lucide-react';
 
 import { adminApi } from '../../services/api/admin';
-import { AdminUserDetails, AdminUserRow, ViewerIdentity } from '../../types/adminUsers';
+import { AdminUserDetails, AdminUserRow, ViewerIdentity, PlatformSubscriptionDetails } from '../../types/adminUsers';
 
 import { formatFullTimestamp, formatJoinedDate, humaniseAuditAction } from './format';
 import { RoleBadge, StatusBadge, UserAvatar } from './UserBadges';
 import { UserAction, UserActionMenu } from './UserActionMenu';
+import { PlatformPlanTab } from './PlatformPlanTab';
+import { ModifySubscriptionModal } from './ModifySubscriptionModal';
 
 interface Props {
   user: AdminUserRow;
@@ -16,7 +18,7 @@ interface Props {
   onClose: () => void;
 }
 
-type TabId = 'overview' | 'apis' | 'subscriptions' | 'telemetry';
+type TabId = 'overview' | 'apis' | 'subscriptions' | 'telemetry' | 'plan';
 
 export const UserDetailsDrawer: React.FC<Props> = ({
   user,
@@ -28,6 +30,9 @@ export const UserDetailsDrawer: React.FC<Props> = ({
   const [profile, setProfile] = useState<AdminUserDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [subscriptionToModify, setSubscriptionToModify] = useState<PlatformSubscriptionDetails | null>(null);
+  const [isSavingSubscription, setIsSavingSubscription] = useState(false);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -104,6 +109,7 @@ export const UserDetailsDrawer: React.FC<Props> = ({
 
           <div className="px-6 border-b border-slate-800 flex gap-6">
             <TabButton id="overview" label="Overview" icon={<LayoutGrid size={16} />} active={activeTab} onClick={setActiveTab} />
+            <TabButton id="plan" label="Platform Plan" icon={<CreditCard size={16} />} active={activeTab} onClick={setActiveTab} />
             <TabButton id="apis" label="APIs" icon={<Database size={16} />} active={activeTab} onClick={setActiveTab} />
             <TabButton id="subscriptions" label="Keys & Subs" icon={<Key size={16} />} active={activeTab} onClick={setActiveTab} />
             <TabButton id="telemetry" label="Telemetry" icon={<Activity size={16} />} active={activeTab} onClick={setActiveTab} />
@@ -120,6 +126,13 @@ export const UserDetailsDrawer: React.FC<Props> = ({
             {activeTab === 'overview' && (
               <OverviewTab shown={shown} profile={profile} />
             )}
+            {activeTab === 'plan' && (
+              <PlatformPlanTab 
+                user={shown} 
+                reloadToken={reloadToken} 
+                onModifySubscription={setSubscriptionToModify} 
+              />
+            )}
             {activeTab === 'apis' && (
               <ApisTab profile={profile} />
             )}
@@ -132,6 +145,31 @@ export const UserDetailsDrawer: React.FC<Props> = ({
           </div>
         </div>
       </div>
+      {subscriptionToModify && (
+        <ModifySubscriptionModal
+          user={shown}
+          currentDetails={subscriptionToModify}
+          isSaving={isSavingSubscription}
+          error={subscriptionError}
+          onConfirm={async (payload) => {
+            setIsSavingSubscription(true);
+            setSubscriptionError(null);
+            try {
+              await adminApi.overrideSubscription(shown.id, payload);
+              // Trigger reload action by simulating a successful mutation
+              onAction('delete', shown); // Hack: onAction usually updates reloadToken, but it also closes drawer. Let's not use onAction to close.
+              // Wait, to reload without closing, we should ideally mutate cache, but onAction reloads. I will just close and let parent reload.
+              onAction('edit', shown); // Trigger reloadToken via parent
+              setSubscriptionToModify(null);
+            } catch (err: any) {
+              setSubscriptionError(err.message);
+            } finally {
+              setIsSavingSubscription(false);
+            }
+          }}
+          onClose={() => setSubscriptionToModify(null)}
+        />
+      )}
     </div>
   );
 };

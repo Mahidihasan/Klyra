@@ -269,3 +269,27 @@ export function canImpersonate(viewer: ViewerIdentity, target: AdminUserRow): Gu
   }
   return ALLOWED;
 }
+
+export interface PlatformSubscriptionDetails {
+  tier: UserSubscriptionTier;
+  status: 'ACTIVE' | 'PAST_DUE' | 'TRIALING' | 'CANCELED';
+  renewalDate: string | null;
+  billingCycle: 'MONTHLY' | 'ANNUAL' | null;
+  paymentMethod: string | null;
+  quota: {
+    used: number;
+    limit: number;
+  };
+  override: {
+    active: boolean;
+    tier: UserSubscriptionTier;
+    expiresAt: string | null;
+    reason: string | null;
+  } | null;
+}
+
+export interface SubscriptionOverridePayload {
+  tier: UserSubscriptionTier;
+  expiresAt?: string | null;
+  reason: string;
+}
