@@ -30,6 +30,8 @@ import {
   canImpersonate,
   guardLastAdmin,
   PolicyActor,
+  canDeleteUser,
+  canEditUser,
 } from './admin.users.policy';
 import {
   AdminUserActivity,
@@ -681,4 +683,113 @@ export async function prepareImpersonation(
   });
 
   return target;
+}
+
+// ============================================================================
+// Edit & Delete
+// ============================================================================
+
+export async function updateUserDetails(
+  actor: PolicyActor,
+  targetId: string,
+  updates: { name: string; email: string; company?: string | null; customRateLimit?: number | null },
+  context: AuditContext,
+): Promise<AdminUserMutationResult> {
+  const pool = loadPool();
+  if (!pool) throw new DatabaseUnavailableError();
+
+  const target = await fetchUserRow(pool, targetId);
+
+  const refusal = canEditUser(actor);
+  if (refusal) throw new GuardrailError(refusal);
+
+  // Re-fetch current metadata to avoid dropping other fields
+  const { rows: metadataRows } = await pool.query<{ metadata: any }>(
+    `SELECT metadata FROM users WHERE id = $1`, [targetId]
+  );
+  const metadata = metadataRows[0]?.metadata || {};
+  
+  if (updates.customRateLimit !== undefined) {
+    if (updates.customRateLimit === null) {
+      delete metadata.customRateLimit;
+    } else {
+      metadata.customRateLimit = updates.customRateLimit;
+    }
+  }
+
+  return withTransaction(pool, async (client) => {
+    const { rows } = await client.query<Record<string, unknown>>(
+      `
+      UPDATE users
+      SET name = $1, email = $2, company = $3, metadata = $4::jsonb, updated_at = NOW()
+      WHERE id = $5 AND deleted_at IS NULL
+      RETURNING id
+      `,
+      [updates.name, updates.email, updates.company ?? null, JSON.stringify(metadata), targetId],
+    );
+
+    if (rows.length === 0) throw new UserNotFoundError(targetId);
+
+    await writeAuditRow(client, {
+      actorId: actor.id,
+      action: 'UPDATE',
+      entityId: targetId,
+      oldValues: { name: target.name, email: target.email },
+      newValues: { name: updates.name, email: updates.email, company: updates.company, customRateLimit: updates.customRateLimit },
+      context,
+    });
+
+    const updated = await fetchUserRow(client, targetId);
+    return { user: updated, auditLogged: true };
+  });
+}
+
+export async function softDeleteUser(
+  actor: PolicyActor,
+  targetId: string,
+  context: AuditContext,
+): Promise<void> {
+  const pool = loadPool();
+  if (!pool) throw new DatabaseUnavailableError();
+
+  const target = await fetchUserRow(pool, targetId);
+
+  const refusal = canDeleteUser(actor, { id: target.id, role: target.role });
+  if (refusal) throw new GuardrailError(refusal);
+
+  await withTransaction(pool, async (client) => {
+    // 1. Mark user as deleted
+    const { rows } = await client.query(
+      `UPDATE users SET deleted_at = NOW(), updated_at = NOW(), is_active = FALSE WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
+      [targetId],
+    );
+    if (rows.length === 0) throw new UserNotFoundError(targetId);
+
+    // 2. Revoke API Keys
+    await client.query(
+      `UPDATE api_keys SET status = 'REVOKED', is_active = FALSE, updated_at = NOW() WHERE user_id = $1`,
+      [targetId]
+    );
+
+    // 3. Cancel Subscriptions
+    await client.query(
+      `UPDATE user_subscriptions SET status = 'CANCELLED', cancelled_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND status = 'ACTIVE'`,
+      [targetId]
+    );
+
+    // 4. Soft-delete their APIs
+    await client.query(
+      `UPDATE apis SET deleted_at = NOW() WHERE owner_id = $1 AND deleted_at IS NULL`,
+      [targetId]
+    );
+
+    await writeAuditRow(client, {
+      actorId: actor.id,
+      action: 'DELETE',
+      entityId: targetId,
+      oldValues: { status: target.status, role: target.role },
+      newValues: null,
+      context,
+    });
+  });
 }

@@ -180,6 +180,18 @@ export interface UpdateUserStatusRequest {
   reason?: string;
 }
 
+export interface UpdateUserDetailsRequest {
+  name: string;
+  email: string;
+  company?: string | null;
+  customRateLimit?: number | null;
+}
+
+export interface SuspendUserRequest {
+  reason: string;
+  duration?: 'indefinite' | '7_days' | '30_days';
+}
+
 export interface UpdateUserRoleRequest {
   role: UserRoleValue;
 }
@@ -222,6 +234,9 @@ export type GuardrailCode =
   | 'SELF_ROLE_CHANGE'
   | 'SELF_STATUS_CHANGE'
   | 'SELF_IMPERSONATION'
+  | 'SELF_DELETE'
+  | 'INVALID_EMAIL'
+  | 'INVALID_NAME'
   | 'ADMIN_TARGET_STATUS'
   | 'IMPERSONATE_PRIVILEGED'
   | 'LAST_ADMIN'

@@ -22,6 +22,8 @@ import {
   DatabaseUnavailableError,
   getUserProfile,
   getUserDetails,
+  updateUserDetails,
+  softDeleteUser,
   GuardrailError,
   IMPERSONATION_TTL_SECONDS,
   listUsers,
@@ -255,6 +257,77 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
     return res.json({ success: true, data });
   } catch (err) {
     return handleError(res, 'PATCH /users/:id/status', err);
+  }
+});
+
+// ===================== PATCH /users/:id ======================
+router.patch('/:id', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+
+    const { name, email, company, customRateLimit } = req.body ?? {};
+    if (!name || typeof name !== 'string') {
+      return fail(res, 400, 'INVALID_NAME', 'Name is required.');
+    }
+    if (!email || typeof email !== 'string') {
+      return fail(res, 400, 'INVALID_EMAIL', 'Email is required.');
+    }
+
+    const data = await updateUserDetails(
+      actor,
+      req.params.id,
+      {
+        name: name.trim(),
+        email: email.trim(),
+        company: typeof company === 'string' ? company.trim() : company,
+        customRateLimit: typeof customRateLimit === 'number' ? customRateLimit : (customRateLimit === null ? null : undefined),
+      },
+      auditContext(req)
+    );
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, 'PATCH /users/:id', err);
+  }
+});
+
+// ===================== POST /users/:id/suspend ======================
+router.post('/:id/suspend', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    const { reason, duration } = req.body ?? {};
+    // Optional: parse duration if needed.
+    const fullReason = duration ? `${reason} (Duration: ${duration})` : reason;
+    const data = await updateUserStatus(actor, req.params.id, 'SUSPENDED', fullReason, auditContext(req));
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, 'POST /users/:id/suspend', err);
+  }
+});
+
+// ===================== POST /users/:id/activate ======================
+router.post('/:id/activate', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    const data = await updateUserStatus(actor, req.params.id, 'ACTIVE', 'Reactivated by admin', auditContext(req));
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, 'POST /users/:id/activate', err);
+  }
+});
+
+// ===================== DELETE /users/:id ======================
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    
+    await softDeleteUser(actor, req.params.id, auditContext(req));
+    return res.json({ success: true });
+  } catch (err) {
+    return handleError(res, 'DELETE /users/:id', err);
   }
 });
 

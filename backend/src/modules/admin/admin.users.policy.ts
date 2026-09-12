@@ -128,3 +128,23 @@ export function guardLastAdmin(
   }
   return null;
 }
+
+export function canDeleteUser(actor: PolicyActor, target: PolicyTarget): GuardrailFailure | null {
+  const gate = canMutate(actor);
+  if (gate) return gate;
+
+  if (actor.id === target.id) {
+    return deny('SELF_DELETE', 'You cannot delete your own account.');
+  }
+
+  // Admins cannot be deleted without being demoted first, similar to status changes.
+  if (target.role === 'ADMIN') {
+    return deny('ADMIN_TARGET_STATUS', 'An ADMIN account cannot be deleted. Change their role first.');
+  }
+
+  return null;
+}
+
+export function canEditUser(actor: PolicyActor): GuardrailFailure | null {
+  return canMutate(actor);
+}

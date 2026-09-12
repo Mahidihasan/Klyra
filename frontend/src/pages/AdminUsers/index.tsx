@@ -19,6 +19,9 @@ import {
 
 import { ChangeRoleModal } from './ChangeRoleModal';
 import { ConfirmActionDialog } from './ConfirmActionDialog';
+import { EditUserModal } from './EditUserModal';
+import { SuspendUserModal } from './SuspendUserModal';
+import { DeleteUserModal } from './DeleteUserModal';
 import { FilterDrawer } from './FilterDrawer';
 import { ImpersonateDialog } from './ImpersonateDialog';
 import { Pagination } from './Pagination';
@@ -67,9 +70,14 @@ const INITIAL_QUERY: QueryState = {
 type LoadReason = 'initial' | 'query' | 'refresh';
 
 type ModalState =
-  | { kind: 'role'; user: AdminUserRow }
-  | { kind: 'status'; user: AdminUserRow; nextStatus: UserStatusValue }
-  | { kind: 'impersonate'; user: AdminUserRow }
+  | { type: 'role'; user: AdminUserRow }
+  | { type: 'status'; user: AdminUserRow; nextStatus: UserStatusValue }
+  | { type: 'impersonate'; user: AdminUserRow }
+  | { type: 'edit'; user: AdminUserRow }
+  | { type: 'suspend'; user: AdminUserRow }
+  | { type: 'delete'; user: AdminUserRow }
+  | { type: 'profile'; user: AdminUserRow }
+  | { type: 'ban'; user: AdminUserRow }
   | null;
 
 /** Narrow the free-form role string on the auth profile to the real enum. */
@@ -231,6 +239,38 @@ export const AdminUsersPage: React.FC = () => {
       }),
     [runMutation],
   );
+  
+  const handleEditConfirm = useCallback(
+    (user: AdminUserRow, data: { name: string; email: string; company?: string | null; customRateLimit?: number | null }) =>
+      runMutation(`Profile updated for ${data.name}.`, async () => {
+        await adminApi.updateUserDetails(user.id, data);
+      }),
+    [runMutation],
+  );
+
+  const handleSuspendConfirm = useCallback(
+    (user: AdminUserRow, reason: string, duration: string) =>
+      runMutation(`${user.name || user.email} has been suspended.`, async () => {
+        await adminApi.suspendUser(user.id, reason, duration);
+      }),
+    [runMutation],
+  );
+  
+  const handleActivateConfirm = useCallback(
+    (user: AdminUserRow) =>
+      runMutation(`${user.name || user.email} has been reactivated.`, async () => {
+        await adminApi.activateUser(user.id);
+      }),
+    [runMutation],
+  );
+  
+  const handleDeleteConfirm = useCallback(
+    (user: AdminUserRow) =>
+      runMutation(`${user.name || user.email} has been soft-deleted.`, async () => {
+        await adminApi.deleteUser(user.id);
+      }),
+    [runMutation],
+  );
 
   const handleImpersonateConfirm = useCallback(async (user: AdminUserRow) => {
     setIsSaving(true);
@@ -253,20 +293,24 @@ export const AdminUsersPage: React.FC = () => {
       case 'view':
         setProfileUser(user);
         break;
+      case 'edit':
+        setModal({ type: 'edit', user });
+        break;
       case 'role':
-        setModal({ kind: 'role', user });
+        setModal({ type: 'role', user });
         break;
       case 'suspend':
-        setModal({ kind: 'status', user, nextStatus: 'SUSPENDED' });
+      case 'reactivate':
+        setModal({ type: 'suspend', user });
         break;
       case 'ban':
-        setModal({ kind: 'status', user, nextStatus: 'BANNED' });
+        setModal({ type: 'status', user, nextStatus: 'BANNED' });
         break;
-      case 'reactivate':
-        setModal({ kind: 'status', user, nextStatus: 'ACTIVE' });
+      case 'delete':
+        setModal({ type: 'delete', user });
         break;
       case 'impersonate':
-        setModal({ kind: 'impersonate', user });
+        setModal({ type: 'impersonate', user });
         break;
       default:
         break;
@@ -441,7 +485,7 @@ export const AdminUsersPage: React.FC = () => {
         />
       )}
 
-      {modal?.kind === 'role' && (
+      {modal?.type === 'role' && (
         <ChangeRoleModal
           user={modal.user}
           viewer={viewer}
@@ -452,7 +496,7 @@ export const AdminUsersPage: React.FC = () => {
         />
       )}
 
-      {modal?.kind === 'status' && (
+      {modal?.type === 'status' && (
         <ConfirmActionDialog
           user={modal.user}
           viewer={viewer}
@@ -464,7 +508,38 @@ export const AdminUsersPage: React.FC = () => {
         />
       )}
 
-      {modal?.kind === 'impersonate' && (
+      {modal?.type === 'edit' && (
+        <EditUserModal
+          user={modal.user}
+          isSaving={isSaving}
+          error={mutationError}
+          onConfirm={(data) => void handleEditConfirm(modal.user, data)}
+          onClose={closeModal}
+        />
+      )}
+
+      {modal?.type === 'suspend' && (
+        <SuspendUserModal
+          user={modal.user}
+          isSaving={isSaving}
+          error={mutationError}
+          onSuspend={(reason, duration) => void handleSuspendConfirm(modal.user, reason, duration)}
+          onActivate={() => void handleActivateConfirm(modal.user)}
+          onClose={closeModal}
+        />
+      )}
+
+      {modal?.type === 'delete' && (
+        <DeleteUserModal
+          user={modal.user}
+          isSaving={isSaving}
+          error={mutationError}
+          onConfirm={() => void handleDeleteConfirm(modal.user)}
+          onClose={closeModal}
+        />
+      )}
+
+      {modal?.type === 'impersonate' && (
         <ImpersonateDialog
           user={modal.user}
           viewer={viewer}

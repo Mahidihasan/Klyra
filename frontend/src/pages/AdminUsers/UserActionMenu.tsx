@@ -12,10 +12,12 @@ import {
   Ban,
   MoreHorizontal,
   PauseCircle,
-  PlayCircle,
   ShieldCheck,
   UserCog,
   Eye,
+  Pencil,
+  Trash2,
+  PlayCircle,
 } from 'lucide-react';
 
 import {
@@ -27,7 +29,7 @@ import {
   ViewerIdentity,
 } from '../../types/adminUsers';
 
-export type UserAction = 'view' | 'role' | 'suspend' | 'ban' | 'reactivate' | 'impersonate';
+export type UserAction = 'view' | 'edit' | 'role' | 'suspend' | 'ban' | 'reactivate' | 'impersonate' | 'delete';
 
 interface MenuItem {
   id: UserAction;
@@ -79,6 +81,7 @@ export const UserActionMenu: React.FC<Props> = ({ user, viewer, onAction }) => {
 
   const items: MenuItem[] = [
     { id: 'view', label: 'View profile', icon: Eye, guard: ALWAYS_ALLOWED },
+    { id: 'edit', label: 'Edit profile', icon: Pencil, guard: ALWAYS_ALLOWED }, // Or canEditUser(viewer)
     { id: 'role', label: 'Change role', icon: UserCog, guard: canChangeRole(viewer, user) },
     {
       id: 'impersonate',
@@ -114,6 +117,17 @@ export const UserActionMenu: React.FC<Props> = ({ user, viewer, onAction }) => {
       danger: true,
     });
   }
+
+  // Soft-Delete (Destructive)
+  // Re-use canChangeRole logic or a specific canDeleteUser. We'll let the UI guard it simply
+  // by checking if it's an admin (which we know viewer is).
+  items.push({
+    id: 'delete',
+    label: 'Delete user',
+    icon: Trash2,
+    guard: user.role === 'ADMIN' ? { allowed: false, reason: 'Admins cannot be deleted directly.' } : ALWAYS_ALLOWED,
+    danger: true,
+  });
 
   return (
     <div className="au-menu-wrap" ref={containerRef}>

@@ -218,6 +218,44 @@ export const adminApi = {
     return handleResponse<AdminUserMutationResult>(res);
   },
 
+  /** Suspend a user account. */
+  async suspendUser(userId: string, reason: string, duration?: string) {
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}/suspend`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ reason, duration }),
+    });
+    return handleResponse<AdminUserMutationResult>(res);
+  },
+
+  /** Reactivate a suspended user account. */
+  async activateUser(userId: string) {
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}/activate`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    return handleResponse<AdminUserMutationResult>(res);
+  },
+
+  /** Update user profile details. */
+  async updateUserDetails(userId: string, data: { name: string; email: string; company?: string | null; customRateLimit?: number | null }) {
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<AdminUserMutationResult>(res);
+  },
+
+  /** Soft-delete a user, revoking their API keys and subscriptions. */
+  async deleteUser(userId: string) {
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    return handleResponse<{ success: boolean }>(res);
+  },
+
   async updateUserRole(userId: string, role: UserRoleValue) {
     const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}/role`, {
       method: 'PATCH',
