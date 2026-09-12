@@ -126,7 +126,7 @@ export const RevenueChart: React.FC<Props> = ({ data, range }) => {
               stroke="var(--status-success)"
               strokeWidth="2"
             >
-               <title>{formatX(p.dateStr)}: {formatCurrency(p.volume)}</title>
+               <title>{formatX(p.dateStr)}: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(p.volume)}</title>
             </circle>
           ))}
         </svg>

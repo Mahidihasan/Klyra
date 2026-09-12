@@ -12,8 +12,10 @@ import {
   AdminUserRow,
   ROLE_LABELS,
   STATUS_LABELS,
+  SUBSCRIPTION_TIER_LABELS,
   UserRoleValue,
   UserStatusValue,
+  UserSubscriptionTier,
 } from '../../types/adminUsers';
 
 import { avatarHue, initialsFor } from './format';
@@ -58,6 +60,12 @@ export const UserAvatar: React.FC<{
 export const RoleBadge: React.FC<{ role: UserRoleValue }> = ({ role }) => (
   <span className="au-badge au-role-badge" data-role={role}>
     {ROLE_LABELS[role]}
+  </span>
+);
+
+export const SubscriptionTierBadge: React.FC<{ tier: UserSubscriptionTier }> = ({ tier }) => (
+  <span className="au-badge au-tier-badge" data-tier={tier}>
+    {SUBSCRIPTION_TIER_LABELS[tier]}
   </span>
 );
 

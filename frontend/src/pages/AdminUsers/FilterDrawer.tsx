@@ -13,16 +13,20 @@ import { X } from 'lucide-react';
 import {
   ROLE_FILTER_OPTIONS,
   STATUS_FILTER_OPTIONS,
+  SUBSCRIPTION_TIER_FILTER_OPTIONS,
   UserRoleValue,
   UserStatusFilter,
+  UserSubscriptionTier,
 } from '../../types/adminUsers';
 
 interface Props {
   isOpen: boolean;
   role: UserRoleValue | null;
   status: UserStatusFilter | null;
+  subscriptionTier: UserSubscriptionTier | null;
   onRoleChange: (role: UserRoleValue | null) => void;
   onStatusChange: (status: UserStatusFilter | null) => void;
+  onSubscriptionTierChange: (tier: UserSubscriptionTier | null) => void;
   onClear: () => void;
   onClose: () => void;
 }
@@ -31,8 +35,10 @@ export const FilterDrawer: React.FC<Props> = ({
   isOpen,
   role,
   status,
+  subscriptionTier,
   onRoleChange,
   onStatusChange,
+  onSubscriptionTierChange,
   onClear,
   onClose,
 }) => {
@@ -55,7 +61,7 @@ export const FilterDrawer: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const hasFilters = role !== null || status !== null;
+  const hasFilters = role !== null || status !== null || subscriptionTier !== null;
 
   return (
     <div className="au-drawer-overlay" onClick={onClose} role="presentation">
@@ -129,6 +135,29 @@ export const FilterDrawer: React.FC<Props> = ({
               Pending verification isn&apos;t a stored status — it means the account never confirmed
               its email address, so it can be filtered but not set.
             </p>
+          </fieldset>
+
+          <fieldset className="au-filter-group">
+            <legend>Subscription Plan</legend>
+            <div className="au-filter-pills">
+              <button
+                type="button"
+                className={subscriptionTier === null ? 'au-filter-pill active' : 'au-filter-pill'}
+                onClick={() => onSubscriptionTierChange(null)}
+              >
+                Any plan
+              </button>
+              {SUBSCRIPTION_TIER_FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={subscriptionTier === option.id ? 'au-filter-pill active' : 'au-filter-pill'}
+                  onClick={() => onSubscriptionTierChange(subscriptionTier === option.id ? null : option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </fieldset>
         </div>
 

@@ -41,6 +41,7 @@ import {
   GuardrailFailure,
   UserRoleValue,
   UserStatusValue,
+  UserSubscriptionTier,
 } from './admin.users.types';
 
 /** Thrown when a guardrail refuses the action. The route maps this to 403. */
@@ -101,7 +102,12 @@ const USER_SELECT = `
   (
     SELECT COUNT(*) FROM user_subscriptions s
     WHERE s.user_id = u.id AND s.status = 'ACTIVE'
-  ) AS apis_subscribed
+  ) AS apis_subscribed,
+  CASE 
+    WHEN (SELECT COUNT(*) FROM user_subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') >= 5 THEN 'ENTERPRISE'
+    WHEN (SELECT COUNT(*) FROM user_subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') > 0 THEN 'PRO'
+    ELSE 'FREE'
+  END AS subscription_tier
 `;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -124,6 +130,7 @@ function mapUserRow(row: Record<string, unknown>): AdminUserRow {
     avatarUrl: (row.avatar_url as string | null) ?? null,
     role: row.role as UserRoleValue,
     status: row.status as UserStatusValue,
+    subscriptionTier: row.subscription_tier as UserSubscriptionTier,
     isPendingVerification: row.email_verified_at === null || row.email_verified_at === undefined,
     apisOwned: toNumber(row.apis_owned),
     apisSubscribed: toNumber(row.apis_subscribed),
@@ -169,6 +176,11 @@ export function buildUserWhere(query: AdminUserListQuery): WhereClause {
   } else if (query.status) {
     values.push(query.status);
     conditions.push(`u.status = $${values.length}::user_status`);
+  }
+
+  if (query.subscriptionTier) {
+    values.push(query.subscriptionTier);
+    conditions.push(`(CASE WHEN (SELECT COUNT(*) FROM user_subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') >= 5 THEN 'ENTERPRISE' WHEN (SELECT COUNT(*) FROM user_subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') > 0 THEN 'PRO' ELSE 'FREE' END) = $${values.length}`);
   }
 
   return { sql: conditions.join(' AND '), values };

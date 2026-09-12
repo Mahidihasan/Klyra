@@ -118,6 +118,7 @@ function userListParams(query: AdminUserListQuery): string {
   if (query.search) params.set('search', query.search);
   if (query.role) params.set('role', query.role);
   if (query.status) params.set('status', query.status);
+  if (query.subscriptionTier) params.set('subscriptionTier', query.subscriptionTier);
   if (query.sort) params.set('sort', query.sort);
   if (query.direction) params.set('direction', query.direction);
 

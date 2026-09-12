@@ -13,6 +13,7 @@ import {
   UserSortField,
   UserStatusFilter,
   UserStatusValue,
+  UserSubscriptionTier,
   ViewerIdentity,
 } from '../../types/adminUsers';
 
@@ -45,6 +46,7 @@ interface QueryState {
   search: string;
   role: UserRoleValue | null;
   status: UserStatusFilter | null;
+  subscriptionTier: UserSubscriptionTier | null;
   sort: UserSortField;
   direction: SortDirection;
   page: number;
@@ -55,6 +57,7 @@ const INITIAL_QUERY: QueryState = {
   search: '',
   role: null,
   status: null,
+  subscriptionTier: null,
   sort: 'joined',
   direction: 'desc',
   page: 1,
@@ -121,6 +124,7 @@ export const AdminUsersPage: React.FC = () => {
           search: next.search || null,
           role: next.role,
           status: next.status,
+          subscriptionTier: next.subscriptionTier,
           sort: next.sort,
           direction: next.direction,
         },
@@ -364,11 +368,13 @@ export const AdminUsersPage: React.FC = () => {
         search={query.search}
         role={query.role}
         status={query.status}
+        subscriptionTier={query.subscriptionTier}
         total={list?.meta.total ?? 0}
         isBusy={isBusy}
         onSearchChange={(search) => patchQuery({ search })}
         onRoleChange={(role) => patchQuery({ role })}
         onStatusChange={(status) => patchQuery({ status })}
+        onSubscriptionTierChange={(subscriptionTier) => patchQuery({ subscriptionTier })}
         onOpenFilters={() => setIsFiltersOpen(true)}
         onRefresh={() => void load(query, 'refresh')}
       />
@@ -416,9 +422,11 @@ export const AdminUsersPage: React.FC = () => {
           isOpen={isFiltersOpen}
           role={query.role}
           status={query.status}
+          subscriptionTier={query.subscriptionTier}
           onRoleChange={(role) => patchQuery({ role })}
           onStatusChange={(status) => patchQuery({ status })}
-          onClear={() => patchQuery({ role: null, status: null })}
+          onSubscriptionTierChange={(subscriptionTier) => patchQuery({ subscriptionTier })}
+          onClear={() => patchQuery({ role: null, status: null, subscriptionTier: null })}
           onClose={() => setIsFiltersOpen(false)}
         />
       )}
@@ -948,6 +956,24 @@ const AdminUsersStyles: React.FC = () => (
       background-color: rgba(217, 70, 239, 0.12);
       border-color: rgba(217, 70, 239, 0.35);
       color: #f0abfc;
+    }
+
+    .au-tier-badge[data-tier='FREE'] {
+      background-color: rgba(148, 163, 184, 0.1);
+      border-color: rgba(148, 163, 184, 0.25);
+      color: var(--text-secondary);
+    }
+
+    .au-tier-badge[data-tier='PRO'] {
+      background-color: rgba(34, 211, 238, 0.1);
+      border-color: rgba(34, 211, 238, 0.28);
+      color: #67e8f9;
+    }
+
+    .au-tier-badge[data-tier='ENTERPRISE'] {
+      background-color: rgba(139, 92, 246, 0.12);
+      border-color: rgba(139, 92, 246, 0.35);
+      color: #c4b5fd;
     }
 
     .au-status-cell {

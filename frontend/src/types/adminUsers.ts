@@ -17,6 +17,9 @@ export type UserRoleValue = (typeof USER_ROLES)[number];
 export const USER_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED'] as const;
 export type UserStatusValue = (typeof USER_STATUSES)[number];
 
+export const USER_SUBSCRIPTION_TIERS = ['FREE', 'PRO', 'ENTERPRISE'] as const;
+export type UserSubscriptionTier = (typeof USER_SUBSCRIPTION_TIERS)[number];
+
 /**
  * 'PENDING' is filterable but not settable: it is derived from
  * `email_verified_at IS NULL` rather than stored in the status column.
@@ -35,6 +38,7 @@ export interface AdminUserRow {
   avatarUrl: string | null;
   role: UserRoleValue;
   status: UserStatusValue;
+  subscriptionTier: UserSubscriptionTier;
   isPendingVerification: boolean;
   apisOwned: number;
   apisSubscribed: number;
@@ -48,6 +52,7 @@ export interface AdminUserListQuery {
   search?: string | null;
   role?: UserRoleValue | null;
   status?: UserStatusFilter | null;
+  subscriptionTier?: UserSubscriptionTier | null;
   sort?: UserSortField;
   direction?: SortDirection;
 }
@@ -118,6 +123,12 @@ export const STATUS_LABELS: Record<UserStatusFilter, string> = {
   PENDING: 'Pending verification',
 };
 
+export const SUBSCRIPTION_TIER_LABELS: Record<UserSubscriptionTier, string> = {
+  FREE: 'Free',
+  PRO: 'Developer',
+  ENTERPRISE: 'Enterprise',
+};
+
 /** Filter pills, in the order they appear in the drawer. */
 export const ROLE_FILTER_OPTIONS: { id: UserRoleValue; label: string }[] = USER_ROLES.map((id) => ({
   id,
@@ -126,6 +137,9 @@ export const ROLE_FILTER_OPTIONS: { id: UserRoleValue; label: string }[] = USER_
 
 export const STATUS_FILTER_OPTIONS: { id: UserStatusFilter; label: string }[] =
   USER_STATUS_FILTERS.map((id) => ({ id, label: STATUS_LABELS[id] }));
+
+export const SUBSCRIPTION_TIER_FILTER_OPTIONS: { id: UserSubscriptionTier; label: string }[] =
+  USER_SUBSCRIPTION_TIERS.map((id) => ({ id, label: SUBSCRIPTION_TIER_LABELS[id] }));
 
 /** Statuses an admin can actually set, i.e. everything except derived PENDING. */
 export const SETTABLE_STATUS_OPTIONS: { id: UserStatusValue; label: string }[] = USER_STATUSES.map(

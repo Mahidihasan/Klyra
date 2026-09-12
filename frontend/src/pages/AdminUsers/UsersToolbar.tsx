@@ -12,8 +12,10 @@ import { RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import {
   ROLE_LABELS,
   STATUS_LABELS,
+  SUBSCRIPTION_TIER_LABELS,
   UserRoleValue,
   UserStatusFilter,
+  UserSubscriptionTier,
 } from '../../types/adminUsers';
 
 /**
@@ -26,11 +28,13 @@ interface Props {
   search: string;
   role: UserRoleValue | null;
   status: UserStatusFilter | null;
+  subscriptionTier: UserSubscriptionTier | null;
   total: number;
   isBusy: boolean;
   onSearchChange: (search: string) => void;
   onRoleChange: (role: UserRoleValue | null) => void;
   onStatusChange: (status: UserStatusFilter | null) => void;
+  onSubscriptionTierChange: (tier: UserSubscriptionTier | null) => void;
   onOpenFilters: () => void;
   onRefresh: () => void;
 }
@@ -39,11 +43,13 @@ export const UsersToolbar: React.FC<Props> = ({
   search,
   role,
   status,
+  subscriptionTier,
   total,
   isBusy,
   onSearchChange,
   onRoleChange,
   onStatusChange,
+  onSubscriptionTierChange,
   onOpenFilters,
   onRefresh,
 }) => {
@@ -75,7 +81,7 @@ export const UsersToolbar: React.FC<Props> = ({
     setDraft(search);
   }, [search]);
 
-  const activeFilterCount = (role !== null ? 1 : 0) + (status !== null ? 1 : 0);
+  const activeFilterCount = (role !== null ? 1 : 0) + (status !== null ? 1 : 0) + (subscriptionTier !== null ? 1 : 0);
 
   return (
     <div className="au-toolbar">
@@ -144,6 +150,12 @@ export const UsersToolbar: React.FC<Props> = ({
             <FilterChip
               label={`Status: ${STATUS_LABELS[status]}`}
               onRemove={() => onStatusChange(null)}
+            />
+          )}
+          {subscriptionTier !== null && (
+            <FilterChip
+              label={`Plan: ${SUBSCRIPTION_TIER_LABELS[subscriptionTier]}`}
+              onRemove={() => onSubscriptionTierChange(null)}
             />
           )}
         </div>

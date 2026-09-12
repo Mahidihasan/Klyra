@@ -18,6 +18,7 @@ import {
   AdminUserRow,
   UserRoleValue,
   UserStatusValue,
+  UserSubscriptionTier,
 } from './admin.users.types';
 
 const FIRST_NAMES = [
@@ -120,6 +121,7 @@ export function buildMockUsers(now: Date = new Date()): AdminUserRow[] {
 
     const apisOwned = role === 'PROVIDER' ? Math.floor(u4 * 14) : Math.floor(u4 * 2);
     const apisSubscribed = Math.floor(u2 * 11);
+    const subscriptionTier: UserSubscriptionTier = apisSubscribed >= 5 ? 'ENTERPRISE' : apisSubscribed > 0 ? 'PRO' : 'FREE';
 
     users.push({
       id: `mock-user-${String(i + 1).padStart(3, '0')}`,
@@ -130,6 +132,7 @@ export function buildMockUsers(now: Date = new Date()): AdminUserRow[] {
       avatarUrl: null,
       role,
       status,
+      subscriptionTier,
       isPendingVerification,
       apisOwned,
       apisSubscribed,
@@ -176,6 +179,10 @@ export function buildMockUserList(
     rows = rows.filter((row) => row.isPendingVerification);
   } else if (query.status) {
     rows = rows.filter((row) => row.status === query.status);
+  }
+
+  if (query.subscriptionTier) {
+    rows = rows.filter((row) => row.subscriptionTier === query.subscriptionTier);
   }
 
   const sorted = [...rows].sort(SORTERS[query.sort]);

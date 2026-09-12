@@ -23,6 +23,9 @@ export interface ViewerIdentity {
 export const USER_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED'] as const;
 export type UserStatusValue = (typeof USER_STATUSES)[number];
 
+export const USER_SUBSCRIPTION_TIERS = ['FREE', 'PRO', 'ENTERPRISE'] as const;
+export type UserSubscriptionTier = (typeof USER_SUBSCRIPTION_TIERS)[number];
+
 /**
  * Filterable statuses = the stored ones plus a derived pseudo-status.
  *
@@ -51,6 +54,10 @@ export function isUserStatusFilter(value: unknown): value is UserStatusFilter {
   return typeof value === 'string' && (USER_STATUS_FILTERS as readonly string[]).includes(value);
 }
 
+export function isUserSubscriptionTier(value: unknown): value is UserSubscriptionTier {
+  return typeof value === 'string' && (USER_SUBSCRIPTION_TIERS as readonly string[]).includes(value);
+}
+
 // ============================== List ==============================
 
 export const USER_SORT_FIELDS = ['joined', 'name', 'email', 'role', 'status', 'apisOwned'] as const;
@@ -69,6 +76,7 @@ export interface AdminUserRow {
   avatarUrl: string | null;
   role: UserRoleValue;
   status: UserStatusValue;
+  subscriptionTier: UserSubscriptionTier;
   /** Derived from `email_verified_at IS NULL`; drives the "Pending" chip. */
   isPendingVerification: boolean;
   apisOwned: number;
@@ -83,6 +91,7 @@ export interface AdminUserListQuery {
   search: string | null;
   role: UserRoleValue | null;
   status: UserStatusFilter | null;
+  subscriptionTier: UserSubscriptionTier | null;
   sort: UserSortField;
   direction: SortDirection;
 }

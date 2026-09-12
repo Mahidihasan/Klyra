@@ -36,8 +36,10 @@ import {
   isUserSortField,
   isUserStatus,
   isUserStatusFilter,
+  isUserSubscriptionTier,
   UserRoleValue,
   UserSortField,
+  UserSubscriptionTier,
 } from './admin.users.types';
 
 const router = Router({ mergeParams: true });
@@ -66,7 +68,7 @@ function parsePositiveInt(raw: unknown, fallback: number, max: number): number {
  * unfiltered list while their UI insists a filter is on.
  */
 function parseListQuery(req: Request, res: Response): AdminUserListQuery | null {
-  const { search, role, status, sort, direction } = req.query;
+  const { search, role, status, subscriptionTier, sort, direction } = req.query;
 
   if (role !== undefined && role !== '' && !isUserRole(role)) {
     fail(res, 400, 'INVALID_ROLE', 'role must be one of: USER, PROVIDER, MODERATOR, ADMIN');
@@ -79,6 +81,16 @@ function parseListQuery(req: Request, res: Response): AdminUserListQuery | null 
       400,
       'INVALID_STATUS',
       'status must be one of: ACTIVE, INACTIVE, SUSPENDED, BANNED, PENDING',
+    );
+    return null;
+  }
+
+  if (subscriptionTier !== undefined && subscriptionTier !== '' && !isUserSubscriptionTier(subscriptionTier)) {
+    fail(
+      res,
+      400,
+      'INVALID_SUBSCRIPTION_TIER',
+      'subscriptionTier must be one of: FREE, PRO, ENTERPRISE',
     );
     return null;
   }
@@ -105,6 +117,7 @@ function parseListQuery(req: Request, res: Response): AdminUserListQuery | null 
     search: rawSearch ? rawSearch.slice(0, MAX_SEARCH_LENGTH) : null,
     role: role ? (role as UserRoleValue) : null,
     status: status ? (status as AdminUserListQuery['status']) : null,
+    subscriptionTier: subscriptionTier ? (subscriptionTier as UserSubscriptionTier) : null,
     sort: sortField,
     direction: direction === 'asc' ? 'asc' : 'desc',
   };

@@ -12,11 +12,11 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { AdminUserRow, SortDirection, UserSortField, ViewerIdentity } from '../../types/adminUsers';
 
 import { formatJoinedDate, formatLastSeen } from './format';
-import { CountPair, RoleBadge, StatusBadge, UserAvatar } from './UserBadges';
+import { CountPair, RoleBadge, StatusBadge, SubscriptionTierBadge, UserAvatar } from './UserBadges';
 import { UserAction, UserActionMenu } from './UserActionMenu';
 
 interface Column {
-  id: UserSortField | 'apis' | 'actions';
+  id: UserSortField | 'apis' | 'actions' | 'plan';
   label: string;
   sortable: boolean;
   /** Right-aligned numeric columns read better against the value, not the edge. */
@@ -27,6 +27,7 @@ const COLUMNS: Column[] = [
   { id: 'name', label: 'User', sortable: true },
   { id: 'email', label: 'Email', sortable: true },
   { id: 'role', label: 'Role', sortable: true },
+  { id: 'plan', label: 'Plan', sortable: false },
   { id: 'apisOwned', label: 'APIs owned / subscribed', sortable: true, align: 'end' },
   { id: 'joined', label: 'Joined', sortable: true },
   { id: 'status', label: 'Status', sortable: true },
@@ -114,6 +115,10 @@ export const UserTable: React.FC<Props> = ({
 
             <td>
               <RoleBadge role={user.role} />
+            </td>
+
+            <td>
+              <SubscriptionTierBadge tier={user.subscriptionTier} />
             </td>
 
             <td data-align="end">
