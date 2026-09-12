@@ -21,6 +21,7 @@ import {
   AuditContext,
   DatabaseUnavailableError,
   getUserProfile,
+  getUserDetails,
   GuardrailError,
   IMPERSONATION_TTL_SECONDS,
   listUsers,
@@ -207,6 +208,17 @@ router.get('/:id', async (req: Request, res: Response) => {
     return res.json({ success: true, data });
   } catch (err) {
     return handleError(res, 'GET /users/:id', err);
+  }
+});
+
+// ====================== GET /users/:id/details ======================
+router.get('/:id/details', async (req: Request, res: Response) => {
+  try {
+    const data = await getUserDetails(req.params.id);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, 'GET /users/:id/details', err);
   }
 });
 

@@ -13,6 +13,7 @@ import {
   AdminUserListQuery,
   AdminUserMutationResult,
   AdminUserProfile,
+  AdminUserDetails,
   ImpersonationGrant,
   UserRoleValue,
   UserStatusValue,
@@ -196,6 +197,15 @@ export const adminApi = {
       signal: options.signal,
     });
     return handleResponse<AdminUserProfile>(res);
+  },
+
+  /** Comprehensive user details including telemetry, APIs, and subscriptions. */
+  async getUserDetails(userId: string, options: RequestOptions = {}) {
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}/details`, {
+      headers: authHeaders(),
+      signal: options.signal,
+    });
+    return handleResponse<AdminUserDetails>(res);
   },
 
   /** Suspend, ban, deactivate or reactivate. `reason` lands on the audit row. */

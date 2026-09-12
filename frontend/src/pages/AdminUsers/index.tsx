@@ -23,7 +23,7 @@ import { FilterDrawer } from './FilterDrawer';
 import { ImpersonateDialog } from './ImpersonateDialog';
 import { Pagination } from './Pagination';
 import { UserAction } from './UserActionMenu';
-import { UserProfileDrawer } from './UserProfileDrawer';
+import { UserDetailsDrawer } from './UserDetailsDrawer';
 import { UserTable, UserTableSkeleton } from './UserTable';
 import { UsersToolbar } from './UsersToolbar';
 
@@ -432,7 +432,7 @@ export const AdminUsersPage: React.FC = () => {
       )}
 
       {profileUser && (
-        <UserProfileDrawer
+        <UserDetailsDrawer
           user={profileUser}
           viewer={viewer}
           reloadToken={reloadToken}

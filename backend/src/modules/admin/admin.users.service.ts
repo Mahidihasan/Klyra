@@ -37,6 +37,11 @@ import {
   AdminUserListQuery,
   AdminUserMutationResult,
   AdminUserProfile,
+  AdminUserDetails,
+  ApiDetail,
+  SubscriptionDetail,
+  ApiKeyDetail,
+  UserTelemetryStats,
   AdminUserRow,
   GuardrailFailure,
   UserRoleValue,
@@ -316,6 +321,119 @@ export async function getUserProfile(id: string): Promise<AdminUserProfile> {
     updatedAt: toIso(row.updated_at),
     recentActivity: await queryRecentActivity(pool, id),
     source: 'live',
+  };
+}
+
+export async function getUserDetails(id: string): Promise<AdminUserDetails> {
+  const pool = loadPool();
+
+  if (!pool) {
+    const profile = await getUserProfile(id);
+    return {
+      ...profile,
+      apis: [],
+      subscriptions: [],
+      apiKeys: [],
+      telemetry: { totalRequests30d: 0, errorQuotaViolations30d: 0 },
+    };
+  }
+
+  assertLookupableId(id);
+
+  // We reuse the basic profile query to get the base user
+  const profile = await getUserProfile(id);
+
+  // Parallel fetch for the tabs
+  const [apisResult, subsResult, keysResult, telemetryResult] = await Promise.all([
+    // APIs Owned
+    pool.query<Record<string, unknown>>(
+      `
+      SELECT a.id, a.name, a.status,
+        (SELECT COUNT(*) FROM user_subscriptions us WHERE us.api_id = a.id AND us.status = 'ACTIVE') as subscribers,
+        (SELECT AVG(latency_ms) FROM api_analytics aa WHERE aa.api_id = a.id AND aa.created_at > NOW() - INTERVAL '7 days') as avg_latency
+      FROM apis a
+      WHERE a.owner_id = $1 AND a.deleted_at IS NULL
+      ORDER BY a.name ASC
+      `,
+      [id]
+    ),
+    // Subscriptions
+    pool.query<Record<string, unknown>>(
+      `
+      SELECT us.id, a.name as api_name, sp.name as plan_name, us.status, us.period_start, us.period_end
+      FROM user_subscriptions us
+      JOIN apis a ON us.api_id = a.id
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1
+      ORDER BY us.created_at DESC
+      `,
+      [id]
+    ),
+    // API Keys
+    pool.query<Record<string, unknown>>(
+      `
+      SELECT id, name, key_prefix, status, rate_limit, rate_limit_period, last_used_at
+      FROM api_keys
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+      `,
+      [id]
+    ),
+    // Telemetry
+    pool.query<Record<string, unknown>>(
+      `
+      SELECT 
+        COUNT(*) as total_reqs,
+        COUNT(*) FILTER (WHERE status_code >= 400) as error_reqs
+      FROM api_analytics
+      WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'
+      `,
+      [id]
+    )
+  ]);
+
+  const apis: ApiDetail[] = apisResult.rows.map(row => ({
+    id: String(row.id),
+    name: String(row.name),
+    status: String(row.status),
+    subscribers: toNumber(row.subscribers),
+    avgLatencyMs: row.avg_latency != null ? toNumber(row.avg_latency) : null,
+  }));
+
+  const subscriptions: SubscriptionDetail[] = subsResult.rows.map(row => ({
+    id: String(row.id),
+    apiName: String(row.api_name),
+    planName: String(row.plan_name),
+    status: String(row.status),
+    periodStart: toIso(row.period_start),
+    periodEnd: toIsoOrNull(row.period_end),
+  }));
+
+  const apiKeys: ApiKeyDetail[] = keysResult.rows.map(row => ({
+    id: String(row.id),
+    name: String(row.name),
+    keyPrefix: String(row.key_prefix),
+    status: String(row.status),
+    rateLimit: toNumber(row.rate_limit),
+    rateLimitPeriod: String(row.rate_limit_period),
+    lastUsedAt: toIsoOrNull(row.last_used_at),
+  }));
+
+  let telemetry: UserTelemetryStats = { totalRequests30d: 0, errorQuotaViolations30d: 0 };
+  if (telemetryResult.rows.length > 0) {
+    const row = telemetryResult.rows[0];
+    telemetry = {
+      totalRequests30d: toNumber(row.total_reqs),
+      errorQuotaViolations30d: toNumber(row.error_reqs),
+    };
+  }
+
+  return {
+    ...profile,
+    apis,
+    subscriptions,
+    apiKeys,
+    telemetry,
   };
 }
 

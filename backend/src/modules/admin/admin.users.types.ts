@@ -133,6 +133,45 @@ export interface AdminUserProfile extends AdminUserRow {
   source: AdminDataSource;
 }
 
+export interface ApiDetail {
+  id: string;
+  name: string;
+  status: string;
+  subscribers: number;
+  avgLatencyMs: number | null;
+}
+
+export interface SubscriptionDetail {
+  id: string;
+  apiName: string;
+  planName: string;
+  status: string;
+  periodStart: string;
+  periodEnd: string | null;
+}
+
+export interface ApiKeyDetail {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  status: string;
+  rateLimit: number;
+  rateLimitPeriod: string;
+  lastUsedAt: string | null;
+}
+
+export interface UserTelemetryStats {
+  totalRequests30d: number;
+  errorQuotaViolations30d: number;
+}
+
+export interface AdminUserDetails extends AdminUserProfile {
+  apis: ApiDetail[];
+  subscriptions: SubscriptionDetail[];
+  apiKeys: ApiKeyDetail[];
+  telemetry: UserTelemetryStats;
+}
+
 // =========================== Mutations ============================
 
 export interface UpdateUserStatusRequest {
