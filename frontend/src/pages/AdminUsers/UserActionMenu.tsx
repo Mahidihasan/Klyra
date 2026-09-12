@@ -134,8 +134,8 @@ export const UserActionMenu: React.FC<Props> = ({ user, viewer, onAction }) => {
       <button
         ref={triggerRef}
         type="button"
-        className="au-menu-trigger"
-        aria-haspopup="menu"
+        className="text-slate-400 hover:text-slate-100 p-1.5 rounded-md hover:bg-slate-800 transition-colors"
+        aria-haspopup="true"
         aria-expanded={isOpen}
         aria-label={`Actions for ${user.name}`}
         onClick={() => setIsOpen((open) => !open)}

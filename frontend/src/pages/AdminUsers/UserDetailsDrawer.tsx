@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ExternalLink, X, Activity, Database, Key, LayoutGrid, CreditCard } from 'lucide-react';
+import { AlertTriangle, ExternalLink, X, Activity, Database, Key, LayoutGrid, CreditCard, Copy } from 'lucide-react';
 
 import { adminApi } from '../../services/api/admin';
 import { AdminUserDetails, AdminUserRow, ViewerIdentity, PlatformSubscriptionDetails } from '../../types/adminUsers';
@@ -65,86 +65,164 @@ export const UserDetailsDrawer: React.FC<Props> = ({
 
   const shown: AdminUserRow = profile ?? user;
 
+  const avatarLetters = shown.name ? shown.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
+
   return (
-    <div className="au-drawer-overlay" onClick={onClose} role="presentation">
+    <>
+      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose} role="presentation" />
       <div
         ref={panelRef}
-        className="au-drawer au-profile-drawer flex flex-col"
+        className="fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-slate-800 bg-[#0B0F19] p-6 shadow-2xl overflow-y-auto"
         role="dialog"
         aria-modal="true"
         aria-label={`Profile: ${shown.name}`}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        style={{ width: '640px', maxWidth: '100vw' }}
       >
-        <header className="au-drawer-head shrink-0">
-          <div className="au-profile-identity">
-            <UserAvatar user={shown} size={56} />
+        {/* Header Section */}
+        <div className="flex items-start justify-between pb-6 border-b border-slate-800/80">
+          <div className="flex items-center gap-4">
+            {/* Avatar with cyan-violet gradient */}
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-cyan-500 to-violet-600 text-lg font-bold text-white shadow-lg shadow-cyan-500/20">
+              {avatarLetters || 'SA'}
+            </div>
             <div>
-              <h2 className="text-xl font-semibold text-white">{shown.name || 'Unnamed account'}</h2>
-              <p className="au-profile-email">{shown.email}</p>
+              <h2 className="text-xl font-bold text-slate-100">{shown.name || 'Unnamed account'}</h2>
+              <p className="text-sm text-slate-400 mt-0.5">{shown.email}</p>
+              
+              {/* Badges */}
+              <div className="flex items-center gap-2 mt-2">
+                <span className="inline-flex items-center rounded-md bg-violet-500/10 px-2.5 py-0.5 text-xs font-semibold text-violet-400 border border-violet-500/20">
+                  {shown.role || 'Admin'}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  {shown.status || 'Active'}
+                </span>
+              </div>
             </div>
           </div>
-          <div className="au-profile-head-actions">
+
+          {/* Top Right Controls */}
+          <div className="flex items-center gap-1">
             <UserActionMenu user={shown} viewer={viewer} onAction={onAction} />
-            <button
-              type="button"
-              className="au-icon-btn"
-              onClick={onClose}
-              aria-label="Close profile"
-            >
-              <X size={18} aria-hidden="true" />
+            <button type="button" onClick={onClose} className="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800/50">
+              ✕
             </button>
           </div>
-        </header>
+        </div>
 
-        <div className="au-drawer-body !p-0 flex-1 overflow-y-auto">
-          <div className="au-profile-badges px-6 pt-4 pb-2">
-            <RoleBadge role={shown.role} />
-            <StatusBadge
-              status={shown.status}
-              isPendingVerification={shown.isPendingVerification}
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-2 border-b border-slate-800/80 py-4 my-2 overflow-x-auto no-scrollbar">
+          {[
+            { id: 'overview', label: 'Overview', icon: '⊞' },
+            { id: 'plan', label: 'Platform Plan', icon: '💳' },
+            { id: 'apis', label: 'APIs', icon: '🗄' },
+            { id: 'subscriptions', label: 'Keys & Subs', icon: '🔑' },
+            { id: 'telemetry', label: 'Telemetry', icon: '📈' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as TabId)}
+              className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                activeTab === tab.id
+                  ? 'bg-slate-800 text-cyan-400 border border-slate-700/80 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {error && (
+          <div className="mt-4 text-sm text-red-400 flex items-center gap-2">
+            <AlertTriangle size={15} aria-hidden="true" />
+            <p>Couldn't load full details ({error}).</p>
+          </div>
+        )}
+
+        {/* Metadata Grid (Overview Tab Content) */}
+        {activeTab === 'overview' && (
+          <div className="mt-6">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">Account Information</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* User ID */}
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3.5">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400 block">User ID</span>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="font-mono text-xs text-violet-400 truncate max-w-[170px]" title={shown.id}>
+                    {shown.id}
+                  </span>
+                  <button 
+                    type="button" 
+                    onClick={() => navigator.clipboard.writeText(shown.id)}
+                    className="text-slate-500 hover:text-cyan-400 transition-colors p-1"
+                    title="Copy ID"
+                  >
+                    📋
+                  </button>
+                </div>
+              </div>
+
+              {/* Joined Date */}
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3.5">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400 block">Joined</span>
+                <span className="text-sm font-medium text-slate-200 mt-1 block">{formatJoinedDate(shown.joinedAt)}</span>
+              </div>
+
+              {/* Last Sign-in */}
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3.5">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400 block">Last Sign-in</span>
+                <span className="text-sm font-medium text-slate-200 mt-1 block">{formatFullTimestamp(shown.lastLoginAt)}</span>
+              </div>
+
+              {/* Email Verified */}
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3.5">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400 block">Email Verified</span>
+                <span className={`text-sm font-medium mt-1 block ${profile?.emailVerifiedAt || !shown.isPendingVerification ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {profile ? (profile.emailVerifiedAt ? 'Verified' : 'Unverified') : (!shown.isPendingVerification ? 'Verified' : 'Unverified')}
+                </span>
+              </div>
+
+              {/* 2FA */}
+              <div className="sm:col-span-2 rounded-xl border border-slate-800/60 bg-slate-950/40 p-3.5">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400 block">Two-Factor Auth</span>
+                <span className="text-sm font-medium text-slate-400 mt-1 block">{profile ? (profile.twoFactorEnabled ? 'Enabled' : 'Not enabled') : '…'}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Other Tabs */}
+        {activeTab === 'plan' && (
+          <div className="mt-6">
+            <PlatformPlanTab 
+              user={shown} 
+              reloadToken={reloadToken} 
+              onModifySubscription={setSubscriptionToModify} 
             />
           </div>
-
-          <div className="px-6 border-b border-slate-800 flex gap-6">
-            <TabButton id="overview" label="Overview" icon={<LayoutGrid size={16} />} active={activeTab} onClick={setActiveTab} />
-            <TabButton id="plan" label="Platform Plan" icon={<CreditCard size={16} />} active={activeTab} onClick={setActiveTab} />
-            <TabButton id="apis" label="APIs" icon={<Database size={16} />} active={activeTab} onClick={setActiveTab} />
-            <TabButton id="subscriptions" label="Keys & Subs" icon={<Key size={16} />} active={activeTab} onClick={setActiveTab} />
-            <TabButton id="telemetry" label="Telemetry" icon={<Activity size={16} />} active={activeTab} onClick={setActiveTab} />
+        )}
+        {activeTab === 'apis' && (
+          <div className="mt-6">
+            <ApisTab profile={profile} />
           </div>
-
-          <div className="p-6">
-            {error && (
-              <div className="au-inline-error mb-6">
-                <AlertTriangle size={15} aria-hidden="true" />
-                <p>Couldn't load full details ({error}).</p>
-              </div>
-            )}
-
-            {activeTab === 'overview' && (
-              <OverviewTab shown={shown} profile={profile} />
-            )}
-            {activeTab === 'plan' && (
-              <PlatformPlanTab 
-                user={shown} 
-                reloadToken={reloadToken} 
-                onModifySubscription={setSubscriptionToModify} 
-              />
-            )}
-            {activeTab === 'apis' && (
-              <ApisTab profile={profile} />
-            )}
-            {activeTab === 'subscriptions' && (
-              <SubscriptionsTab profile={profile} />
-            )}
-            {activeTab === 'telemetry' && (
-              <TelemetryTab profile={profile} />
-            )}
+        )}
+        {activeTab === 'subscriptions' && (
+          <div className="mt-6">
+            <SubscriptionsTab profile={profile} />
           </div>
-        </div>
+        )}
+        {activeTab === 'telemetry' && (
+          <div className="mt-6">
+            <TelemetryTab profile={profile} />
+          </div>
+        )}
       </div>
+
       {subscriptionToModify && (
         <ModifySubscriptionModal
           user={shown}
@@ -156,10 +234,8 @@ export const UserDetailsDrawer: React.FC<Props> = ({
             setSubscriptionError(null);
             try {
               await adminApi.overrideSubscription(shown.id, payload);
-              // Trigger reload action by simulating a successful mutation
-              onAction('delete', shown); // Hack: onAction usually updates reloadToken, but it also closes drawer. Let's not use onAction to close.
-              // Wait, to reload without closing, we should ideally mutate cache, but onAction reloads. I will just close and let parent reload.
-              onAction('edit', shown); // Trigger reloadToken via parent
+              onAction('delete', shown);
+              onAction('edit', shown);
               setSubscriptionToModify(null);
             } catch (err: any) {
               setSubscriptionError(err.message);
@@ -170,7 +246,7 @@ export const UserDetailsDrawer: React.FC<Props> = ({
           onClose={() => setSubscriptionToModify(null)}
         />
       )}
-    </div>
+    </>
   );
 };
 
@@ -178,8 +254,19 @@ export const UserDetailsDrawer: React.FC<Props> = ({
 
 const OverviewTab: React.FC<{ shown: AdminUserRow; profile: AdminUserDetails | null }> = ({ shown, profile }) => (
   <div className="space-y-6">
-    <dl className="au-facts">
-      <Fact label="User ID" value={<code className="au-mono">{shown.id}</code>} />
+    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <Fact 
+        label="User ID" 
+        mono 
+        value={
+          <div className="flex items-center gap-2">
+            <span>{shown.id}</span>
+            <button type="button" className="text-slate-500 hover:text-cyan-400 p-1 hover:bg-slate-800 rounded transition-colors" onClick={() => navigator.clipboard.writeText(shown.id)} title="Copy ID">
+              <Copy size={14} />
+            </button>
+          </div>
+        } 
+      />
       <Fact label="Joined" value={formatJoinedDate(shown.joinedAt)} />
       <Fact label="Last sign-in" value={formatFullTimestamp(shown.lastLoginAt)} />
       <Fact label="Email verified" value={profile ? formatFullTimestamp(profile.emailVerifiedAt) : (shown.isPendingVerification ? 'No' : 'Yes')} />
@@ -327,19 +414,19 @@ const TabButton: React.FC<{ id: TabId; label: string; icon: React.ReactNode; act
     <button
       type="button"
       onClick={() => onClick(id)}
-      className={`flex items-center gap-2 pb-3 border-b-2 transition-colors duration-200 ${
-        isActive ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-slate-400 hover:text-slate-200'
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-150 ${
+        isActive ? 'bg-slate-800/80 text-cyan-400 border border-slate-700/60 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30 border border-transparent'
       }`}
     >
       {icon}
-      <span className="text-sm font-medium">{label}</span>
+      <span>{label}</span>
     </button>
   );
 };
 
-const Fact: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
-  <div className="au-fact">
-    <dt>{label}</dt>
-    <dd>{value}</dd>
+const Fact: React.FC<{ label: string; value: React.ReactNode; mono?: boolean }> = ({ label, value, mono }) => (
+  <div className="bg-slate-900/50 border border-slate-800/60 rounded-lg p-3 flex flex-col">
+    <dt className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{label}</dt>
+    <dd className={`text-sm font-medium text-slate-200 mt-1 ${mono ? 'font-mono' : ''}`}>{value}</dd>
   </div>
 );

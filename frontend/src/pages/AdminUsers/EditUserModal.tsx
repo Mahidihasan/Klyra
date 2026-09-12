@@ -74,88 +74,116 @@ export const EditUserModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="au-modal-overlay" role="presentation" onClick={isSaving ? undefined : onClose}>
-      <div
-        className="au-modal max-w-md w-full"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Edit User"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h2 className="au-modal-title">Edit User Details</h2>
-        
-        <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-          <div className="space-y-1">
-            <label htmlFor="name" className="text-sm text-slate-300 font-medium">Full Name</label>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+      <div className="relative w-full max-w-lg rounded-2xl border border-slate-800 bg-[#0B0F19] p-6 shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-4 border-b border-slate-800/80">
+          <h3 className="text-lg font-semibold text-slate-100 tracking-tight">Edit User Details</h3>
+          <button 
+            type="button" 
+            onClick={onClose} 
+            className="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-4">
+          {/* Full Name */}
+          <div className="flex flex-col gap-1.5 text-left">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Full Name
+            </label>
             <input
-              id="name"
+              type="text"
               name="name"
               value={formData.name}
               onChange={handleChange}
               disabled={isSaving}
-              className={`w-full bg-slate-900 border ${validationErrors.name ? 'border-red-500' : 'border-slate-700'} rounded-md px-3 py-2 text-white focus:outline-none focus:border-cyan-500`}
+              className={`w-full rounded-lg border ${validationErrors.name ? 'border-red-500' : 'border-slate-800'} bg-slate-950/80 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 transition-all`}
+              placeholder="Enter full name"
             />
-            {validationErrors.name && <p className="text-xs text-red-400">{validationErrors.name}</p>}
+            {validationErrors.name && <p className="text-xs text-red-400 mt-1">{validationErrors.name}</p>}
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor="email" className="text-sm text-slate-300 font-medium">Email Address</label>
+          {/* Email Address */}
+          <div className="flex flex-col gap-1.5 text-left">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Email Address
+            </label>
             <input
-              id="email"
-              name="email"
               type="email"
+              name="email"
               value={formData.email}
               onChange={handleChange}
               disabled={isSaving}
-              className={`w-full bg-slate-900 border ${validationErrors.email ? 'border-red-500' : 'border-slate-700'} rounded-md px-3 py-2 text-white focus:outline-none focus:border-cyan-500`}
+              className={`w-full rounded-lg border ${validationErrors.email ? 'border-red-500' : 'border-slate-800'} bg-slate-950/80 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 transition-all`}
+              placeholder="user@example.com"
             />
-            {validationErrors.email && <p className="text-xs text-red-400">{validationErrors.email}</p>}
+            {validationErrors.email && <p className="text-xs text-red-400 mt-1">{validationErrors.email}</p>}
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor="company" className="text-sm text-slate-300 font-medium">Organization / Company</label>
+          {/* Organization / Company */}
+          <div className="flex flex-col gap-1.5 text-left">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Organization / Company
+            </label>
             <input
-              id="company"
+              type="text"
               name="company"
-              value={formData.company}
+              value={formData.company || ''}
               onChange={handleChange}
               disabled={isSaving}
-              className={`w-full bg-slate-900 border ${validationErrors.company ? 'border-red-500' : 'border-slate-700'} rounded-md px-3 py-2 text-white focus:outline-none focus:border-cyan-500`}
+              className={`w-full rounded-lg border ${validationErrors.company ? 'border-red-500' : 'border-slate-800'} bg-slate-950/80 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 transition-all`}
+              placeholder="Company or Organization name"
             />
-            {validationErrors.company && <p className="text-xs text-red-400">{validationErrors.company}</p>}
+            {validationErrors.company && <p className="text-xs text-red-400 mt-1">{validationErrors.company}</p>}
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor="customRateLimit" className="text-sm text-slate-300 font-medium">Custom Rate-Limit Override (requests / min)</label>
+          {/* Custom Rate-Limit */}
+          <div className="flex flex-col gap-1.5 text-left">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Custom Rate-Limit Override (requests / min)
+            </label>
             <input
-              id="customRateLimit"
-              name="customRateLimit"
               type="number"
-              placeholder="Leave empty for default"
-              value={formData.customRateLimit}
+              name="customRateLimit"
+              value={formData.customRateLimit || ''}
               onChange={handleChange}
               disabled={isSaving}
-              className={`w-full bg-slate-900 border ${validationErrors.customRateLimit ? 'border-red-500' : 'border-slate-700'} rounded-md px-3 py-2 text-white focus:outline-none focus:border-cyan-500`}
+              className={`w-full rounded-lg border ${validationErrors.customRateLimit ? 'border-red-500' : 'border-slate-800'} bg-slate-950/80 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 transition-all`}
+              placeholder="Leave empty for default"
             />
-            {validationErrors.customRateLimit && <p className="text-xs text-red-400">{validationErrors.customRateLimit}</p>}
+            {validationErrors.customRateLimit && <p className="text-xs text-red-400 mt-1">{validationErrors.customRateLimit}</p>}
           </div>
 
           {error && (
-            <div className="au-inline-error mt-4">
+            <div className="mt-2 text-sm text-red-400 flex items-center gap-2">
               <AlertTriangle size={15} aria-hidden="true" />
               <p>{error}</p>
             </div>
           )}
 
-          <footer className="au-modal-foot mt-6 pt-4 border-t border-slate-800">
-            <button type="button" className="au-ghost-btn" onClick={onClose} disabled={isSaving}>
+          {/* Footer Action Buttons */}
+          <div className="mt-4 flex items-center justify-end gap-3 pt-4 border-t border-slate-800/80">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSaving}
+              className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-lg transition-colors"
+            >
               Cancel
             </button>
-            <button type="submit" className="au-primary-btn" disabled={isSaving}>
-              {isSaving && <Loader2 size={14} className="au-spin" aria-hidden="true" />}
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 rounded-lg shadow-md shadow-violet-600/30 transition-all duration-200 flex items-center justify-center"
+            >
+              {isSaving && <Loader2 size={14} className="animate-spin mr-2" aria-hidden="true" />}
               Save Changes
             </button>
-          </footer>
+          </div>
         </form>
       </div>
     </div>
