@@ -1,10 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ProviderProject, ProjectTab, PricingPlan, ProviderApiKey, ApiConsumer } from '../../types/apibuild';
-import { DetailedEndpoint, ExtendedVersion, DeploymentRecord, ExtendedLogEntry } from './types';
-import {
-  getMockEndpoints, getMockVersions, getMockDeployments,
-  getMockLogs, getMockInsights, getMockIncidents, getMockAlertRules
-} from './mockExtendedData';
+import { DetailedEndpoint, ExtendedVersion, DeploymentRecord, ExtendedLogEntry, KlyraInsightItem, MonitoringIncident, AlertRule } from './types';
 
 import { HeaderCommandBar } from './components/HeaderCommandBar';
 import { EndpointDrawer } from './components/EndpointDrawer';
@@ -17,11 +13,17 @@ import { OpenApiImportModal } from './components/OpenApiImportModal';
 import { VersionMigrationModal } from './components/VersionMigrationModal';
 import { ProjectCommandPalette } from './components/ProjectCommandPalette';
 import { apiBuildService } from '../../services/apiBuild';
+import { DUMMY_PROJECT_ID, getDummyDeployments, getDummyEndpoints, getDummyIncidents, getDummyInsights, getDummyLogs, getDummyAlertRules, getDummyVersions } from './dummyApi';
 
 import { TabOverview } from './tabs/TabOverview';
 import { TabApi } from './tabs/TabApi';
 import { TabDeployments } from './tabs/TabDeployments';
 import { TabVersions } from './tabs/TabVersions';
+import { TabAudit } from './tabs/TabAudit';
+import { useOperations } from './hooks/useOperations';
+import { OperationRecord } from '../../types/operations';
+import { OperationsMonitor } from './components/OperationsMonitor';
+import { OperationDrawer } from './components/OperationDrawer';
 import { TabPlans } from './tabs/TabPlans';
 import { TabConsumers } from './tabs/TabConsumers';
 import { TabKeys } from './tabs/TabKeys';
@@ -62,18 +64,57 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
   const [selectedVersion, setSelectedVersion] = useState<string>(project.version || 'v2.4.1');
 
   // Extended domain datasets
-  const [endpoints, setEndpoints] = useState<DetailedEndpoint[]>(() => getMockEndpoints(project, selectedVersion));
-  const [versions, setVersions] = useState<ExtendedVersion[]>(() => getMockVersions(project));
-  const [deployments, setDeployments] = useState<DeploymentRecord[]>(() => getMockDeployments(project));
-  const [logs, setLogs] = useState<ExtendedLogEntry[]>(() => getMockLogs(project));
-  const [insights, setInsights] = useState(() => getMockInsights(project));
-  const [incidents, setIncidents] = useState(() => getMockIncidents(project));
-  const [alertRules, setAlertRules] = useState(() => getMockAlertRules());
+  const isDummyProject = project.id === DUMMY_PROJECT_ID;
+  const [endpoints, setEndpoints] = useState<DetailedEndpoint[]>(() => isDummyProject ? getDummyEndpoints() : []);
+  const [versions, setVersions] = useState<ExtendedVersion[]>(() => isDummyProject ? getDummyVersions() : project.versions.map((version) => ({
+    id: version.id,
+    semver: version.semver,
+    status: version.status === 'deprecated' ? 'Deprecated' : version.status === 'published' ? 'Current' : 'Beta',
+    isDefault: version.semver === project.version,
+    releasedAt: version.createdAt,
+    endpointsCount: version.endpoints,
+    consumersCount: project.consumers,
+    trafficPercentage: version.semver === project.version ? 100 : 0,
+    successRate: project.successRate,
+    avgLatencyMs: project.latencyMs,
+    changelog: { added: [], modified: [], deprecated: [], breaking: [] },
+  })));
+  const [deployments, setDeployments] = useState<DeploymentRecord[]>(() => isDummyProject ? getDummyDeployments() : []);
+  const [logs, setLogs] = useState<ExtendedLogEntry[]>(() => isDummyProject ? getDummyLogs() : []);
+  const [insights, setInsights] = useState<KlyraInsightItem[]>(() => isDummyProject ? getDummyInsights() : []);
+  const [incidents, setIncidents] = useState<MonitoringIncident[]>(() => isDummyProject ? getDummyIncidents() : []);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>(() => isDummyProject ? getDummyAlertRules() : []);
 
   // Mutable collections initialized from project
   const [plans, setPlans] = useState<PricingPlan[]>(project.plans || []);
   const [consumers, setConsumers] = useState<ApiConsumer[]>(project.consumersList || []);
   const [apiKeys, setApiKeys] = useState<ProviderApiKey[]>(project.apiKeys || []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadWorkspaceData = async () => {
+      if (isDummyProject) return;
+      const [remoteEndpoints, remoteVersions, remoteDeployments, remoteLogs, remoteInsights, remoteIncidents, remoteAlerts] = await Promise.all([
+        apiBuildService.listEndpoints<DetailedEndpoint>(project.id).catch(() => []),
+        apiBuildService.listVersions<ExtendedVersion>(project.id).catch(() => []),
+        apiBuildService.listDeployments<DeploymentRecord>(project.id).catch(() => []),
+        apiBuildService.listLogs<ExtendedLogEntry>(project.id, { limit: 200 }).catch(() => []),
+        apiBuildService.getInsights<KlyraInsightItem>(project.id).catch(() => []),
+        apiBuildService.listIncidents<MonitoringIncident>(project.id).catch(() => []),
+        apiBuildService.listAlertRules<AlertRule>(project.id).catch(() => []),
+      ]);
+      if (!mounted) return;
+      setEndpoints(remoteEndpoints);
+      if (remoteVersions.length) setVersions(remoteVersions);
+      setDeployments(remoteDeployments);
+      setLogs(remoteLogs);
+      setInsights(remoteInsights);
+      setIncidents(remoteIncidents);
+      setAlertRules(remoteAlerts);
+    };
+    void loadWorkspaceData();
+    return () => { mounted = false; };
+  }, [isDummyProject, project.id]);
 
   // Drawers state
   const [selectedEndpoint, setSelectedEndpoint] = useState<DetailedEndpoint | null>(null);
@@ -111,47 +152,80 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Operations — durable async execution surface (backend rows, polled here).
+  // Always attached (hooks cannot be conditional); failed calls simply keep the
+  // list empty so the dummy/offline experience stays graceful.
+  const ops = useOperations(project.id, { limit: 10 });
+  const [selectedOperation, setSelectedOperation] = useState<OperationRecord | null>(null);
+
+  // Environment context — UI-scoped selector (persisted per project). The
+  // backend still stores a single environment on the project row; per-environment
+  // config overlays are a Phase 2 concern. This selector drives which environment
+  // chips/views the UI shows until the env-scoped config API lands.
+  const [environment, setEnvironmentState] = useState<string>(() => {
+    try { return localStorage.getItem(`kly_env_${project.id}`) || project.environment || 'development'; }
+    catch { return project.environment || 'development'; }
+  });
+  useEffect(() => {
+    try { setEnvironmentState(localStorage.getItem(`kly_env_${project.id}`) || project.environment || 'development'); }
+    catch { setEnvironmentState(project.environment || 'development'); }
+  }, [project.id]);
+  const setEnvironment = (env: string) => {
+    setEnvironmentState(env);
+    try { localStorage.setItem(`kly_env_${project.id}`, env); } catch { /* storage unavailable */ }
+    showToast(`Environment context: ${env}`);
+  };
+
   // Actions
-  const handleTriggerRedeploy = () => {
-    showToast('Deployment queued: building container image on cluster [sg-edge-pool-01]...');
-    const newDep: DeploymentRecord = {
-      id: `dep-${Date.now().toString().slice(-4)}`,
-      version: selectedVersion === 'all' ? project.version : selectedVersion,
-      environment: 'production',
-      source: project.sourceKind === 'existing' ? 'External API' : project.sourceKind === 'github' ? 'GitHub' : 'Docker',
-      region: 'Singapore (ap-southeast-1)',
-      status: 'building',
-      url: project.baseUrl || 'https://api.kickonass.com',
-      deployedAt: 'Just now',
-      durationSec: 12,
-      author: 'Mahidi Hasan (Lead)',
-      logs: [
-        'Ingress proxy refresh triggered',
-        'Validating SSL certificate and upstream TCP health...',
-        'Warming edge cache and deploying route tables...',
-        'Zero-downtime cutover complete'
-      ],
-      envVars: []
-    };
-    setDeployments((prev: DeploymentRecord[]) => [newDep, ...prev]);
-    onUpdateProject({
-      status: 'deploying',
-      deployment: { ...project.deployment, status: 'queued', lastHealthCheck: 'queued', log: [...project.deployment.log, 'Deployment queued from project controls'] }
-    });
-    void apiBuildService.requestDeploy(project.id).then(async ({ jobId }) => {
-      showToast(`Deployment queued securely (${jobId.slice(0, 8)}).`);
-      const status = await apiBuildService.waitForDeploy(jobId);
-      if (status !== 'completed') {
-        showToast(status === 'failed' ? 'Deployment failed. Review deployment logs.' : 'Deployment is still processing in the queue.');
-        return;
+  const handleTriggerRedeploy = (strategy = 'rolling') => {
+    const version = selectedVersion === 'all' ? project.version : selectedVersion;
+    void ops.start({
+      type: 'deploy',
+      environment: project.environment,
+      payload: { version, strategy },
+      reason: `Manual redeploy (${strategy}) from project controls`,
+    }).then((op) => {
+      if (op) {
+        setSelectedOperation(op);
+        showToast(`Deployment operation ${op.id} queued (${strategy})`);
+      } else {
+        showToast(!ops.error ? 'Deployment queue unavailable — check backend connectivity.' : ops.error);
       }
-      const remoteProject = await apiBuildService.getRemoteProject(project.id);
-      onUpdateProject(remoteProject);
-      setDeployments((prev: DeploymentRecord[]) =>
-        prev.map((d: DeploymentRecord) => (d.id === newDep.id ? { ...d, status: 'healthy', deployedAt: '1 minute ago' } : d))
-      );
-      showToast('Deployment healthy: traffic is live on 42 edge locations');
-    }).catch(() => showToast('Saved locally — deployment queue will retry when the backend is online.'));
+    });
+  };
+
+  // Rollback to an explicit version from the overview deployment card.
+  const handleRollbackVersion = (targetVersion: string) => {
+    void ops.start({
+      type: 'rollback',
+      environment: project.environment,
+      payload: { targetVersion },
+      reason: `Manual rollback to ${targetVersion}`,
+    }).then((op) => {
+      if (op) {
+        setSelectedOperation(op);
+        showToast(`Rollback operation ${op.id} queued → ${targetVersion}`);
+      } else {
+        showToast(!ops.error ? 'Deployment queue unavailable — check backend connectivity.' : ops.error);
+      }
+    });
+  };
+
+  const handleRollbackDeployment = (dep: DeploymentRecord) => {
+    void ops.start({
+      type: 'rollback',
+      environment: dep.environment,
+      payload: { targetVersion: dep.version },
+      reason: `Manual rollback to ${dep.version}`,
+    }).then((op) => {
+      if (op) {
+        setSelectedDeployment(null);
+        setSelectedOperation(op);
+        showToast(`Rollback operation ${op.id} queued to ${dep.version}`);
+      } else {
+        showToast('Rollback requires backend connectivity.');
+      }
+    });
   };
 
   const handleCreateKey = (key: ProviderApiKey) => {
@@ -177,6 +251,13 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
 
   const handleChangeConsumerPlan = (consumerId: string, newPlan: string) => {
     setConsumers((prev: ApiConsumer[]) => prev.map((c: ApiConsumer) => (c.id === consumerId ? { ...c, plan: newPlan } : c)));
+  };
+
+  const handleUpdateEndpoint = (endpointId: string, patch: Partial<DetailedEndpoint>) => {
+    setEndpoints((current) => current.map((endpoint) => endpoint.id === endpointId ? { ...endpoint, ...patch } : endpoint));
+    if (!isDummyProject) {
+      void apiBuildService.updateEndpoint(project.id, endpointId, patch as Record<string, unknown>).catch(() => showToast('Route policy saved locally; backend sync will retry.'));
+    }
   };
 
   const handleOpenConsumerByName = (name: string) => {
@@ -206,6 +287,14 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
         onPauseToggle={onPauseToggle}
         onOpenOpenApiImport={() => setIsOpenApiImportOpen(true)}
         onShowToast={showToast}
+        environment={environment}
+        onSelectEnvironment={setEnvironment}
+        onOpenOperations={() => {
+          if (ops.operations.length > 0) setSelectedOperation(ops.operations[0]);
+          else showToast('No operations recorded yet for this project.');
+        }}
+        onOpenAudit={() => setTab('audit')}
+        operationsCount={ops.operations.filter((o) => o.state === 'running' || o.state === 'queued' || o.state === 'validating').length}
       />
 
       {/* 2. Main Tab View Container */}
@@ -223,6 +312,10 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
             onOpenPlayground={onOpenPlayground}
             onOpenMigration={() => setIsMigrationOpen(true)}
             onShowToast={showToast}
+            activeOperation={ops.operations.find((o) => ['deploy', 'rollback'].includes(o.type) && ['queued', 'validating', 'running'].includes(o.state)) ?? null}
+            versions={versions}
+            onRollback={handleRollbackVersion}
+            onOpenOperation={setSelectedOperation}
           />
         )}
 
@@ -234,6 +327,8 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
             onOpenPlayground={onOpenPlayground}
             onOpenImportModal={() => setIsOpenApiImportOpen(true)}
             onShowToast={showToast}
+            onUpdateEndpoint={handleUpdateEndpoint}
+            onUpdateProject={onUpdateProject}
           />
         )}
 
@@ -314,6 +409,14 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
           />
         )}
 
+        {tab === 'audit' && (
+          <TabAudit
+            project={project}
+            onUpdateProject={onUpdateProject}
+            onShowToast={showToast}
+          />
+        )}
+
         {tab === 'settings' && (
           <TabSettings
             project={project}
@@ -328,6 +431,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
       <EndpointDrawer
         endpoint={selectedEndpoint}
         onClose={() => setSelectedEndpoint(null)}
+        onUpdateEndpoint={handleUpdateEndpoint}
         onOpenPlayground={(ep) => {
           setSelectedEndpoint(null);
           onOpenPlayground();
@@ -348,7 +452,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
         }}
         onRollback={(dep) => {
           setSelectedDeployment(null);
-          showToast(`Rolled back to deployment ${dep.id} (${dep.version})`);
+          handleRollbackDeployment(dep);
         }}
         onShowToast={showToast}
       />
@@ -413,6 +517,30 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
         onSelectTab={setTab}
         onSelectEndpoint={setSelectedEndpoint}
         onOpenPlayground={onOpenPlayground}
+        onDeploy={handleTriggerRedeploy}
+        onOpenOperations={() => {
+          if (ops.operations.length > 0) setSelectedOperation(ops.operations[0]);
+          else showToast('No operations recorded yet for this project.');
+        }}
+        onOpenAudit={() => setTab('audit')}
+      />
+
+      {/* 5b. Operations Monitor — real progress for every durable operation */}
+      <OperationDrawer
+        operation={selectedOperation}
+        onClose={() => setSelectedOperation(null)}
+        onCancel={async (op) => { await ops.cancel(op.id); }}
+        onRetry={async (op) => { await ops.retry(op.id); }}
+        onShowToast={showToast}
+        onOpenAudit={() => setTab('audit')}
+      />
+      <OperationsMonitor
+        operations={ops.operations}
+        onSelect={setSelectedOperation}
+        onOpenAll={() => {
+          if (ops.operations.length > 0) setSelectedOperation(ops.operations[0]);
+          else showToast('No operations recorded yet for this project.');
+        }}
       />
 
       {/* 6. Toast System */}

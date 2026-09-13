@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Search, DollarSign, Key, Ban, Mail } from 'lucide-react';
+import { Users, Search, DollarSign, Activity, AlertTriangle } from 'lucide-react';
 import { ApiConsumer } from '../../../types/apibuild';
 
 interface TabConsumersProps {
@@ -15,12 +15,18 @@ export const TabConsumers: React.FC<TabConsumersProps> = ({
 }) => {
   const [q, setQ] = useState('');
   const [planFilter, setPlanFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
   const filteredConsumers = consumers.filter(c => {
     const matchQ = !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.email.toLowerCase().includes(q.toLowerCase());
     const matchPlan = planFilter === 'ALL' || c.plan.toLowerCase() === planFilter.toLowerCase();
-    return matchQ && matchPlan;
+    const matchStatus = statusFilter === 'ALL' || c.status === statusFilter;
+    return matchQ && matchPlan && matchStatus;
   });
+  const atRiskCount = consumers.filter((consumer) => {
+    const limit = consumer.plan === 'Business' ? 500000 : consumer.plan === 'Pro' ? 50000 : 1000;
+    return consumer.requests / limit >= 0.8;
+  }).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -53,8 +59,21 @@ export const TabConsumers: React.FC<TabConsumersProps> = ({
               <option value="Pro">Pro Tier</option>
               <option value="Free">Free Tier</option>
             </select>
+            <select className="kly-select" aria-label="Filter consumer status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="ALL">All statuses</option>
+              <option value="active">Active</option>
+              <option value="trialing">Trialing</option>
+              <option value="past_due">Past due</option>
+            </select>
           </div>
         </div>
+      </div>
+
+      <div className="kly-ops-summary kly-consumer-summary">
+        <div><span><Users size={13} /> Total consumers</span><strong>{consumers.length}</strong><small>Accounts with access</small></div>
+        <div><span><Activity size={13} /> Active now</span><strong>{consumers.filter((c) => c.status === 'active').length}</strong><small>Healthy subscriptions</small></div>
+        <div><span><AlertTriangle size={13} /> Quota watch</span><strong>{atRiskCount}</strong><small>At or above 80% usage</small></div>
+        <div><span><DollarSign size={13} /> Filtered view</span><strong>{filteredConsumers.length}</strong><small>Matching accounts</small></div>
       </div>
 
       {/* Consumers Table */}
@@ -120,6 +139,7 @@ export const TabConsumers: React.FC<TabConsumersProps> = ({
                 </tr>
               );
             })}
+            {!filteredConsumers.length && <tr><td colSpan={8} className="kly-empty-state"><Search size={18} /><span>No consumers match the current filters.</span><button className="kly-btn kly-btn-ghost" onClick={() => { setQ(''); setPlanFilter('ALL'); setStatusFilter('ALL'); }}>Clear filters</button></td></tr>}
           </tbody>
         </table>
       </div>

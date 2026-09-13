@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Terminal, Search, Filter, RefreshCw, Eye, Check } from 'lucide-react';
+import { Terminal, Search, RefreshCw, Eye, Download, Activity, AlertTriangle } from 'lucide-react';
 import { ExtendedLogEntry } from '../types';
 import { ProviderProject } from '../../../types/apibuild';
 
@@ -21,10 +21,17 @@ export const TabLogs: React.FC<TabLogsProps> = ({
   const [isLiveStreaming, setIsLiveStreaming] = useState(true);
 
   const filteredLogs = logs.filter(l => {
-    const matchQ = !q || l.path.toLowerCase().includes(q.toLowerCase()) || l.consumerName.toLowerCase().includes(q.toLowerCase()) || l.id.toLowerCase().includes(q.toLowerCase());
+    const queryTerms = q.toLowerCase().split(/\s+and\s+|\s+/).map((term) => term.trim()).filter(Boolean);
+    const matchQ = queryTerms.every((term) => {
+      if (term.startsWith('status:')) return String(l.statusCode) === term.slice(7);
+      if (term.startsWith('path:')) return l.path.toLowerCase().includes(term.slice(5));
+      return l.path.toLowerCase().includes(term) || l.consumerName.toLowerCase().includes(term) || l.id.toLowerCase().includes(term);
+    });
     const matchStatus = statusFilter === 'ALL' || (statusFilter === '2xx' && l.statusCode < 300) || (statusFilter === '4xx' && l.statusCode >= 400 && l.statusCode < 500) || (statusFilter === '5xx' && l.statusCode >= 500);
     return matchQ && matchStatus;
   });
+  const errorCount = logs.filter((log) => log.statusCode >= 400).length;
+  const averageLatency = logs.length ? Math.round(logs.reduce((total, log) => total + log.latencyMs, 0) / logs.length) : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -72,8 +79,16 @@ export const TabLogs: React.FC<TabLogsProps> = ({
               <option value="4xx">4xx Client Errors</option>
               <option value="5xx">5xx Origin Errors</option>
             </select>
+            <button className="kly-btn kly-btn-secondary" onClick={() => onShowToast(`Exporting ${filteredLogs.length} filtered log entries...`)}><Download size={12} /> Export</button>
           </div>
         </div>
+      </div>
+
+      <div className="kly-ops-summary kly-log-summary">
+        <div><span><Terminal size={13} /> Visible entries</span><strong>{filteredLogs.length}</strong><small>Current filter scope</small></div>
+        <div><span><Activity size={13} /> Average latency</span><strong>{averageLatency}ms</strong><small>Across retained logs</small></div>
+        <div><span><AlertTriangle size={13} /> Error responses</span><strong>{errorCount}</strong><small>4xx and 5xx responses</small></div>
+        <div><span><RefreshCw size={13} /> Retention</span><strong>30 days</strong><small>Trace archive policy</small></div>
       </div>
 
       {/* Logs Stream Table */}
@@ -138,6 +153,7 @@ export const TabLogs: React.FC<TabLogsProps> = ({
                 </td>
               </tr>
             ))}
+            {!filteredLogs.length && <tr><td colSpan={9} className="kly-empty-state"><Search size={18} /><span>No log entries match the current query.</span><button className="kly-btn kly-btn-ghost" onClick={() => { setQ(''); setStatusFilter('ALL'); }}>Clear filters</button></td></tr>}
           </tbody>
         </table>
       </div>

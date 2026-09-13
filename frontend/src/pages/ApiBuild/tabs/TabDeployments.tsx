@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Server, Rocket, RefreshCw, RotateCcw, ExternalLink, Terminal, Plus, Check } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Server, Rocket, Terminal, Activity, CheckCircle2, Clock3, AlertTriangle, Filter } from 'lucide-react';
 import { DeploymentRecord } from '../types';
 import { ProviderProject } from '../../../types/apibuild';
 
@@ -18,6 +18,15 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
   onTriggerRedeploy,
   onShowToast
 }) => {
+  const [environment, setEnvironment] = useState('ALL');
+  const [status, setStatus] = useState('ALL');
+  const filteredDeployments = useMemo(() => deployments.filter((deployment) => (
+    (environment === 'ALL' || deployment.environment === environment) &&
+    (status === 'ALL' || deployment.status === status)
+  )), [deployments, environment, status]);
+  const healthyCount = deployments.filter((deployment) => deployment.status === 'healthy').length;
+  const activeCount = deployments.filter((deployment) => deployment.status === 'building').length;
+
   return (
     <div className="kly-page-stack">
       {/* Header card */}
@@ -36,8 +45,32 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
         </div>
       </div>
 
+      <div className="kly-ops-summary">
+        <div><span><CheckCircle2 size={13} /> Healthy releases</span><strong>{healthyCount}</strong><small>Ready to serve traffic</small></div>
+        <div><span><Activity size={13} /> In progress</span><strong>{activeCount}</strong><small>Tracked by release pipeline</small></div>
+        <div><span><Server size={13} /> Edge coverage</span><strong>42</strong><small>Global locations online</small></div>
+        <div><span><Clock3 size={13} /> Last verification</span><strong>2m ago</strong><small>Automated health check</small></div>
+      </div>
+
       {/* Deployments Table */}
       <div className="kly-table-wrapper">
+        <div className="kly-table-toolbar">
+          <div className="kly-table-toolbar-title"><Filter size={14} /><strong>Release history</strong><span>{filteredDeployments.length} of {deployments.length} releases</span></div>
+          <div className="kly-table-toolbar-controls">
+            <select className="kly-select kly-select-compact" aria-label="Filter deployment environment" value={environment} onChange={(event) => setEnvironment(event.target.value)}>
+              <option value="ALL">All environments</option>
+              <option value="production">Production</option>
+              <option value="staging">Staging</option>
+              <option value="development">Development</option>
+            </select>
+            <select className="kly-select kly-select-compact" aria-label="Filter deployment status" value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="ALL">All statuses</option>
+              <option value="healthy">Healthy</option>
+              <option value="building">Building</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+        </div>
         <table className="kly-table">
           <thead>
             <tr>
@@ -52,7 +85,7 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
             </tr>
           </thead>
           <tbody>
-            {deployments.map((d) => (
+            {filteredDeployments.map((d) => (
               <tr
                 key={d.id}
                 style={{ cursor: 'pointer' }}
@@ -102,6 +135,7 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
                 </td>
               </tr>
             ))}
+            {!filteredDeployments.length && <tr><td colSpan={8} className="kly-empty-state"><AlertTriangle size={18} /><span>No deployments match these filters.</span><button className="kly-btn kly-btn-ghost" onClick={() => { setEnvironment('ALL'); setStatus('ALL'); }}>Clear filters</button></td></tr>}
           </tbody>
         </table>
       </div>

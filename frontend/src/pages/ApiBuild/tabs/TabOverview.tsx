@@ -1,12 +1,18 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   TrendingUp, TrendingDown, Activity, Clock, ShieldCheck, Server,
   Sparkles, ArrowRight, CheckCircle2, AlertTriangle, Key, Users,
   DollarSign, RefreshCw, ExternalLink, Play, FlaskConical, Terminal,
-  Plus, Check, Eye
+  Plus, Check, Eye, ChevronDown, History, X, Globe, RotateCcw
 } from 'lucide-react';
 import { ProviderProject, ProjectTab, ApiConsumer } from '../../../types/apibuild';
 import { DetailedEndpoint, ExtendedVersion, KlyraInsightItem } from '../types';
+import { OperationRecord } from '../../../types/operations';
+
+// Bar chart track height in px — must stay in sync with `.kly-chart-track { height }` in styles-professional.css.
+// Bars use a definite px height instead of a CSS percentage so the flex column
+// resolves to a real size (percentage-of-auto causes micro-height bars).
+const CHART_TRACK_PX = 200;
 
 interface TabOverviewProps {
   project: ProviderProject;
@@ -16,11 +22,25 @@ interface TabOverviewProps {
   onSelectTab: (tab: ProjectTab) => void;
   onSelectEndpoint: (ep: DetailedEndpoint) => void;
   onOpenConsumer: (name: string) => void;
-  onTriggerRedeploy: () => void;
+  onTriggerRedeploy: (strategy?: string) => void;
   onOpenPlayground: () => void;
   onOpenMigration: () => void;
   onShowToast: (msg: string) => void;
+  /** In-flight deploy/rollback operation, when one is running. */
+  activeOperation?: OperationRecord | null;
+  /** Available versions for rollback target selection. */
+  versions?: ExtendedVersion[];
+  /** Queue a durable rollback operation to the given version. */
+  onRollback?: (targetVersion: string) => void;
+  /** Open the operation drawer for the in-flight operation. */
+  onOpenOperation?: (op: OperationRecord) => void;
 }
+
+const DEPLOY_STRATEGIES = [
+  { id: 'rolling', label: 'Rolling', desc: 'Replace instances in batches — zero downtime, default.' },
+  { id: 'blue-green', label: 'Blue-Green', desc: 'Stand up a parallel fleet, then switch traffic atomically.' },
+  { id: 'canary', label: 'Canary 10%', desc: 'Shift 10% of traffic first, auto-promote when healthy.' },
+] as const;
 
 export const TabOverview: React.FC<TabOverviewProps> = ({
   project,
@@ -33,11 +53,66 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
   onTriggerRedeploy,
   onOpenPlayground,
   onOpenMigration,
-  onShowToast
+  onShowToast,
+  activeOperation,
+  versions,
+  onRollback,
+  onOpenOperation
 }) => {
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('24h');
   const [isSimulatingLive, setIsSimulatingLive] = useState(true);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+
+  // Deployment card modal — Redeploy / Rollback open a centered overlay with a
+  // staged flow: select → syncing (spinner) → queued (checkmark) → close.
+  const [deployModal, setDeployModal] = useState<null | 'redeploy' | 'rollback'>(null);
+  const [pendingStrategy, setPendingStrategy] = useState<string | null>(null);
+  const [pendingRollback, setPendingRollback] = useState<string | null>(null);
+  const [confirmPhase, setConfirmPhase] = useState<'select' | 'sync' | 'done'>('select');
+
+  const closeDeployModal = () => {
+    setDeployModal(null);
+    setPendingStrategy(null);
+    setPendingRollback(null);
+    setConfirmPhase('select');
+  };
+
+  useEffect(() => {
+    if (!deployModal) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && confirmPhase === 'select') closeDeployModal();
+    };
+    document.addEventListener('keydown', onEsc);
+    return () => document.removeEventListener('keydown', onEsc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deployModal, confirmPhase]);
+
+  const activeOp = activeOperation ?? null;
+  const opRunning = !!activeOp && ['queued', 'validating', 'running'].includes(activeOp.state);
+  const rollbackTargets = (versions ?? []).filter((v) => v.semver !== project.version && v.semver !== 'all');
+
+  // Confirm runs a short "sync" animation so the queueing feels deliberate,
+  // then dispatches the real operation and closes the modal.
+  const confirmDeploy = () => {
+    if (!pendingStrategy) return;
+    setConfirmPhase('sync');
+    window.setTimeout(() => {
+      setConfirmPhase('done');
+      onTriggerRedeploy(pendingStrategy);
+      onShowToast(`${pendingStrategy} deploy queued for ${project.version}`);
+      window.setTimeout(closeDeployModal, 900);
+    }, 1100);
+  };
+  const confirmRollback = () => {
+    if (!pendingRollback) return;
+    setConfirmPhase('sync');
+    window.setTimeout(() => {
+      setConfirmPhase('done');
+      onRollback?.(pendingRollback);
+      onShowToast(`Rollback to ${pendingRollback} queued`);
+      window.setTimeout(closeDeployModal, 900);
+    }, 1100);
+  };
 
   // Advances the trailing bar while "Live Stream" is on, so the chart feels real-time.
   const [tick, setTick] = useState(0);
@@ -196,12 +271,25 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* Live stream toggle */}
+            <button
+              type="button"
+              className={`kly-live-pill${isSimulatingLive ? ' is-live' : ''}`}
+              aria-pressed={isSimulatingLive}
+              onClick={() => setIsSimulatingLive(!isSimulatingLive)}
+              title={isSimulatingLive ? 'Pause live updates' : 'Resume live updates'}
+            >
+              <span className="kly-live-pill-dot" />
+              <span className="kly-live-pill-text">{isSimulatingLive ? 'Live' : 'Paused'}</span>
+            </button>
+
             {/* Time filters */}
-            <div className="kly-seg-ctrl">
+            <div className="kly-seg-ctrl" role="group" aria-label="Traffic time range">
               {(['24h', '7d', '30d'] as const).map(t => (
                 <button
                   key={t}
+                  type="button"
                   className={`kly-seg-btn${timeRange === t ? ' active' : ''}`}
+                  aria-pressed={timeRange === t}
                   onClick={() => setTimeRange(t)}
                 >
                   {t.toUpperCase()}
@@ -211,9 +299,15 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
           </div>
         </div>
 
+        
+
         {/* Chart Visualization */}
         <div className="kly-chart">
-          <div className="kly-chart-area">
+          <div
+            className="kly-chart-area"
+            role="img"
+            aria-label={`API request volume stacked by response class over the last ${timeRange}`}
+          >
             {/* Y axis labels */}
             <div className="kly-chart-y">
               <span>{kfmt(maxTraffic)}</span>
@@ -232,6 +326,7 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
                 {trafficPoints.map((pt, idx) => {
                   const isHovered = hoveredBar === idx;
                   const isLive = isSimulatingLive && idx === trafficPoints.length - 1;
+                  const barHeightPx = Math.max(Math.round((pt.total / maxTraffic) * CHART_TRACK_PX), 16);
                   const segs = [
                     { key: 'ok', v: pt.success, cls: 'kly-seg-ok' },
                     { key: 'c4', v: pt.clientErr, cls: 'kly-seg-4xx' },
@@ -239,6 +334,12 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
                     { key: 'rl', v: pt.rateLim, cls: 'kly-seg-429' },
                   ];
                   const tipEdge = idx === 0 ? ' start' : idx === trafficPoints.length - 1 ? ' end' : '';
+                  const tipRows = [
+                    { key: 'ok', v: pt.success, dot: 'kly-dot-ok', label: 'Success' },
+                    { key: 'c4', v: pt.clientErr, dot: 'kly-dot-4xx', label: 'Client err' },
+                    { key: 's5', v: pt.serverErr, dot: 'kly-dot-5xx', label: 'Server err' },
+                    { key: 'rl', v: pt.rateLim, dot: 'kly-dot-429', label: 'Throttled' },
+                  ].filter((r) => r.v > 0);
                   return (
                     <div
                       key={idx}
@@ -248,20 +349,32 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
                       onMouseLeave={() => setHoveredBar(null)}
                     >
                       {isHovered && (
-                        <div className={`kly-chart-tip${tipEdge}`}>
-                          <div className="kly-tip-title">{pt.label}</div>
-                          <div className="kly-tip-total">Total <b>{pt.total.toLocaleString()}</b></div>
-                          <div className="kly-tip-row"><span className="kly-legend-dot kly-dot-ok" />2xx <b>{pt.success.toLocaleString()}</b></div>
-                          <div className="kly-tip-row"><span className="kly-legend-dot kly-dot-4xx" />4xx <b>{pt.clientErr.toLocaleString()}</b></div>
-                          <div className="kly-tip-row"><span className="kly-legend-dot kly-dot-5xx" />5xx <b>{pt.serverErr.toLocaleString()}</b></div>
-                          <div className="kly-tip-row"><span className="kly-legend-dot kly-dot-429" />429 <b>{pt.rateLim.toLocaleString()}</b></div>
-                          <div className="kly-tip-latency">P95 <b>{pt.p95}ms</b></div>
+                        <div className={`kly-chart-tip${tipEdge}`} role="status" aria-label={`Traffic breakdown for ${pt.label}`}>
+                          <div className="kly-tip-head">
+                            <span className="kly-tip-title">{pt.label}</span>
+                            <span className="kly-tip-total"><b>{kfmt(pt.total)}</b> reqs</span>
+                          </div>
+                          <div className="kly-tip-body">
+                            {tipRows.map((r) => {
+                              const share = pt.total > 0 ? (r.v / pt.total) * 100 : 0;
+                              return (
+                                <div className="kly-tip-row" key={r.key}>
+                                  <span className={`kly-legend-dot ${r.dot}`} />
+                                  <span className="kly-tip-label">{r.label}</span>
+                                  <i className="kly-tip-bar"><i className={`kly-tip-fill ${r.dot}`} style={{ width: `${Math.max(share, 4)}%` }} /></i>
+                                  <span className="kly-tip-val"><b>{r.v.toLocaleString()}</b><small>{share >= 1 ? `${share.toFixed(0)}%` : '<1%'}</small></span>
+                                </div>
+                              );
+                            })}
+                            {tipRows.length === 0 && <div className="kly-tip-empty">No traffic in this interval</div>}
+                          </div>
+                          <div className="kly-tip-foot"><span>P95 latency</span><b>{pt.p95}ms</b></div>
                         </div>
                       )}
 
                       <div
                         className={`kly-bar-stack${isLive ? ' live' : ''}`}
-                        style={{ height: `${Math.max(Math.round((pt.total / maxTraffic) * 100), 8)}%` }}
+                        style={{ height: `${barHeightPx}px` }}
                       >
                         {segs.filter((s) => s.v > 0).map((s) => (
                           <div key={s.key} className={`kly-bar-seg ${s.cls}`} style={{ height: `${(s.v / pt.total) * 100}%` }} />
@@ -287,27 +400,28 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
             </div>
           </div>
 
-          <div className="kly-chart-legend">
-            <div className="kly-legend-item">
-              <span className="kly-legend-dot kly-dot-ok" />
-              <span>2xx Successful</span>
-              <b>{pctOf(counts.success).toFixed(2)}%</b>
-            </div>
-            <div className="kly-legend-item">
-              <span className="kly-legend-dot kly-dot-4xx" />
-              <span>4xx Client Errors</span>
-              <b>{pctOf(counts.clientErr).toFixed(2)}%</b>
-            </div>
-            <div className="kly-legend-item">
-              <span className="kly-legend-dot kly-dot-5xx" />
-              <span>5xx Server Errors</span>
-              <b>{pctOf(counts.serverErr).toFixed(2)}%</b>
-            </div>
-            <div className="kly-legend-item">
-              <span className="kly-legend-dot kly-dot-429" />
-              <span>429 Throttled</span>
-              <b>{pctOf(counts.rateLim).toFixed(2)}%</b>
-            </div>
+          <div className="kly-chart-legend" role="list" aria-label="Traffic breakdown by response class">
+            {[
+              { key: 'ok', v: counts.success, dot: 'kly-dot-ok', label: 'Success', hint: '2xx Successful requests' },
+              { key: 'c4', v: counts.clientErr, dot: 'kly-dot-4xx', label: 'Client err', hint: '4xx Client errors' },
+              { key: 's5', v: counts.serverErr, dot: 'kly-dot-5xx', label: 'Server err', hint: '5xx Server errors' },
+              { key: 'rl', v: counts.rateLim, dot: 'kly-dot-429', label: 'Throttled', hint: '429 Rate-limited requests' },
+            ].map((it) => {
+              const share = pctOf(it.v);
+              return (
+                <div
+                  key={it.key}
+                  role="listitem"
+                  className={`kly-legend-item${share < 0.005 ? ' kly-legend-muted' : ''}`}
+                  title={it.hint}
+                >
+                  <span className={`kly-legend-dot ${it.dot}`} />
+                  <span className="kly-legend-label">{it.label}</span>
+                  <b className="kly-legend-count">{it.v.toLocaleString()}</b>
+                  <span className="kly-legend-pct">{share >= 1 ? `${share.toFixed(0)}%` : share > 0 ? '<1%' : '0%'}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -354,48 +468,226 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
           </div>
 
           {/* Active Deployment */}
-          <div className="kly-card">
+          <div className="kly-card kly-deploy-card">
             <div className="kly-card-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Server size={15} color="#10b981" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className={`kly-deploy-icon${opRunning ? ' busy' : ''}`}>
+                  <Server size={15} />
+                </span>
                 <div>
                   <h4 className="kly-card-title">Production Deployment</h4>
-                  <p className="kly-card-subtitle">Active Edge Cluster: Singapore (ap-southeast-1)</p>
+                  <p className="kly-card-subtitle"><Globe size={10} style={{ marginRight: 4, verticalAlign: -1 }} />Active Edge Cluster: Singapore (ap-southeast-1)</p>
                 </div>
               </div>
-              <span className={`kly-badge ${isDeploymentHealthy ? 'kly-badge-healthy' : 'kly-badge-deploying'}`}>● {deploymentLabel}</span>
+              <span className={`kly-badge ${isDeploymentHealthy ? 'kly-badge-healthy' : 'kly-badge-deploying'} kly-deploy-badge`}>
+                <span className="kly-pulse-dot" style={{
+                  background: isDeploymentHealthy ? '#10b981' : '#f59e0b',
+                  boxShadow: isDeploymentHealthy ? '0 0 8px #10b981' : '0 0 8px #f59e0b',
+                }} />
+                {deploymentLabel}
+              </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--kly-text-dim)' }}>Target Version</span>
+            {/* In-flight operation — live progress with details link */}
+            {opRunning && activeOp && (
+              <div className="kly-deploy-active" role="status">
+                <div className="kly-deploy-active-top">
+                  <span className="kly-deploy-active-label">
+                    <RefreshCw size={12} className="kly-spin" />
+                    {activeOp.type === 'rollback'
+                      ? <>Rolling back to <b className="kly-mono">{String(activeOp.payload?.targetVersion ?? '')}</b></>
+                      : <>Deploying <b className="kly-mono">{String(activeOp.payload?.version ?? project.version)}</b></>}
+                    <span className="kly-deploy-active-state">{activeOp.state} · {activeOp.type}</span>
+                  </span>
+                  <button className="kly-btn kly-btn-ghost kly-deploy-details-btn" onClick={() => onOpenOperation?.(activeOp)}>
+                    <Eye size={12} /><span>Details</span>
+                  </button>
+                </div>
+                <div className="kly-deploy-progress" aria-label={`Operation progress ${activeOp.progress}%`}>
+                  <div className="kly-deploy-progress-fill" style={{ width: `${activeOp.progress}%` }} />
+                </div>
+                <div className="kly-deploy-progress-meta">
+                  <b className="kly-mono">{activeOp.progress}%</b>
+                  <span>{activeOp.reason}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Deployment facts */}
+            <div className="kly-deploy-meta">
+              <div className="kly-deploy-meta-item">
+                <span>Target Version</span>
                 <b className="kly-mono">{project.version}</b>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--kly-text-dim)' }}>Upstream Origin</span>
-                <b className="kly-mono">{project.deployment.providerUrl || project.baseUrl || 'Not configured'}</b>
+              <div className="kly-deploy-meta-item">
+                <span>Strategy</span>
+                <b>{activeOp?.payload?.strategy ? String(activeOp.payload.strategy) : 'rolling'}</b>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--kly-text-dim)' }}>Last Deployment</span>
+              <div className="kly-deploy-meta-item kly-deploy-origin">
+                <span>Upstream Origin</span>
+                <b className="kly-mono" title={project.deployment.providerUrl || project.baseUrl || undefined}>
+                  {project.deployment.providerUrl || project.baseUrl || 'Not configured'}
+                </b>
+              </div>
+              <div className="kly-deploy-meta-item">
+                <span>Last Deployment</span>
                 <b>{project.deployment.lastHealthCheck}</b>
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-              <button className="kly-btn kly-btn-primary" onClick={onTriggerRedeploy}>
-                <RefreshCw size={12} />
+            {/* 30-day uptime strip — staggered entrance animation */}
+            <div className="kly-deploy-uptime" title="30-day gateway availability — green = healthy, amber = degraded">
+              {Array.from({ length: 30 }, (_, i) => (
+                <i
+                  key={i}
+                  className={`kly-uptime-bar${i === 17 ? ' warn' : ''}`}
+                  style={{ '--i': i } as React.CSSProperties}
+                />
+              ))}
+              <span className="kly-uptime-val">99.97% · 30d</span>
+            </div>
+
+            {/* Actions — open the deploy / rollback overlay */}
+            <div className="kly-deploy-actions">
+              <button
+                className="kly-btn kly-btn-primary"
+                onClick={() => { setDeployModal('redeploy'); setPendingStrategy(null); setConfirmPhase('select'); }}
+                disabled={opRunning}
+                title={opRunning ? 'A deployment operation is already in progress' : 'Queue a new deployment'}
+              >
+                <RefreshCw size={12} className={opRunning ? 'kly-spin' : ''} />
                 <span>Redeploy</span>
               </button>
+
+              <button
+                className="kly-btn kly-btn-secondary"
+                onClick={() => { setDeployModal('rollback'); setPendingRollback(null); setConfirmPhase('select'); }}
+                disabled={opRunning}
+                title={opRunning ? 'A deployment operation is already in progress' : 'Roll back to a previous version'}
+              >
+                <History size={12} />
+                <span>Rollback</span>
+              </button>
+
               <button className="kly-btn kly-btn-secondary" onClick={() => onSelectTab('deployments')}>
                 <Terminal size={12} />
                 <span>View Logs</span>
               </button>
-              <button className="kly-btn kly-btn-ghost" onClick={() => onSelectTab('deployments')}>
-                <span>Rollback...</span>
-              </button>
+              {activeOp && !opRunning && (
+                <button className="kly-btn kly-btn-ghost" onClick={() => onOpenOperation?.(activeOp)}>
+                  <Eye size={12} />
+                  <span>Last Operation</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Deploy / Rollback overlay — staged sync-style flow */}
+        {deployModal && (() => {
+          const isRedeploy = deployModal === 'redeploy';
+          const syncing = confirmPhase === 'sync';
+          const done = confirmPhase === 'done';
+          const ready = isRedeploy ? !!pendingStrategy : !!pendingRollback;
+          return (
+            <div className="kly-deploy-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget && confirmPhase === 'select') closeDeployModal(); }}>
+              <div className={`kly-deploy-modal${done ? ' is-done' : ''}`} role="dialog" aria-modal="true" aria-label={isRedeploy ? 'Redeploy confirmation' : 'Rollback confirmation'}>
+                <div className="kly-deploy-modal-head">
+                  <div>
+                    <h4>{isRedeploy ? 'Redeploy production' : 'Rollback production'}</h4>
+                    <p>{isRedeploy ? 'Choose how the new build should take over traffic.' : 'Traffic will shift back to the selected version.'}</p>
+                  </div>
+                  {confirmPhase === 'select' && (
+                    <button className="kly-btn-icon" onClick={closeDeployModal} aria-label="Close" title="Close (Esc)"><X size={15} /></button>
+                  )}
+                </div>
+
+                {/* Step 1 — selection (slides away during sync) */}
+                <div className={`kly-deploy-modal-body${syncing || done ? ' leaving' : ''}${done ? ' hidden' : ''}`}>
+                  {isRedeploy ? (
+                    <>
+                      <div className="kly-deploy-modal-sec">Deployment strategy</div>
+                      {DEPLOY_STRATEGIES.map((s) => (
+                        <button
+                          key={s.id}
+                          className={`kly-deploy-pop-row${pendingStrategy === s.id ? ' selected' : ''}`}
+                          onClick={() => setPendingStrategy(s.id)}
+                          disabled={syncing}
+                        >
+                          <span className="kly-deploy-pop-radio">{pendingStrategy === s.id && <Check size={10} />}</span>
+                          <span className="kly-deploy-pop-row-text"><b>{s.label}</b><small>{s.desc}</small></span>
+                        </button>
+                      ))}
+                      <div className="kly-deploy-modal-hint">
+                        Target <b className="kly-mono">{project.version}</b> on <b>{project.environment}</b> · <b className="kly-mono">{project.deployment.providerUrl || project.baseUrl || 'origin not configured'}</b>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="kly-deploy-modal-sec">Roll back to version</div>
+                      {rollbackTargets.length === 0 && (
+                        <div className="kly-deploy-pop-empty">No previous versions available.</div>
+                      )}
+                      {rollbackTargets.map((v) => (
+                        <button
+                          key={v.id}
+                          className={`kly-deploy-pop-row${pendingRollback === v.semver ? ' selected' : ''}`}
+                          onClick={() => setPendingRollback(v.semver)}
+                          disabled={syncing}
+                        >
+                          <span className="kly-deploy-pop-radio">{pendingRollback === v.semver && <Check size={10} />}</span>
+                          <span className="kly-deploy-pop-row-text">
+                            <b className="kly-mono">{v.semver}</b>
+                            <small>{v.status}{v.isDefault ? ' · previous default' : ''}</small>
+                          </span>
+                        </button>
+                      ))}
+                      <div className="kly-deploy-modal-hint">
+                        Current <b className="kly-mono">{project.version}</b> · <b>{project.environment}</b> — gateway traffic shifts back after confirmation.
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Step 2 — syncing / queued (slides in) */}
+                <div className={`kly-deploy-sync${syncing || done ? ' entering' : ''}${done ? ' is-done' : ''}`} aria-live="polite">
+                  {!done ? (
+                    <>
+                      <span className="kly-sync-orbit"><i /><i /><i /></span>
+                      <div className="kly-sync-title">
+                        {isRedeploy ? 'Syncing deploy plan to gateway…' : 'Syncing rollback plan to gateway…'}
+                      </div>
+                      <div className="kly-sync-steps">
+                        <span className="ok"><Check size={10} /> Strategy validated</span>
+                        <span className="ok"><Check size={10} /> Environment checked</span>
+                        <span className="wait">Queueing operation…</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <span className="kly-sync-check"><Check size={16} /></span>
+                      <div className="kly-sync-title">{isRedeploy ? 'Deploy queued' : 'Rollback queued'}</div>
+                      <div className="kly-sync-sub">Track live progress in the operation banner below.</div>
+                    </>
+                  )}
+                </div>
+
+                {confirmPhase === 'select' && (
+                  <div className="kly-deploy-modal-foot">
+                    <button className="kly-btn kly-btn-ghost" onClick={closeDeployModal}>Cancel</button>
+                    <button
+                      className="kly-btn kly-btn-primary"
+                      disabled={!ready}
+                      onClick={() => (isRedeploy ? confirmDeploy() : confirmRollback())}
+                    >
+                      {isRedeploy ? <><RefreshCw size={12} /> Confirm Redeploy</> : <><RotateCcw size={12} /> Confirm Rollback</>}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Right Col: Klyra AI Insights & Top Consumers */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -490,68 +782,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
                 );
               })}
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Recent Real-Time Activity & Quick Command Shortcuts */}
-      <div className="kly-card kly-activity-card">
-        <div className="kly-card-header">
-          <div>
-            <h4 className="kly-card-title">Live Activity Timeline</h4>
-            <p className="kly-card-subtitle">Real-time edge events, health checks, and subscriber transitions</p>
-          </div>
-          <button className="kly-btn-ghost" onClick={() => onSelectTab('logs')} style={{ fontSize: 12 }}>
-            Inspect full trace logs →
-          </button>
-        </div>
-
-        <div className="kly-timeline">
-          <div className="kly-timeline-item">
-            <CheckCircle2 size={14} className="kly-tl-icon-ok" />
-            <span style={{ flex: 1 }}>Synthetic health check passed (GET /health returned HTTP 200 in 14ms)</span>
-            <span style={{ fontSize: 11, color: 'var(--kly-text-dim)' }}>12s ago</span>
-          </div>
-          <div className="kly-timeline-item">
-            <DollarSign size={14} className="kly-tl-icon-ok" />
-            <span style={{ flex: 1 }}>New subscription: <b>Pixel & Co</b> upgraded to Pro Plan ($19/mo)</span>
-            <span style={{ fontSize: 11, color: 'var(--kly-text-dim)' }}>4m ago</span>
-          </div>
-          <div className="kly-timeline-item">
-            <Server size={14} className="kly-tl-icon-info" />
-            <span style={{ flex: 1 }}>Deployment successful: <b>v2.4.1</b> live on Singapore Edge cluster</span>
-            <span style={{ fontSize: 11, color: 'var(--kly-text-dim)' }}>22m ago</span>
-          </div>
-          <div className="kly-timeline-item">
-            <AlertTriangle size={14} className="kly-tl-icon-warn" />
-            <span style={{ flex: 1 }}>Transient GPU inference latency spike detected on POST /generate</span>
-            <span style={{ fontSize: 11, color: 'var(--kly-text-dim)' }}>3h ago</span>
-          </div>
-        </div>
-
-        {/* Quick Actions Footer Bar */}
-        <div style={{
-          marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--kly-border-subtle)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10
-        }}>
-          <span style={{ fontSize: 12, color: 'var(--kly-text-dim)', fontWeight: 600 }}>Quick Operational Actions:</span>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="kly-btn kly-btn-secondary" onClick={() => onSelectTab('keys')}>
-              <Key size={12} />
-              <span>Create API Key</span>
-            </button>
-            <button className="kly-btn kly-btn-secondary" onClick={() => onSelectTab('plans')}>
-              <DollarSign size={12} />
-              <span>Create Plan</span>
-            </button>
-            <button className="kly-btn kly-btn-secondary" onClick={onOpenPlayground}>
-              <FlaskConical size={12} color="#a855f7" />
-              <span>Open Playground</span>
-            </button>
-            <button className="kly-btn kly-btn-secondary" onClick={() => onSelectTab('monitoring')}>
-              <Activity size={12} color="#10b981" />
-              <span>Run Health Probe</span>
-            </button>
           </div>
         </div>
       </div>

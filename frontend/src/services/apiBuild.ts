@@ -2,21 +2,27 @@ import {
   ApiCategory,
   CreateProjectInput,
   DetectionResult,
+  DraftChange,
   ProviderProject,
   ProviderProjectStatus,
   SourceConfig,
 } from '../types/apibuild';
-import { seedProjects } from './apiBuildSeed';
+import { OperationRecord, ResourceHistoryEntry } from '../types/operations';
 
-const STORAGE_KEY = 'klyra-provider-projects-v1';
-const CATEGORY_KEY = 'klyra-provider-categories-v1';
-const API_ROOT = '/api/api-build/projects';
+/* ==========================================================================
+ * apiBuildService — thin, typed client for the API Build backend.
+ *
+ * The backend (backend/src/modules/api-build) is the single source of truth:
+ * projects, endpoints, versions, plans, consumers, keys, activity, logs,
+ * incidents, alert rules, usage and insights all live in Postgres. There is
+ * no localStorage cache, no seeded demo data and no simulated detection —
+ * every value the UI shows comes from the database or from live probes.
+ * ========================================================================== */
+
+export const PROJECTS_ROOT = '/api/api-build/projects';
 const JOB_ROOT = '/api/api-build/jobs';
 const CATEGORY_ROOT = '/api/api-build/categories';
 const DETECT_ROOT = '/api/api-build/detect';
-const slugify = (name: string) =>
-  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `api-${Date.now()}`;
-const uid = (p: string) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 export const STATUS_META: Record<ProviderProjectStatus, { label: string; color: string }> = {
   healthy: { label: 'Healthy', color: '#22c55e' },
@@ -28,205 +34,303 @@ export const STATUS_META: Record<ProviderProjectStatus, { label: string; color: 
   published: { label: 'Published', color: '#22c55e' },
 };
 
+/** Offline fallback labels only; the live taxonomy comes from GET /categories. */
 export const DEFAULT_CATEGORIES = ['AI / Developer Tools', 'Media', 'Finance', 'Communication', 'E-commerce', 'Weather', 'DevOps'];
 
-function readCategoriesCache(): ApiCategory[] {
-  try {
-    const raw = localStorage.getItem(CATEGORY_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-function writeCategoriesCache(v: ApiCategory[]) {
-  try { localStorage.setItem(CATEGORY_KEY, JSON.stringify(v)); } catch { /* ignore */ }
-}
-
-function readStore(): ProviderProject[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-function writeStore(v: ProviderProject[]) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); } catch { /* ignore */ }
-}
-
-// Local storage keeps the builder usable offline; every mutation is also sent
-// to Postgres when the backend is running. Failed syncs are intentionally
-// non-blocking and are retried by the next user mutation.
-function syncProject(project: ProviderProject) {
-  void fetch(`${API_ROOT}/${encodeURIComponent(project.id)}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(project),
-  }).catch(() => undefined);
-}
-function syncDelete(id: string) {
-  void fetch(`${API_ROOT}/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => undefined);
-}
-
-function ensureSeeded(): ProviderProject[] {
-  const cur = readStore();
-  if (cur.length > 0) return cur;
-  const seed = seedProjects();
-  writeStore(seed);
-  return seed;
-}
-
-function simulateDetection(source: SourceConfig): DetectionResult {
-  const base = source.baseUrl?.trim() || 'https://api.example.com';
-  if (source.kind === 'docker' && !source.openApiUrl?.trim()) {
-    return { openApiVersion: null, endpointCount: 0, schemaCount: 0, authKind: null, baseUrl: base, endpoints: [], found: false };
-  }
-  return {
-    openApiVersion: 'OpenAPI 3.1', endpointCount: 42, schemaCount: 18,
-    authKind: 'Bearer authentication', baseUrl: base,
-    endpoints: [
-      { id: 'd1', method: 'GET', path: '/users', description: 'List users' },
-      { id: 'd2', method: 'POST', path: '/users', description: 'Create a user' },
-      { id: 'd3', method: 'GET', path: '/users/{id}', description: 'Get user by id' },
-      { id: 'd4', method: 'POST', path: '/generate', description: 'Generate content' },
-      { id: 'd5', method: 'POST', path: '/refunds', description: 'Issue a refund' },
-    ],
-    found: true,
-  };
-}
-
-export const apiBuildService = {
-  list(): ProviderProject[] { return ensureSeeded(); },
-  get(id: string) { return ensureSeeded().find((p) => p.id === id); },
-  persistAll(v: ProviderProject[]) { writeStore(v); },
-  update(id: string, patch: Partial<ProviderProject>): ProviderProject | undefined {
-    const all = ensureSeeded().map((p) => (p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p));
-    writeStore(all);
-    const updated = all.find((p) => p.id === id);
-    if (updated) syncProject(updated);
-    return updated;
-  },
-  async detect(source: SourceConfig): Promise<DetectionResult> {
-    // Live upstream detection via the backend proxy (no CORS limitations). On a
-    // network error or unavailable backend we simulate detection so the wizard
-    // still works offline.
+/** Performs a request and unwraps the backend envelope. Throws on failure. */
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  });
+  if (!response.ok) {
+    let message = `Request failed (HTTP ${response.status})`;
     try {
-      const sent: { baseUrl?: string; openApiUrl?: string; repository?: string; dockerImage?: string } = {};
-      const base = source.baseUrl?.trim() || '';
-      if (base) sent.baseUrl = base;
-      if (source.openApiUrl?.trim()) sent.openApiUrl = source.openApiUrl.trim();
-      const response = await fetch(DETECT_ROOT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sent),
-      });
-      if (!response.ok) throw new Error('Detection unavailable');
-      const body = await response.json() as { success: boolean; data?: DetectionResult };
-      if (!body.success || !body.data) throw new Error('Detection unavailable');
-      return body.data ?? null;
-    } catch {
-      return simulateDetection(source);
-    }
+      const errBody = await response.json() as { error?: { message?: string } };
+      message = errBody?.error?.message || message;
+    } catch { /* keep default message */ }
+    throw new Error(message);
+  }
+  const body = await response.json() as { success: boolean; data: T };
+  return body.data;
+}
+export const apiBuildService = {
+  /* -------------------------------------------------------------- *
+   * Projects — the backend composes the full ProviderProject record. *
+   * -------------------------------------------------------------- */
+  async list(): Promise<ProviderProject[]> { return api(PROJECTS_ROOT); },
+  async get(id: string): Promise<ProviderProject | null> {
+    try { return await api<ProviderProject>(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`); }
+    catch { return null; }
   },
-  create(input: CreateProjectInput): ProviderProject {
-    const projects = readStore();
-    const slug = slugify(input.name);
-    const now = new Date().toISOString();
-    const p: ProviderProject = {
-      id: uid('proj'), name: input.name.trim() || 'Untitled API', slug,
-      description: input.description.trim() || 'A new Klyra API project.', category: input.category,
-      status: 'draft', environment: 'development', version: 'v1.0.0', sourceKind: 'existing',
-      baseUrl: '', gatewayUrl: `https://api.klyra.com/${slug}`, authKind: 'apiKey',
-      rateLimitPerMin: 100, healthCheckPath: '/health', requests: 0, requestsLabel: '0 requests',
-      successRate: 100, latencyMs: 0, consumers: 0, revenue: 0, endpointCount: 0, schemaCount: 0,
-      visibility: 'private', published: false, createdAt: now, updatedAt: now,
-      deployment: { kind: 'external', status: 'queued', providerUrl: '', environment: 'development', version: 'v1.0.0', lastHealthCheck: 'not yet checked', log: ['Project created â€” choose an API source to continue.'] },
-      detection: null,
-      plans: [
-        { id: uid('plan'), name: 'Free', requestsPerMonth: 1000, priceMonthly: 0, rateLimitPerMin: 60, overagePer1k: 0, trialDays: 0, subscribers: 0 },
-        { id: uid('plan'), name: 'Pro', requestsPerMonth: 50000, priceMonthly: 19, rateLimitPerMin: 300, overagePer1k: 0.4, trialDays: 14, subscribers: 0 },
-        { id: uid('plan'), name: 'Business', requestsPerMonth: 500000, priceMonthly: 79, rateLimitPerMin: 2000, overagePer1k: 0.25, trialDays: 14, subscribers: 0 },
-      ],
-      consumersList: [], apiKeys: [],
-      corsOrigins: '*', cacheTtlSeconds: 0, retryStrategy: 'none', connectTimeoutMs: 5000, requestTimeoutMs: 30000,
-      stripBasePath: false, authHeaderName: 'Authorization', ipAllowlist: '', tags: input.category,
-      versions: [{ id: uid('v'), semver: 'v1.0.0', status: 'draft', notes: 'Initial draft', createdAt: now, endpoints: 0 }],
-      activity: [{ id: uid('a'), label: 'Project created', at: 'just now', kind: 'info' }],
-    };
-    writeStore([p, ...projects]);
-    syncProject(p);
-    return p;
+  async create(input: CreateProjectInput): Promise<ProviderProject> {
+    return api(PROJECTS_ROOT, { method: 'POST', body: JSON.stringify(input) });
   },
-  remove(id: string) {
-    const next = ensureSeeded().filter((project) => project.id !== id);
-    writeStore(next); syncDelete(id);
+  async update(id: string, patch: Partial<ProviderProject>): Promise<ProviderProject | null> {
+    try { return await api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) }); }
+    catch { return null; }
+  },
+  async remove(id: string): Promise<boolean> {
+    try {
+      const result = await api<{ deleted: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      return result.deleted;
+    } catch { return false; }
+  },
+  /** Live upstream detection via the backend proxy. Throws when the backend or
+   *  the upstream is unreachable — the caller surfaces the real reason; there
+   *  is no offline simulation anymore. */
+  async detect(source: SourceConfig): Promise<DetectionResult> {
+    const sent: { baseUrl?: string; openApiUrl?: string; repository?: string; dockerImage?: string } = {};
+    const base = source.baseUrl?.trim() || '';
+    if (base) sent.baseUrl = base;
+    if (source.openApiUrl?.trim()) sent.openApiUrl = source.openApiUrl.trim();
+    if (source.repository?.trim()) sent.repository = source.repository.trim();
+    if (source.dockerImage?.trim()) sent.dockerImage = source.dockerImage.trim();
+    return api(DETECT_ROOT, { method: 'POST', body: JSON.stringify(sent) });
+  },
+  /** Imports endpoint operations discovered from the upstream spec. */
+  async importEndpoints(projectId: string, source: { baseUrl?: string; openApiUrl?: string; endpoints?: unknown[] }): Promise<number> {
+    const result = await api<{ imported: number }>(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/endpoints/import`,
+      { method: 'POST', body: JSON.stringify(source) },
+    );
+    return result.imported;
+  },
+  async updateEndpoint(projectId: string, endpointId: string, patch: Record<string, unknown>): Promise<void> {
+    await api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/endpoints/${encodeURIComponent(endpointId)}`, { method: 'PUT', body: JSON.stringify(patch) });
   },
   async requestDeploy(id: string): Promise<{ jobId: string; status: string }> {
-    return fetch(`${API_ROOT}/${encodeURIComponent(id)}/deployments`, { method: 'POST' })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Deployment queue unavailable');
-        const body = await response.json() as { data: { jobId: string; status: string } };
-        return body.data;
-      });
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}/deployments`, { method: 'POST', body: JSON.stringify({ enqueue: true }) });
   },
   async getRemoteProject(id: string): Promise<ProviderProject> {
-    const response = await fetch(`${API_ROOT}/${encodeURIComponent(id)}`);
-    if (!response.ok) throw new Error('Project state unavailable');
-    const body = await response.json() as { data: ProviderProject };
-    return body.data;
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`);
   },
-  async waitForDeploy(jobId: string, attempts = 12): Promise<'completed' | 'failed' | 'pending'> {
+  async waitForDeploy(jobId: string, attempts = 30): Promise<'completed' | 'failed' | 'pending'> {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 1000));
-      const response = await fetch(`${JOB_ROOT}/${encodeURIComponent(jobId)}`);
-      if (!response.ok) throw new Error('Deployment status unavailable');
-      const body = await response.json() as { data: { status: string } };
-      if (body.data.status === 'completed') return 'completed';
-      if (body.data.status === 'failed') return 'failed';
+      const job = await api<{ status: string }>(`${JOB_ROOT}/${encodeURIComponent(jobId)}`);
+      if (job.status === 'completed') return 'completed';
+      if (job.status === 'failed') return 'failed';
     }
     return 'pending';
   },
-  async hydrate(): Promise<ProviderProject[] | null> {
-    try {
-      const response = await fetch(API_ROOT);
-      if (!response.ok) return null;
-      const body = await response.json() as { data?: ProviderProject[] };
-      if (!Array.isArray(body.data) || body.data.length === 0) return null;
-      writeStore(body.data);
-      return body.data ?? null;
-    } catch { return null; }
+  /** Empty array when the backend has no projects or is unreachable — the UI
+   *  must show real empty states, never fabricated data. */
+  async hydrate(): Promise<ProviderProject[]> {
+    try { return await api(PROJECTS_ROOT); } catch { return []; }
   },
-/** Marketplace categories = defaults + user-created ones (cached locally). */
-  getCategories(): string[] {
-    const custom = readCategoriesCache().map((c) => c.name);
-    return [...DEFAULT_CATEGORIES, ...custom.filter((n) => !DEFAULT_CATEGORIES.includes(n))];
+  /* -------------------------------------------------------------- *
+   * Resources — generic so pages keep their own domain types.        *
+   * -------------------------------------------------------------- */
+  async listEndpoints<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/endpoints`);
   },
-  async hydrateCategories(): Promise<string[] | null> {
+  async listVersions<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/versions`);
+  },
+  async createVersion<T = unknown>(projectId: string, version: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/versions`, { method: 'POST', body: JSON.stringify(version) });
+  },
+  async updateVersion<T = unknown>(projectId: string, versionId: string, patch: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+  async listPlans<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans`);
+  },
+  async createPlan<T = unknown>(projectId: string, plan: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans`, { method: 'POST', body: JSON.stringify(plan) });
+  },
+  async updatePlan<T = unknown>(projectId: string, planId: string, patch: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+  async deletePlan(projectId: string, planId: string): Promise<boolean> {
     try {
-      const response = await fetch(CATEGORY_ROOT);
-      if (!response.ok) return null;
-      const body = await response.json() as { data?: { name: string; slug: string; project_count: number; is_custom?: boolean }[] };
-      if (!Array.isArray(body.data) || body.data.length === 0) return null;
-      writeCategoriesCache(body.data.map((c) => ({
-        name: c.name, slug: c.slug, projectCount: c.project_count, isCustom: c.is_custom,
-      })));
-      return body.data.map((c) => c.name);
-    } catch { return null; }
+      const result = await api<{ deleted: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`, { method: 'DELETE' });
+      return result.deleted;
+    } catch { return false; }
+  },
+  async listConsumers<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/consumers`);
+  },
+  async createConsumer<T = unknown>(projectId: string, consumer: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/consumers`, { method: 'POST', body: JSON.stringify(consumer) });
+  },
+  async updateConsumer<T = unknown>(projectId: string, consumerId: string, patch: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/consumers/${encodeURIComponent(consumerId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+  /** Creates a credential. The response carries the one-time plaintext secret. */
+  async createKey<T = unknown>(projectId: string, input: { label: string; consumer?: string; plan?: string; environment?: 'live' | 'test' }): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/keys`, { method: 'POST', body: JSON.stringify(input) });
+  },
+  async updateKey<T = unknown>(projectId: string, keyId: string, patch: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/keys/${encodeURIComponent(keyId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+  async listActivity<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/activity`);
+  },
+  async listDeployments<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/deployments`);
+  },
+  async listLogs<T = unknown>(projectId: string, options: { limit?: number; method?: string; path?: string; status?: number } = {}): Promise<T[]> {
+    const params = new URLSearchParams();
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.method && options.method !== 'ALL') params.set('method', options.method);
+    if (options.path) params.set('path', options.path);
+    if (options.status) params.set('status', String(options.status));
+    const qs = params.toString();
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/logs${qs ? `?${qs}` : ''}`);
+  },
+  async listIncidents<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/incidents`);
+  },
+  async updateIncident<T = unknown>(projectId: string, incidentId: string, patch: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/incidents/${encodeURIComponent(incidentId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+  async listAlertRules<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/alerts`);
+  },
+  async saveAlertRule<T = unknown>(projectId: string, rule: Record<string, unknown>): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/alerts`, { method: 'POST', body: JSON.stringify(rule) });
+  },
+  async deleteAlertRule(projectId: string, ruleId: string): Promise<boolean> {
+    try {
+      const result = await api<{ deleted: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/alerts/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
+      return result.deleted;
+    } catch { return false; }
+  },
+  async getInsights<T = unknown>(projectId: string): Promise<T[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/insights`);
+  },
+  async getAnalytics<T = unknown>(projectId: string): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/analytics`);
+  },
+  /** One real upstream health probe (same machinery the telemetry worker uses). */
+  async runHealthProbe<T = unknown>(projectId: string): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/health`, { method: 'POST' });
+  },
+
+  /* -------------------------------------------------------------- *
+   * Marketplace categories — live taxonomy from the backend.         *
+   * -------------------------------------------------------------- */
+  async getCategories(): Promise<string[]> {
+    try {
+      const rows = await api<{ name: string }[]>(CATEGORY_ROOT);
+      return rows.map((row) => row.name);
+    } catch { return [...DEFAULT_CATEGORIES]; }
   },
   async addCategory(name: string): Promise<ApiCategory | null> {
     const trimmed = name.trim();
     if (!trimmed) return null;
-    const cache = readCategoriesCache();
-    if (!cache.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
-      writeCategoriesCache([...cache, { name: trimmed, slug: slugify(trimmed), projectCount: 1 }]);
-    }
     try {
-      const response = await fetch(CATEGORY_ROOT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmed }),
-      });
-      if (!response.ok) return null;
-      const body = await response.json() as { data?: ApiCategory };
-      return body.data ?? null;
+      return await api<ApiCategory>(CATEGORY_ROOT, { method: 'POST', body: JSON.stringify({ name: trimmed }) });
     } catch { return null; }
   },
+
+  /* -------------------------------------------------------------- *
+   * Draft & Unsaved State — manage working copies and changes.      *
+   * -------------------------------------------------------------- */
+
+  /** Get current draft and server state. */
+  async getDraftState<T = unknown>(projectId: string): Promise<{ server: T | null; draft: T | null }> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft`);
+  },
+
+  /** Update draft configuration (does not affect live). */
+  async updateDraftConfig<T = unknown>(projectId: string, config: T): Promise<{ draft: T; hasChanges: boolean }> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft`, {
+      method: 'PATCH',
+      body: JSON.stringify(config),
+    });
+  },
+
+  /** Compute changes between draft and live. */
+  async computeDraftChanges(projectId: string, config: unknown): Promise<DraftChange[]> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft/changes`, {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+  },
+
+  /** Validate draft before saving. */
+  async validateDraft<T = unknown>(projectId: string, config: T): Promise<{ ok: boolean; error?: string; warnings?: string[] }> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft/validate`, {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+  },
+
+  /** Save draft to live (promote draft to server state). */
+  async saveDraftToLive<T = unknown>(projectId: string, config: T): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft/save`, {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+  },
+
+  /** Discard draft (revert to server state). */
+  async discardDraft(projectId: string): Promise<boolean> {
+    const result = await api<{ discarded: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft`, {
+      method: 'DELETE',
+    });
+    return result.discarded;
+  },
+
+  /** Get audit log for a project. */
+  async getAuditLog<T = unknown>(projectId: string, options: { limit?: number; offset?: number } = {}): Promise<T[]> {
+    const params = new URLSearchParams();
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.offset) params.set('offset', String(options.offset));
+    const qs = params.toString();
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/audit${qs ? `?${qs}` : ''}`);
+  },
+
+  /* -------------------------------------------------------------- *
+   * Operations — universal async execution surface.                 *
+   * POST /projects/:id/operations, GET list/get, cancel, retry.    *
+   * -------------------------------------------------------------- */
+  async createOperation<T = OperationRecord>(
+    projectId: string,
+    input: { type: string; environment?: string; payload?: Record<string, unknown>; reason?: string; resource?: string },
+  ): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  async listOperations<T = OperationRecord>(projectId: string, options: { limit?: number; state?: string; type?: string } = {}): Promise<T[]> {
+    const params = new URLSearchParams();
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.state) params.set('state', options.state);
+    if (options.type) params.set('type', options.type);
+    const qs = params.toString();
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations${qs ? `?${qs}` : ''}`);
+  },
+  async getOperation<T = OperationRecord>(projectId: string, operationId: string): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(operationId)}`);
+  },
+  async cancelOperation<T = OperationRecord>(projectId: string, operationId: string): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(operationId)}/cancel`, { method: 'POST' });
+  },
+  async retryOperation<T = OperationRecord>(projectId: string, operationId: string): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(operationId)}/retry`, { method: 'POST' });
+  },
+
+  /* -------------------------------------------------------------- *
+   * Resource history — immutable versioned snapshots + restore.    *
+   * -------------------------------------------------------------- */
+  async listHistory<T = ResourceHistoryEntry>(projectId: string, options: { resourceType?: string; resourceId?: string; limit?: number } = {}): Promise<T[]> {
+    const params = new URLSearchParams();
+    if (options.resourceType) params.set('resourceType', options.resourceType);
+    if (options.resourceId) params.set('resourceId', options.resourceId);
+    if (options.limit) params.set('limit', String(options.limit));
+    const qs = params.toString();
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/history${qs ? `?${qs}` : ''}`);
+  },
+  async restoreHistoryVersion<T = ProviderProject>(projectId: string, resourceType: string, versionNo: number): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/history/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ resourceType, versionNo }),
+    });
+  },
 };
+

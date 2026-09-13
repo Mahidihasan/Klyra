@@ -33,7 +33,8 @@ export const ProjectsDashboard: React.FC<{
   projects: ProviderProject[];
   onNew: () => void;
   onOpen: (p: ProviderProject) => void;
-}> = ({ projects, onNew, onOpen }) => {
+  onBack?: () => void;
+}> = ({ projects, onNew, onOpen, onBack }) => {
   const [q, setQ] = useState('');
   const [f, setF] = useState<Filter>('all');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -79,7 +80,12 @@ export const ProjectsDashboard: React.FC<{
 
   return (
     <div className="ab2-page"><div className="ab2-shell ab2-shell-dash">
-     { /*Add a back button to home*/}
+      {/* Back to home (rendered only when a handler is provided) */}
+      {onBack && (
+        <div className="ab2-back">
+          <button className="ab2-ghost" onClick={onBack}><ArrowLeft size={14} /> Home</button>
+        </div>
+      )}
       {/* Hero */}
       <section className="ab2-hero">
         <div className="ab2-hero-top">

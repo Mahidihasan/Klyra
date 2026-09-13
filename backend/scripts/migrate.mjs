@@ -46,6 +46,8 @@ const MIGRATIONS = [
   { name: '0004_repo_realtime', file: '2026_09_07_002_repo_realtime.sql' },
   { name: '0005_api_build', file: '2026_09_09_001_api_build.sql' },
 { name: '0006_api_build_extras', file: '2026_09_10_001_api_build_extras.sql' },
+  { name: '0007_api_build_complete', file: '2026_09_12_001_api_build_complete.sql' },
+  { name: '0008_api_build_control_plane', file: '2026_09_13_001_api_build_control_plane.sql' },
 ];
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, ShieldAlert, CheckCircle2, Clock, AlertTriangle, Bell, Plus } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, AlertTriangle, Plus, Activity, Filter, Bell } from 'lucide-react';
 import { MonitoringIncident, AlertRule } from '../types';
 import { ProviderProject } from '../../../types/apibuild';
 
@@ -17,6 +17,16 @@ export const TabMonitoring: React.FC<TabMonitoringProps> = ({
   onShowToast
 }) => {
   const [alertRules, setAlertRules] = useState<AlertRule[]>(initialAlertRules);
+  const [incidentFilter, setIncidentFilter] = useState<'ALL' | 'ACTIVE' | 'RESOLVED'>('ALL');
+  const [severityFilter, setSeverityFilter] = useState<'ALL' | MonitoringIncident['severity']>('ALL');
+
+  const filteredIncidents = incidents.filter((incident) => {
+    const matchesStatus = incidentFilter === 'ALL' || (incidentFilter === 'ACTIVE' ? incident.status !== 'Resolved' : incident.status === 'Resolved');
+    const matchesSeverity = severityFilter === 'ALL' || incident.severity === severityFilter;
+    return matchesStatus && matchesSeverity;
+  });
+  const activeIncidents = incidents.filter((incident) => incident.status !== 'Resolved').length;
+  const enabledRules = alertRules.filter((rule) => rule.enabled).length;
 
   const toggleAlert = (id: string) => {
     setAlertRules(prev => prev.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a));
@@ -59,6 +69,13 @@ export const TabMonitoring: React.FC<TabMonitoringProps> = ({
           <span>99.97% average uptime</span>
           <span>Today</span>
         </div>
+      </div>
+
+      <div className="kly-ops-summary kly-monitoring-summary">
+        <div><span><ShieldCheck size={13} /> Availability</span><strong>99.97%</strong><small>30-day service level</small></div>
+        <div><span><AlertTriangle size={13} /> Active incidents</span><strong>{activeIncidents}</strong><small>Requires operator review</small></div>
+        <div><span><Bell size={13} /> Alert coverage</span><strong>{enabledRules}/{alertRules.length}</strong><small>Policies enabled</small></div>
+        <div><span><Activity size={13} /> Probe status</span><strong>Healthy</strong><small>Last response 14ms</small></div>
       </div>
 
       {/* Probes & Certificates */}
@@ -117,10 +134,15 @@ export const TabMonitoring: React.FC<TabMonitoringProps> = ({
             <h4 className="kly-card-title">Incident History & Postmortems</h4>
             <p className="kly-card-subtitle">Past reliability occurrences and mitigation notes</p>
           </div>
+          <div className="kly-table-toolbar-controls">
+            <Filter size={13} color="var(--kly-text-dim)" />
+            <select className="kly-select kly-select-compact" aria-label="Filter incident state" value={incidentFilter} onChange={(event) => setIncidentFilter(event.target.value as 'ALL' | 'ACTIVE' | 'RESOLVED')}><option value="ALL">All incidents</option><option value="ACTIVE">Active</option><option value="RESOLVED">Resolved</option></select>
+            <select className="kly-select kly-select-compact" aria-label="Filter incident severity" value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as 'ALL' | MonitoringIncident['severity'])}><option value="ALL">All severities</option><option value="Critical">Critical</option><option value="Major">Major</option><option value="Minor">Minor</option></select>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {incidents.map((inc) => (
+          {filteredIncidents.map((inc) => (
             <div key={inc.id} style={{
               padding: '12px', background: '#0e0f18', borderRadius: 6,
               border: '1px solid var(--kly-border-subtle)', display: 'flex',
@@ -143,6 +165,7 @@ export const TabMonitoring: React.FC<TabMonitoringProps> = ({
               )}
             </div>
           ))}
+          {!filteredIncidents.length && <div className="kly-empty-state"><AlertTriangle size={18} /><span>No incidents match the current filters.</span><button className="kly-btn kly-btn-ghost" onClick={() => { setIncidentFilter('ALL'); setSeverityFilter('ALL'); }}>Clear filters</button></div>}
         </div>
       </div>
 

@@ -38,6 +38,9 @@ export interface DetailedEndpoint {
     sampleBody: string;
   };
   responses: EndpointResponse[];
+  mockMode?: boolean;
+  fallbackEnabled?: boolean;
+  fallbackResponse?: string;
 }
 
 export interface DeploymentRecord {

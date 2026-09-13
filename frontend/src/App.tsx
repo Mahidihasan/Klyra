@@ -310,6 +310,7 @@ function AppContent() {
           <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}>
           </div>
           <ApiBuildPage
+            onBack={() => setActiveTab('home')}
             onOpenPlayground={() => {
               setPlaygroundContext({ repoId: activeApiProject?.id || '', repoName: activeApiProject?.name || 'API Project' });
               setActiveTab('playground');

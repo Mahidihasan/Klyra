@@ -14,6 +14,8 @@ import app from './app';
 import { connectListener } from './modules/billing/realtime.service';
 import { connectRepoListener } from './modules/repos/realtime.service';
 import { startApiBuildQueue } from './modules/api-build/api-build.queue';
+import { startApiBuildTelemetry } from './modules/api-build/api-build.telemetry';
+import { startOperationReaper } from './modules/api-build/api-build.operations';
 
 const PORT = process.env.PORT || 4000;
 
@@ -36,6 +38,8 @@ void connectListener();
 // deployments, activity). Also retries in the background.
 void connectRepoListener();
 startApiBuildQueue();
+startApiBuildTelemetry();
+startOperationReaper();
 
 process.on('SIGTERM', () => {
   // eslint-disable-next-line no-console

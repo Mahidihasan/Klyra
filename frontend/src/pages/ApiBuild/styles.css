@@ -31,6 +31,7 @@
 .ab2-stat span{font-size:11px;color:var(--text-muted)}
 /* ---- Provider dashboard (modern, provider-console feel) ---- */
 .ab2-shell-dash{max-width:1200px}
+.ab2-back{margin-bottom:14px}
 .ab2-hero{position:relative;padding:26px 24px 22px;border-radius:var(--radius-xl);border:1px solid var(--border-card);background:
   radial-gradient(620px 240px at 88% -10%,rgba(124,58,237,.28),transparent 60%),
   radial-gradient(480px 220px at -8% 120%,rgba(45,212,191,.10),transparent 60%),

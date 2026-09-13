@@ -188,6 +188,23 @@ export interface ConfigureInput {
   tags: string;
 }
 
+export interface DraftChange {
+  id: string;
+  type: 'add' | 'modify' | 'delete';
+  category: string;
+  /** Top-level config key the change applies to (mirrors backend DraftChange). */
+  resource: string;
+  before: unknown;
+  after: unknown;
+  impact?: {
+    affectedConsumers?: string[];
+    isBreaking?: boolean;
+    requiresApproval?: boolean;
+    riskLevel?: 'low' | 'medium' | 'high';
+  };
+  isSelected?: boolean;
+}
+
 export type ProjectTab =
   | 'overview'
   | 'api'
@@ -200,6 +217,7 @@ export type ProjectTab =
   | 'analytics'
   | 'logs'
   | 'monitoring'
+  | 'audit'
   | 'settings';
 
 export const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
@@ -214,5 +232,6 @@ export const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
   { id: 'analytics', label: 'Analytics' },
   { id: 'logs', label: 'Logs' },
   { id: 'monitoring', label: 'Monitoring' },
+  { id: 'audit', label: 'Audit' },
   { id: 'settings', label: 'Settings' },
 ];
