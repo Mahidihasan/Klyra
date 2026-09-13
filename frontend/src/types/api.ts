@@ -65,7 +65,15 @@ export type NavigationTab =
   | 'billing'
   | 'settings'
   | 'api-build'
-  | 'api-builder';
+  | 'api-builder'
+  | 'admin-overview'
+  | 'admin-users'
+  | 'admin-apis'
+  | 'admin-marketplace'
+  | 'admin-revenue'
+  | 'admin-subscriptions'
+  | 'admin-usage'
+  | 'admin-activity';
 
 export type ApiProjectCreationMethod = 'import' | 'blank' | 'template' | 'ai';
 

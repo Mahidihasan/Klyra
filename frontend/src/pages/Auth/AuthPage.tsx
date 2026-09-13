@@ -16,7 +16,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { authApi, LoginResponse } from '../../services/api/auth';
+import { authApi, LoginResponse, UserProfile } from '../../services/api/auth';
 import { useAuth } from '../../context/AuthContext';
 import klyraLogo from '../../assets/images/klyra_logo.png';
 
@@ -33,7 +33,7 @@ export type AuthMode =
 interface AuthPageProps {
   initialMode?: AuthMode;
   initialToken?: string;
-  onLoginSuccess?: () => void;
+  onLoginSuccess?: (user?: UserProfile) => void;
   onResetComplete?: () => void;
   onEmailVerified?: (message: string) => void;
   isModal?: boolean;
@@ -389,7 +389,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
       } else {
         // Direct login succeeded
-        if (onLoginSuccess) onLoginSuccess();
+        if (onLoginSuccess) onLoginSuccess(res.user);
       }
     } catch (err: any) {
       setPassword('');
@@ -434,8 +434,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      await verify2FA(twoFactorTempToken, code);
-      if (onLoginSuccess) onLoginSuccess();
+      const verifiedUser = await verify2FA(twoFactorTempToken, code);
+      if (onLoginSuccess) onLoginSuccess(verifiedUser);
     } catch (err: any) {
       setError(err.message || 'Verification failed. Please check the code.');
     } finally {
@@ -459,10 +459,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         if (mode === '2fa' && cleanVal.length === 6) {
           setTimeout(() => {
             // Auto-submit 2FA if 6 digits provided
-            authApi
-              .verify2FA(twoFactorTempToken, cleanVal)
-              .then(() => {
-                if (onLoginSuccess) onLoginSuccess();
+            verify2FA(twoFactorTempToken, cleanVal)
+              .then((verifiedUser) => {
+                if (onLoginSuccess) onLoginSuccess(verifiedUser);
               })
               .catch((e) => setError(e.message));
           }, 200);

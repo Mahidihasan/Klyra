@@ -7,7 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<LoginResponse>;
-  verify2FA: (tempToken: string, code: string) => Promise<void>;
+  verify2FA: (tempToken: string, code: string) => Promise<UserProfile>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   openDemoInboxTab: () => void;
@@ -103,9 +103,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res;
   };
 
-  const verify2FA = async (tempToken: string, code: string): Promise<void> => {
+  const verify2FA = async (tempToken: string, code: string): Promise<UserProfile> => {
     const res = await authApi.verify2FA(tempToken, code);
     saveSession(res.tokens, res.user);
+    return res.user;
   };
 
   const logout = async (): Promise<void> => {

@@ -19,10 +19,19 @@ import {
   Crown,
   X,
   Plug,
-  GitBranch
+  GitBranch,
+  ShieldCheck,
+  UsersRound,
+  Database,
+  Store,
+  DollarSign,
+
+  Activity,
+  List
 } from 'lucide-react';
 import { NavigationTab } from '../types/api';
 import { useAuth } from '../context/AuthContext';
+import { hasAdminAccess } from '../config/adminAccess';
 
 interface SidebarProps {
   activeTab: NavigationTab;
@@ -39,7 +48,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   onCloseMobile
 }) => {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+
+  // Hides the section for everyone else. The endpoint enforces the same rule
+  // server-side, so this is convenience rather than security.
+  const showAdminNav = hasAdminAccess(user?.role);
 
   const discoverNav = [
     { id: 'home', label: 'Home', icon: Home },
@@ -56,6 +69,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'collections', label: 'Collections', icon: FolderOpen },
     { id: 'environments', label: 'Environments', icon: Sliders },
     { id: 'history', label: 'History', icon: Clock },
+  ];
+
+  const adminNav = [
+    { id: 'admin-overview', label: 'Platform Overview', icon: ShieldCheck },
+    { id: 'admin-users', label: 'Users', icon: UsersRound },
+    { id: 'admin-apis', label: 'APIs', icon: Database },
+    { id: 'admin-marketplace', label: 'Marketplace', icon: Store },
+    { id: 'admin-revenue', label: 'Revenue', icon: DollarSign },
+    { id: 'admin-subscriptions', label: 'Subscriptions', icon: CreditCard },
+    { id: 'admin-usage', label: 'Usage & Telemetry', icon: Activity },
+    { id: 'admin-activity', label: 'Activity Logs', icon: List },
   ];
 
   const accountNav = [
@@ -144,6 +168,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
           </div>
+
+          {/* ADMIN — only rendered for ADMIN/MODERATOR accounts */}
+          {showAdminNav && (
+            <div className="nav-section">
+              <div className="nav-section-title">ADMIN</div>
+              {adminNav.map((item) => {
+                const IconComponent = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    className={`nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => handleNavClick(item.id)}
+                  >
+                    <IconComponent size={18} className="nav-icon" />
+                    <span className="nav-label">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* ACCOUNT */}
           <div className="nav-section">
