@@ -11,6 +11,11 @@ export interface UserProfile {
   bio: string | null;
   company: string | null;
   website: string | null;
+  first_name: string;
+  last_name: string;
+  handle: string | null;
+  job_title: string | null;
+  github_url: string | null;
   preferences: UserPreferences;
   last_login_at: string | null;
   last_login_ip: string | null;
@@ -33,6 +38,11 @@ export interface UpdateProfileInput {
   company: string | null;
   bio: string | null;
   website: string | null;
+  first_name: string;
+  last_name: string;
+  handle: string;
+  job_title: string;
+  github_url: string;
 }
 
 export type ManagedApiKeyStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';

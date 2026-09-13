@@ -43,6 +43,8 @@ export class AccountDeactivationError extends Error {
 function sanitizeUser(user: any): UserPublicProfile {
   const metadata: UserMetadata = user.metadata || {};
   const storedPreferences: Partial<UserPreferences> = metadata.preferences || {};
+  const personalInfo = metadata.personal_info || {};
+  const nameParts = user.name.trim().split(/\s+/);
   return {
     id: user.id,
     email: user.email,
@@ -56,6 +58,11 @@ function sanitizeUser(user: any): UserPublicProfile {
     bio: user.bio,
     company: user.company,
     website: user.website,
+    first_name: personalInfo.first_name || nameParts[0] || '',
+    last_name: personalInfo.last_name || nameParts.slice(1).join(' ') || '',
+    handle: personalInfo.handle || null,
+    job_title: personalInfo.job_title || null,
+    github_url: personalInfo.github_url || null,
     preferences: {
       theme: storedPreferences.theme === 'light' || storedPreferences.theme === 'system' ? storedPreferences.theme : 'dark',
       timezone: typeof storedPreferences.timezone === 'string' ? storedPreferences.timezone : 'UTC',
@@ -112,13 +119,38 @@ export class AuthService {
       fields.push(`${column} = $${values.length}`);
     };
 
-    if (input.name !== undefined) {
+    const personalFields = ['first_name', 'last_name', 'handle', 'job_title', 'github_url'] as const;
+    const hasPersonalInfo = personalFields.some((field) => input[field] !== undefined);
+
+    if (input.name !== undefined && !hasPersonalInfo) {
       if (typeof input.name !== 'string') throw new Error('Name must be a string.');
       const name = input.name.trim();
       if (name.length < 2 || name.length > 100) {
         throw new Error('Name must be between 2 and 100 characters.');
       }
       add('name', name);
+    }
+
+    if (hasPersonalInfo) {
+      if (personalFields.some((field) => input[field] === undefined)) {
+        throw new Error('First name, last name, handle, job title, and GitHub profile must be provided together.');
+      }
+      const firstName = normalizeRequiredProfileText(input.first_name, 'First name', 50);
+      const lastName = normalizeRequiredProfileText(input.last_name, 'Last name', 50);
+      const fullName = `${firstName} ${lastName}`;
+      if (fullName.length > 100) throw new Error('First and last name together must be 100 characters or fewer.');
+      const handle = normalizeRequiredProfileText(input.handle, 'Username', 30).toLowerCase();
+      const jobTitle = normalizeOptionalProfileText(input.job_title, 'Job title', 100);
+      const githubUrl = normalizeOptionalProfileText(input.github_url, 'GitHub profile URL', 500);
+      if (!/^[a-z0-9][a-z0-9_-]{2,29}$/.test(handle)) {
+        throw new Error('Username must be 3–30 characters and use only letters, numbers, underscores, or hyphens.');
+      }
+      if (!jobTitle) throw new Error('Job title is required.');
+      validateGithubUrl(githubUrl);
+      // Keep legacy display/header data synchronized without introducing a new column.
+      add('name', fullName);
+      values.push(JSON.stringify({ first_name: firstName, last_name: lastName, handle, job_title: jobTitle, github_url: githubUrl }));
+      fields.push(`metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{personal_info}', $${values.length}::jsonb, true)`);
     }
 
     if (input.company !== undefined) {
@@ -1269,6 +1301,24 @@ function normalizeOptionalProfileText(value: unknown, field: string, maxLength: 
     throw new Error(`${field} must be ${maxLength} characters or fewer.`);
   }
   return normalized || null;
+}
+
+function normalizeRequiredProfileText(value: unknown, field: string, maxLength: number): string {
+  if (typeof value !== 'string') throw new Error(`${field} must be a string.`);
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`${field} is required.`);
+  if (normalized.length > maxLength) throw new Error(`${field} must be ${maxLength} characters or fewer.`);
+  return normalized;
+}
+
+function validateGithubUrl(url: string | null): void {
+  if (!url) throw new Error('GitHub profile URL is required.');
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new Error('GitHub profile URL must be a valid URL.'); }
+  const pathParts = parsed.pathname.split('/').filter(Boolean);
+  if (parsed.protocol !== 'https:' || !['github.com', 'www.github.com'].includes(parsed.hostname.toLowerCase()) || pathParts.length !== 1) {
+    throw new Error('GitHub profile URL must be an https://github.com/username profile URL.');
+  }
 }
 
 function summarizeUserAgent(ua: string): string {

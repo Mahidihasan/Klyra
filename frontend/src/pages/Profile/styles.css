@@ -45,6 +45,7 @@
 .profile-input-icon, .profile-readonly-input { position: relative; }
 .profile-input-icon svg, .profile-readonly-input svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
 .profile-input-icon input, .profile-readonly-input input { padding-left: 36px; }
+.profile-handle-input > span { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-weight: 700; pointer-events: none; }
 .profile-readonly-input input { color: var(--text-secondary); cursor: default; background: rgba(18, 19, 32, .6); }
 .profile-label-row { display: flex; justify-content: space-between; align-items: baseline; }
 .profile-label-row span { color: var(--text-muted); font-size: 11px; }

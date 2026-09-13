@@ -48,17 +48,25 @@ const SECTIONS: Array<{ id: ProfileSection; label: string; icon: React.ReactNode
 ];
 
 interface ProfileForm {
-  name: string;
+  firstName: string;
+  lastName: string;
+  handle: string;
   company: string;
+  jobTitle: string;
   bio: string;
   website: string;
+  githubUrl: string;
 }
 
 const toForm = (profile: UserProfile): ProfileForm => ({
-  name: profile.name,
+  firstName: profile.first_name,
+  lastName: profile.last_name,
+  handle: profile.handle || '',
   company: profile.company || '',
+  jobTitle: profile.job_title || '',
   bio: profile.bio || '',
   website: profile.website || '',
+  githubUrl: profile.github_url || '',
 });
 
 function initials(name: string): string {
@@ -74,15 +82,30 @@ function initials(name: string): string {
 }
 
 function validate(form: ProfileForm): string | null {
-  const name = form.name.trim();
-  if (name.length < 2 || name.length > 100) {
-    return 'Full name must be between 2 and 100 characters.';
+  if (!form.firstName.trim() || form.firstName.trim().length > 50 || !form.lastName.trim() || form.lastName.trim().length > 50) {
+    return 'First and last names are required and must be 50 characters or fewer.';
+  }
+  if (`${form.firstName.trim()} ${form.lastName.trim()}`.length > 100) {
+    return 'First and last name together must be 100 characters or fewer.';
+  }
+  if (!/^[a-z0-9][a-z0-9_-]{2,29}$/i.test(form.handle.trim())) {
+    return 'Username must be 3–30 characters and use only letters, numbers, underscores, or hyphens.';
   }
   if (form.company.trim().length > 255) {
     return 'Organization must be 255 characters or fewer.';
   }
-  if (form.bio.trim().length > 2000) {
-    return 'Bio must be 2,000 characters or fewer.';
+  if (!form.jobTitle.trim() || form.jobTitle.trim().length > 100) {
+    return 'Job title is required and must be 100 characters or fewer.';
+  }
+  if (form.bio.trim().length > 250) {
+    return 'Bio must be 250 characters or fewer.';
+  }
+  const github = form.githubUrl.trim();
+  try {
+    const parsed = new URL(github);
+    if (parsed.protocol !== 'https:' || !['github.com', 'www.github.com'].includes(parsed.hostname.toLowerCase()) || parsed.pathname.split('/').filter(Boolean).length !== 1) throw new Error();
+  } catch {
+    return 'GitHub profile must be an https://github.com/username URL.';
   }
   const website = form.website.trim();
   if (website) {
@@ -336,10 +359,15 @@ export const ProfilePage: React.FC = () => {
     }
 
     const payload: UpdateProfileInput = {
-      name: form.name.trim(),
+      name: `${form.firstName.trim()} ${form.lastName.trim()}`,
+      first_name: form.firstName.trim(),
+      last_name: form.lastName.trim(),
+      handle: form.handle.trim().toLowerCase(),
       company: form.company.trim() || null,
+      job_title: form.jobTitle.trim(),
       bio: form.bio.trim() || null,
       website: form.website.trim() || null,
+      github_url: form.githubUrl.trim(),
     };
 
     setIsSaving(true);
@@ -938,18 +966,61 @@ export const ProfilePage: React.FC = () => {
               )}
 
               <form className="profile-form" onSubmit={saveProfile} noValidate>
-                <div className="profile-field full">
-                  <label htmlFor="profile-name">Full name</label>
+                <div className="profile-field">
+                  <label htmlFor="profile-first-name">First name</label>
                   <input
-                    id="profile-name"
-                    value={form.name}
-                    onChange={(event) => updateField('name', event.target.value)}
-                    maxLength={100}
-                    autoComplete="name"
+                    id="profile-first-name"
+                    value={form.firstName}
+                    onChange={(event) => updateField('firstName', event.target.value)}
+                    maxLength={50}
+                    autoComplete="given-name"
                     required
                     disabled={isSaving}
                   />
-                  <small>Klyra currently stores a single full-name field.</small>
+                </div>
+
+                <div className="profile-field">
+                  <label htmlFor="profile-last-name">Last name</label>
+                  <input
+                    id="profile-last-name"
+                    value={form.lastName}
+                    onChange={(event) => updateField('lastName', event.target.value)}
+                    maxLength={50}
+                    autoComplete="family-name"
+                    required
+                    disabled={isSaving}
+                  />
+                </div>
+
+                <div className="profile-field">
+                  <label htmlFor="profile-handle">Public username / developer handle</label>
+                  <div className="profile-input-icon profile-handle-input">
+                    <span aria-hidden="true">@</span>
+                    <input
+                      id="profile-handle"
+                      value={form.handle}
+                      onChange={(event) => updateField('handle', event.target.value.replace(/^@/, ''))}
+                      maxLength={30}
+                      autoComplete="username"
+                      placeholder="klyra_dev"
+                      required
+                      disabled={isSaving}
+                    />
+                  </div>
+                  <small>3–30 letters, numbers, underscores, or hyphens. Availability is not checked here.</small>
+                </div>
+
+                <div className="profile-field">
+                  <label htmlFor="profile-job-title">Job title / role</label>
+                  <input
+                    id="profile-job-title"
+                    value={form.jobTitle}
+                    onChange={(event) => updateField('jobTitle', event.target.value)}
+                    maxLength={100}
+                    autoComplete="organization-title"
+                    required
+                    disabled={isSaving}
+                  />
                 </div>
 
                 <div className="profile-field full">
@@ -974,6 +1045,24 @@ export const ProfilePage: React.FC = () => {
                 </div>
 
                 <div className="profile-field">
+                  <label htmlFor="profile-github">GitHub profile URL</label>
+                  <div className="profile-input-icon">
+                    <Github size={16} />
+                    <input
+                      id="profile-github"
+                      type="url"
+                      value={form.githubUrl}
+                      onChange={(event) => updateField('githubUrl', event.target.value)}
+                      maxLength={500}
+                      placeholder="https://github.com/username"
+                      autoComplete="url"
+                      required
+                      disabled={isSaving}
+                    />
+                  </div>
+                </div>
+
+                <div className="profile-field">
                   <label htmlFor="profile-website">Website</label>
                   <div className="profile-input-icon">
                     <Globe2 size={16} />
@@ -993,14 +1082,14 @@ export const ProfilePage: React.FC = () => {
                 <div className="profile-field full">
                   <div className="profile-label-row">
                     <label htmlFor="profile-bio">Bio</label>
-                    <span>{form.bio.length}/2000</span>
+                    <span>{form.bio.length}/250</span>
                   </div>
                   <textarea
                     id="profile-bio"
                     value={form.bio}
                     onChange={(event) => updateField('bio', event.target.value)}
-                    maxLength={2000}
-                    rows={5}
+                    maxLength={250}
+                    rows={4}
                     placeholder="Tell the Klyra community a little about yourself."
                     disabled={isSaving}
                   />

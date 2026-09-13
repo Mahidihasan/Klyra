@@ -65,12 +65,22 @@ export interface UserPreferences {
   notifications: NotificationPreferences;
 }
 
+/** Supplemental editable profile fields kept in users.metadata to avoid a schema migration. */
+export interface PersonalInfo {
+  first_name?: string;
+  last_name?: string;
+  handle?: string;
+  job_title?: string;
+  github_url?: string;
+}
+
 export interface UserMetadata {
   failed_attempts?: number;
   locked_until?: string | null;
   known_devices?: KnownDevice[];
   pending_2fa?: Pending2FA | null;
   preferences?: UserPreferences;
+  personal_info?: PersonalInfo;
   [key: string]: any;
 }
 
@@ -87,6 +97,11 @@ export interface UserPublicProfile {
   bio: string | null;
   company: string | null;
   website: string | null;
+  first_name: string;
+  last_name: string;
+  handle: string | null;
+  job_title: string | null;
+  github_url: string | null;
   preferences: UserPreferences;
   last_login_at: string | null;
   last_login_ip: string | null;
@@ -100,6 +115,11 @@ export interface UpdateProfileInput {
   bio?: unknown;
   company?: unknown;
   website?: unknown;
+  first_name?: unknown;
+  last_name?: unknown;
+  handle?: unknown;
+  job_title?: unknown;
+  github_url?: unknown;
 }
 
 /**
