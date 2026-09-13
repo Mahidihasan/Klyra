@@ -22,6 +22,13 @@ import { issueOtp, verifyOtp, OtpError, OTP_ERROR_MESSAGES } from './otp.service
 
 const BCRYPT_ROUNDS = 12;
 
+export class PasswordChangeError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = 'PasswordChangeError';
+  }
+}
+
 function sanitizeUser(user: any): UserPublicProfile {
   return {
     id: user.id,
@@ -827,6 +834,80 @@ export class AuthService {
     }
 
     return { success: true, message: 'Your password has been reset successfully. Please log in with your new password.' };
+  }
+
+  /**
+   * Change an authenticated user's password after verifying the current one.
+   * Other refresh-token sessions are revoked so an active password change does
+   * not leave previously signed-in devices able to obtain new access tokens.
+   */
+  static async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    sessionId?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
+      throw new PasswordChangeError('Current password and new password are required.', 400);
+    }
+    if (newPassword.length < 8 || newPassword.length > 256) {
+      throw new PasswordChangeError('New password must be between 8 and 256 characters.', 400);
+    }
+    if (currentPassword === newPassword) {
+      throw new PasswordChangeError('New password must be different from your current password.', 400);
+    }
+
+    const userResult = await pool.query(
+      'SELECT id, password_hash FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId],
+    );
+    const user = userResult.rows[0];
+    if (!user) {
+      throw new PasswordChangeError('User not found.', 404);
+    }
+
+    const currentPasswordMatches = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!currentPasswordMatches) {
+      throw new PasswordChangeError('Current password is incorrect.', 401);
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+    await pool.query('BEGIN');
+    try {
+      await pool.query(
+        'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+        [newPasswordHash, userId],
+      );
+
+      if (sessionId) {
+        await pool.query(
+          'UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL',
+          [userId, sessionId],
+        );
+      } else {
+        await pool.query(
+          'UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL',
+          [userId],
+        );
+      }
+
+      await pool.query(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'UPDATE', 'users', $1, '{"action": "password_changed"}')`,
+        [userId],
+      );
+
+      await pool.query('COMMIT');
+    } catch (err) {
+      await pool.query('ROLLBACK');
+      throw err;
+    }
+
+    return {
+      success: true,
+      message: 'Password updated. Other signed-in devices have been signed out.',
+    };
   }
 
   /**

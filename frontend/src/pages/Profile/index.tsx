@@ -3,8 +3,11 @@ import {
   Building2,
   CheckCircle2,
   AlertCircle,
+  Eye,
+  EyeOff,
   Globe2,
   KeyRound,
+  Lock,
   Loader2,
   Mail,
   Save,
@@ -88,6 +91,34 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+interface PasswordForm {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+const EMPTY_PASSWORD_FORM: PasswordForm = {
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+};
+
+function validatePasswordForm(form: PasswordForm): string | null {
+  if (!form.currentPassword || !form.newPassword || !form.confirmPassword) {
+    return 'Enter your current password and confirm your new password.';
+  }
+  if (form.newPassword.length < 8 || form.newPassword.length > 256) {
+    return 'New password must be between 8 and 256 characters.';
+  }
+  if (form.currentPassword === form.newPassword) {
+    return 'New password must be different from your current password.';
+  }
+  if (form.newPassword !== form.confirmPassword) {
+    return 'New password and confirmation do not match.';
+  }
+  return null;
+}
+
 export const ProfilePage: React.FC = () => {
   const { user, isLoading: isAuthLoading, refreshProfile } = useAuth();
   const userId = user?.id;
@@ -104,6 +135,11 @@ export const ProfilePage: React.FC = () => {
   const [isAvatarSaving, setIsAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [avatarSuccess, setAvatarSuccess] = useState<string | null>(null);
+  const [passwordForm, setPasswordForm] = useState<PasswordForm>(EMPTY_PASSWORD_FORM);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -239,6 +275,34 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
+  const updatePasswordField = (field: keyof PasswordForm, value: string) => {
+    setPasswordForm((current) => ({ ...current, [field]: value }));
+    setPasswordError(null);
+    setPasswordSuccess(null);
+  };
+
+  const changePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const validationError = validatePasswordForm(passwordForm);
+    if (validationError) {
+      setPasswordError(validationError);
+      return;
+    }
+
+    setIsChangingPassword(true);
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    try {
+      const result = await authApi.changePassword(passwordForm.currentPassword, passwordForm.newPassword);
+      setPasswordForm(EMPTY_PASSWORD_FORM);
+      setPasswordSuccess(result.message);
+    } catch (err: unknown) {
+      setPasswordError(getErrorMessage(err, 'Unable to change your password.'));
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   if (isAuthLoading || isLoading) {
     return (
       <div className="profile-state" role="status">
@@ -362,7 +426,114 @@ export const ProfilePage: React.FC = () => {
         </nav>
 
         <section className="profile-panel" aria-labelledby="profile-section-title">
-          {section !== 'general' ? (
+          {section === 'security' ? (
+            <>
+              <header className="profile-panel-header">
+                <div>
+                  <p className="profile-eyebrow">SECURITY</p>
+                  <h2 id="profile-section-title">Security & Password</h2>
+                  <p>Use a strong password to keep your Klyra account secure.</p>
+                </div>
+              </header>
+
+              <div className="profile-security-grid">
+                <form className="profile-security-card" onSubmit={changePassword} noValidate>
+                  <div className="profile-security-card-heading">
+                    <div className="profile-section-icon"><Lock size={18} /></div>
+                    <div>
+                      <h3>Change password</h3>
+                      <p>Changing your password signs out other devices.</p>
+                    </div>
+                  </div>
+
+                  {passwordError && (
+                    <div className="profile-message error">
+                      <AlertCircle size={17} /> {passwordError}
+                    </div>
+                  )}
+                  {passwordSuccess && (
+                    <div className="profile-message success">
+                      <CheckCircle2 size={17} /> {passwordSuccess}
+                    </div>
+                  )}
+
+                  <div className="profile-field">
+                    <label htmlFor="profile-current-password">Current password</label>
+                    <div className="profile-password-input">
+                      <input
+                        id="profile-current-password"
+                        type={showPasswords ? 'text' : 'password'}
+                        value={passwordForm.currentPassword}
+                        onChange={(event) => updatePasswordField('currentPassword', event.target.value)}
+                        autoComplete="current-password"
+                        disabled={isChangingPassword}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="profile-field">
+                    <label htmlFor="profile-new-password">New password</label>
+                    <div className="profile-password-input">
+                      <input
+                        id="profile-new-password"
+                        type={showPasswords ? 'text' : 'password'}
+                        value={passwordForm.newPassword}
+                        onChange={(event) => updatePasswordField('newPassword', event.target.value)}
+                        autoComplete="new-password"
+                        minLength={8}
+                        maxLength={256}
+                        disabled={isChangingPassword}
+                      />
+                    </div>
+                    <small>Use 8 to 256 characters.</small>
+                  </div>
+
+                  <div className="profile-field">
+                    <label htmlFor="profile-confirm-password">Confirm new password</label>
+                    <div className="profile-password-input">
+                      <input
+                        id="profile-confirm-password"
+                        type={showPasswords ? 'text' : 'password'}
+                        value={passwordForm.confirmPassword}
+                        onChange={(event) => updatePasswordField('confirmPassword', event.target.value)}
+                        autoComplete="new-password"
+                        minLength={8}
+                        maxLength={256}
+                        disabled={isChangingPassword}
+                      />
+                      <button
+                        type="button"
+                        className="profile-password-toggle"
+                        onClick={() => setShowPasswords((current) => !current)}
+                        aria-label={showPasswords ? 'Hide passwords' : 'Show passwords'}
+                        disabled={isChangingPassword}
+                      >
+                        {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="profile-form-actions">
+                    <button type="submit" className="profile-primary-btn" disabled={isChangingPassword}>
+                      {isChangingPassword ? <Loader2 className="profile-spinner" size={17} /> : <Lock size={17} />}
+                      {isChangingPassword ? 'Updating…' : 'Update password'}
+                    </button>
+                  </div>
+                </form>
+
+                <aside className="profile-security-card profile-security-placeholder" aria-labelledby="profile-two-factor-title">
+                  <div className="profile-security-card-heading">
+                    <div className="profile-section-icon"><ShieldCheck size={18} /></div>
+                    <div>
+                      <h3 id="profile-two-factor-title">Two-factor authentication</h3>
+                      <p>Additional sign-in protection is planned for a later Profile module.</p>
+                    </div>
+                  </div>
+                  <p className="profile-security-note">Klyra already verifies new devices during sign-in. There is no user-managed 2FA setting available yet.</p>
+                </aside>
+              </div>
+            </>
+          ) : section !== 'general' ? (
             <div className="profile-coming-soon">
               <div className="profile-section-icon">{activeSection.icon}</div>
               <h2 id="profile-section-title">{activeSection.label}</h2>

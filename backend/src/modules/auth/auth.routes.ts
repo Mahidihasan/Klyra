@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AuthService } from './auth.service';
+import { AuthService, PasswordChangeError } from './auth.service';
 import { EmailService } from './email.service';
 import { OtpError } from './otp.service';
 import { EmailDeliveryError } from './email.service';
@@ -152,6 +152,26 @@ router.post('/reset-password', authLimiter, async (req: Request, res: Response) 
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Password reset failed.' });
+  }
+});
+
+// 8b. CHANGE PASSWORD (authenticated)
+router.put('/change-password', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    const result = await AuthService.changePassword(
+      req.user!.sub,
+      currentPassword,
+      newPassword,
+      req.user!.sessionId,
+    );
+    res.json(result);
+  } catch (err: any) {
+    if (err instanceof PasswordChangeError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: 'Unable to change password.' });
   }
 });
 

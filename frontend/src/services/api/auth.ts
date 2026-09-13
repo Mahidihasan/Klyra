@@ -182,6 +182,13 @@ export const authApi = {
       body: JSON.stringify({ token, password }),
     }),
 
+  // Change password (authenticated)
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ success: boolean; message: string }>('/change-password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
   // Refresh token
   refreshToken: (refreshToken: string) =>
     request<AuthTokens>('/refresh-token', {
