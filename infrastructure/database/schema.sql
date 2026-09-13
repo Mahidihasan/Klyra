@@ -215,6 +215,7 @@ CREATE TABLE user_sessions (
     ip_address          INET,
     expires_at          TIMESTAMPTZ NOT NULL,
     revoked_at          TIMESTAMPTZ,
+    last_active_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT user_sessions_refresh_token_unique UNIQUE (refresh_token_hash)
 );

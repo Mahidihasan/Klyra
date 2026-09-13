@@ -55,12 +55,28 @@ export interface AuthTokens {
   expiresIn: number;
 }
 
-export interface LoginResponse {
-  requires2FA?: boolean;
-  tempToken?: string;
-  maskedEmail?: string;
-  tokens?: AuthTokens;
-  user?: UserProfile;
+export interface DirectLoginResponse {
+  requires2FA: false;
+  tokens: AuthTokens;
+  user: UserProfile;
+}
+
+export type LoginChallengeResponse = {
+  requires2FA: true;
+  challengeType: 'email';
+  tempToken: string;
+  maskedEmail: string;
+} | {
+  requires2FA: true;
+  challengeType: 'totp';
+  tempToken: string;
+};
+
+export type LoginResponse = DirectLoginResponse | LoginChallengeResponse;
+
+export interface SecuritySession {
+  id: string; device: string; os: string; browser: string; ip: string | null; location: null;
+  created_at: string; last_active_at: string; expires_at: string; revoked_at: string | null; is_current: boolean;
 }
 
 export interface DemoEmailItem {
@@ -193,7 +209,7 @@ export const authApi = {
 
   // 2FA verification
   verify2FA: (tempToken: string, code: string) =>
-    request<{ tokens: AuthTokens; user: UserProfile }>('/verify-2fa', {
+    request<DirectLoginResponse | Extract<LoginChallengeResponse, { challengeType: 'totp' }>>('/verify-2fa', {
       method: 'POST',
       body: JSON.stringify({ tempToken, code }),
     }),
@@ -225,6 +241,7 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ token, password }),
     }),
+  verifyTotp: (tempToken: string, code: string) => request<{ tokens: AuthTokens; user: UserProfile }>('/verify-totp', { method: 'POST', body: JSON.stringify({ tempToken, code }) }),
 
   requestAccountReactivation: (email: string) =>
     request<{ success: boolean; message: string }>('/account/reactivation/request', {
@@ -322,4 +339,10 @@ export const profileApi = {
       method: 'POST',
       body: JSON.stringify({ currentPassword }),
     })),
+  startTotpSetup: () => profileRequest('start authenticator setup', () => request<{ secret: string; qrCodeDataUrl: string }>('/security/totp/setup', { method: 'POST' })),
+  confirmTotpSetup: (code: string) => profileRequest('confirm authenticator setup', () => request<{ success: boolean; message: string }>('/security/totp/confirm', { method: 'POST', body: JSON.stringify({ code }) })),
+  disableTotp: (currentPassword: string, code: string) => profileRequest('disable authenticator app 2FA', () => request<{ success: boolean; message: string }>('/security/totp/disable', { method: 'POST', body: JSON.stringify({ currentPassword, code }) })),
+  listSecuritySessions: () => profileRequest('load active sessions', () => request<{ sessions: SecuritySession[] }>('/security/sessions')),
+  revokeSecuritySession: (sessionId: string) => profileRequest('revoke this session', () => request<{ revokedCurrent: boolean }>(`/security/sessions/${sessionId}`, { method: 'DELETE' })),
+  revokeOtherSecuritySessions: () => profileRequest('revoke other sessions', () => request<{ revoked: number }>('/security/sessions/revoke-others', { method: 'POST' })),
 };

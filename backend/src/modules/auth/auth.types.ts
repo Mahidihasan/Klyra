@@ -32,11 +32,21 @@ export interface KnownDevice {
 }
 
 export interface Pending2FA {
-  codeHash: string;
+  codeHash?: string;
   expiresAt: number;
   rememberMe: boolean;
   tempToken: string;
+  emailVerified?: boolean;
+  requiresTotp?: boolean;
 }
+
+/** The factor the client must complete before a login session can be issued. */
+export type LoginChallengeType = 'email' | 'totp';
+
+export type LoginResult =
+  | { requires2FA: false; tokens: AuthTokens; user: UserPublicProfile }
+  | { requires2FA: true; challengeType: 'email'; tempToken: string; maskedEmail: string }
+  | { requires2FA: true; challengeType: 'totp'; tempToken: string };
 
 /** Theme options exposed in Profile → Preferences. */
 export type ThemePreference = 'light' | 'dark' | 'system';

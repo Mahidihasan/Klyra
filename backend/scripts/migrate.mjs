@@ -12,6 +12,7 @@
 //   0004_repo_realtime       2026_09_07_002_repo_realtime.sql
 //   0005_api_build           2026_09_09_001_api_build.sql
 //   0007_account_reactivation 2026_09_13_001_account_reactivation.sql
+//   0008_session_activity      2026_09_13_002_session_activity.sql
 //
 // The repository (kr_* ) tables self-bootstrap at runtime via
 // repos.db.ensureReposSchema(); this runner reconciles the base + application
@@ -48,6 +49,7 @@ const MIGRATIONS = [
   { name: '0005_api_build', file: '2026_09_09_001_api_build.sql' },
   { name: '0006_api_build_extras', file: '2026_09_10_001_api_build_extras.sql' },
   { name: '0007_account_reactivation', file: '2026_09_13_001_account_reactivation.sql' },
+  { name: '0008_session_activity', file: '2026_09_13_002_session_activity.sql' },
 ];
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });

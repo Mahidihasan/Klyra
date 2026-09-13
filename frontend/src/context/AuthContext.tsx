@@ -15,7 +15,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<LoginResponse>;
-  verify2FA: (tempToken: string, code: string) => Promise<void>;
+  verify2FA: (tempToken: string, code: string) => Promise<{ challengeType?: 'totp' }>;
+  verifyTotp: (tempToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   loadProfile: () => Promise<UserProfile>;
   refreshProfile: () => Promise<void>;
@@ -125,16 +126,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string, rememberMe = false): Promise<LoginResponse> => {
     const res = await authApi.login(email, password, rememberMe);
-    if (!res.requires2FA && res.tokens && res.user) {
+    if (!res.requires2FA) {
       saveSession(res.tokens, res.user);
     }
     return res;
   };
 
-  const verify2FA = async (tempToken: string, code: string): Promise<void> => {
+  const verify2FA = async (tempToken: string, code: string): Promise<{ challengeType?: 'totp' }> => {
     const res = await authApi.verify2FA(tempToken, code);
-    saveSession(res.tokens, res.user);
+    if (!res.requires2FA) saveSession(res.tokens, res.user);
+    return res.requires2FA ? { challengeType: res.challengeType } : {};
   };
+  const verifyTotp = async (tempToken: string, code: string): Promise<void> => { const res = await authApi.verifyTotp(tempToken, code); saveSession(res.tokens, res.user); };
 
   const logout = async (): Promise<void> => {
     try {
@@ -207,6 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         login,
         verify2FA,
+        verifyTotp,
         logout,
         loadProfile,
         refreshProfile,

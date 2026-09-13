@@ -155,6 +155,11 @@ router.post('/reset-password', authLimiter, async (req: Request, res: Response) 
   }
 });
 
+router.post('/verify-totp', authLimiter, async (req: Request, res: Response) => {
+  try { res.json(await AuthService.verifyLoginTotp(req.body?.tempToken, req.body?.code, getClientIp(req), getUserAgent(req))); }
+  catch (err: any) { res.status(400).json({ error: err.message || 'Authenticator verification failed.' }); }
+});
+
 // 8b. CHANGE PASSWORD (authenticated)
 router.put('/change-password', requireAuth, async (req: Request, res: Response) => {
   try {
@@ -173,6 +178,25 @@ router.put('/change-password', requireAuth, async (req: Request, res: Response) 
     }
     res.status(500).json({ error: 'Unable to change password.' });
   }
+});
+
+router.post('/security/totp/setup', requireAuth, authLimiter, async (req, res) => {
+  try { res.json(await AuthService.startTotpSetup(req.user!.sub)); } catch (err: any) { res.status(400).json({ error: err.message || 'Unable to start authenticator setup.' }); }
+});
+router.post('/security/totp/confirm', requireAuth, authLimiter, async (req, res) => {
+  try { res.json(await AuthService.confirmTotpSetup(req.user!.sub, req.body?.code)); } catch (err: any) { res.status(400).json({ error: err.message || 'Unable to confirm authenticator setup.' }); }
+});
+router.post('/security/totp/disable', requireAuth, authLimiter, async (req, res) => {
+  try { res.json(await AuthService.disableTotp(req.user!.sub, req.body?.currentPassword, req.body?.code)); } catch (err: any) { res.status(400).json({ error: err.message || 'Unable to disable authenticator app 2FA.' }); }
+});
+router.get('/security/sessions', requireAuth, async (req, res) => {
+  try { res.json({ sessions: await AuthService.listSecuritySessions(req.user!.sub, req.user!.sessionId) }); } catch (err: any) { res.status(500).json({ error: err.message || 'Unable to load sessions.' }); }
+});
+router.delete('/security/sessions/:sessionId', requireAuth, async (req, res) => {
+  try { res.json(await AuthService.revokeSecuritySession(req.user!.sub, req.params.sessionId, req.user!.sessionId)); } catch (err: any) { res.status(404).json({ error: err.message || 'Unable to revoke session.' }); }
+});
+router.post('/security/sessions/revoke-others', requireAuth, async (req, res) => {
+  try { res.json(await AuthService.revokeOtherSecuritySessions(req.user!.sub, req.user!.sessionId)); } catch (err: any) { res.status(500).json({ error: err.message || 'Unable to revoke sessions.' }); }
 });
 
 // 8c. DEACTIVATE ACCOUNT (authenticated, password re-authentication required)

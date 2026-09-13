@@ -51,7 +51,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   isModal = false,
   onClose,
 }) => {
-  const { login, verify2FA } = useAuth();
+  const { login, verify2FA, verifyTotp } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [token, setToken] = useState<string>(initialToken || '');
@@ -67,6 +67,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   // 2FA state
   const [twoFactorTempToken, setTwoFactorTempToken] = useState('');
   const [maskedEmail, setMaskedEmail] = useState('');
+  const [loginChallengeType, setLoginChallengeType] = useState<'email' | 'totp' | null>(null);
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -383,11 +384,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       const res: LoginResponse = await login(email, password, rememberMe);
       setPassword('');
 
-      if (res.requires2FA && res.tempToken) {
+      if (res.requires2FA) {
         setTwoFactorTempToken(res.tempToken);
-        setMaskedEmail(res.maskedEmail || email);
+        setLoginChallengeType(res.challengeType);
+        setMaskedEmail(res.challengeType === 'email' ? res.maskedEmail : '');
         setMode('2fa');
-        setResendCooldown(60);
+        if (res.challengeType === 'email') setResendCooldown(60);
         setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
       } else {
         // Direct login succeeded
@@ -442,8 +444,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      await verify2FA(twoFactorTempToken, code);
-      if (onLoginSuccess) onLoginSuccess();
+      if (loginChallengeType === 'totp') {
+        await verifyTotp(twoFactorTempToken, code);
+        if (onLoginSuccess) onLoginSuccess();
+      } else {
+        const result = await verify2FA(twoFactorTempToken, code);
+        if (result.challengeType === 'totp') { setLoginChallengeType('totp'); setOtpDigits(['', '', '', '', '', '']); }
+        else if (onLoginSuccess) onLoginSuccess();
+      }
     } catch (err: any) {
       setError(err.message || 'Verification failed. Please check the code.');
     } finally {
@@ -464,17 +472,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setOtpDigits(nextDigits);
         const nextFocus = Math.min(cleanVal.length, 5);
         otpInputRefs.current[nextFocus]?.focus();
-        if (mode === '2fa' && cleanVal.length === 6) {
-          setTimeout(() => {
-            // Auto-submit 2FA if 6 digits provided
-            authApi
-              .verify2FA(twoFactorTempToken, cleanVal)
-              .then(() => {
-                if (onLoginSuccess) onLoginSuccess();
-              })
-              .catch((e) => setError(e.message));
-          }, 200);
-        }
+        // Deliberately require the submit action so all 2FA outcomes pass
+        // through AuthContext and persist the issued session consistently.
       }
       return;
     }
@@ -1075,15 +1074,13 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         {mode === '2fa' && (
           <form className="auth-form animate-fade-in" onSubmit={handleVerify2FA}>
             <div className="security-badge-row">
-              <span className="badge-new-device">NEW DEVICE DETECTED</span>
+              {loginChallengeType === 'email' && <span className="badge-new-device">NEW DEVICE DETECTED</span>}
             </div>
 
             <div className="form-title-group">
               <h2 className="form-title">Two-Factor Authentication</h2>
               <p className="form-subtitle">
-                A 6-digit security code has been sent to{' '}
-                <strong style={{ color: '#f8fafc' }}>{maskedEmail}</strong>. Enter the code below to
-                complete sign in.
+                {loginChallengeType === 'totp' ? 'Enter the 6-digit code from your authenticator app' : <>A 6-digit security code has been sent to <strong style={{ color: '#f8fafc' }}>{maskedEmail}</strong>. Enter the code below to complete sign in.</>}
               </p>
             </div>
 
@@ -1123,14 +1120,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             </button>
 
             <div className="two-factor-actions">
-              <button
+              {loginChallengeType === 'email' && <button
                 type="button"
                 className="secondary-btn-inline"
                 onClick={handleResend2FA}
                 disabled={isLoading || resendCooldown > 0}
               >
                 {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Security Code'}
-              </button>
+              </button>}
               <button
                 type="button"
                 className="secondary-btn-inline"

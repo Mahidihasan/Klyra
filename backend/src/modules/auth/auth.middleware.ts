@@ -60,6 +60,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 
   req.user = payload;
+  if (payload.sessionId) {
+    void pool.query('UPDATE user_sessions SET last_active_at = NOW() WHERE id = $1 AND revoked_at IS NULL', [payload.sessionId]).catch(() => undefined);
+  }
   next();
 }
 

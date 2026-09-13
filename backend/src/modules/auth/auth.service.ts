@@ -7,6 +7,7 @@ import {
   UserMetadata,
   UserPublicProfile,
   AuthTokens,
+  LoginResult,
   LoginHistoryItem,
   UpdateProfileInput,
   UpdatePreferencesInput,
@@ -21,6 +22,7 @@ import {
 } from './jwt.util';
 import { EmailService, OtpEmailService, EmailDeliveryError } from './email.service';
 import { issueOtp, verifyOtp, OtpError, OTP_ERROR_MESSAGES } from './otp.service';
+import { createTotpSetup, decryptTotpSecret, encryptTotpSecret, verifyTotp } from './totp.service';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -496,13 +498,7 @@ export class AuthService {
     rememberMe = false,
     ip = '127.0.0.1',
     userAgent = 'Unknown Device'
-  ): Promise<{
-    requires2FA?: boolean;
-    tempToken?: string;
-    maskedEmail?: string;
-    tokens?: AuthTokens;
-    user?: UserPublicProfile;
-  }> {
+  ): Promise<LoginResult> {
     const cleanEmail = email.trim().toLowerCase();
 
     // Query user
@@ -626,6 +622,8 @@ export class AuthService {
         expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
         rememberMe: !!rememberMe,
         tempToken,
+        emailVerified: false,
+        requiresTotp: !!user.two_factor_enabled,
       };
 
       await pool.query('UPDATE users SET metadata = $1 WHERE id = $2', [JSON.stringify(metadata), user.id]);
@@ -633,9 +631,17 @@ export class AuthService {
 
       return {
         requires2FA: true,
+        challengeType: 'email',
         tempToken,
         maskedEmail: maskEmail(user.email),
       };
+    }
+
+    if (user.two_factor_enabled) {
+      const tempToken = generateRandomToken(24);
+      metadata.pending_2fa = { expiresAt: Date.now() + 10 * 60 * 1000, rememberMe: !!rememberMe, tempToken, emailVerified: true, requiresTotp: true };
+      await pool.query('UPDATE users SET metadata = $1 WHERE id = $2', [JSON.stringify(metadata), user.id]);
+      return { requires2FA: true, challengeType: 'totp', tempToken };
     }
 
     // 5. Known Device: Complete Login immediately
@@ -655,7 +661,7 @@ export class AuthService {
     code: string,
     ip = '127.0.0.1',
     userAgent = 'Unknown Device'
-  ): Promise<{ tokens: AuthTokens; user: UserPublicProfile }> {
+  ): Promise<LoginResult> {
     if (!tempToken || !code) {
       throw new Error('Security code and session token are required.');
     }
@@ -689,7 +695,7 @@ export class AuthService {
     }
 
     const inputCodeHash = sha256(code.trim());
-    if (inputCodeHash !== pending2FA.codeHash) {
+    if (!pending2FA.codeHash || inputCodeHash !== pending2FA.codeHash) {
       throw new Error('Invalid verification code. Please check the code sent to your email.');
     }
 
@@ -705,9 +711,55 @@ export class AuthService {
     });
     metadata.known_devices = knownDevices;
     const rememberMe = pending2FA.rememberMe;
+    if (pending2FA.requiresTotp || user.two_factor_enabled) {
+      metadata.pending_2fa = { ...pending2FA, emailVerified: true, codeHash: undefined };
+      await pool.query('UPDATE users SET metadata = $1 WHERE id = $2', [JSON.stringify(metadata), user.id]);
+      return { requires2FA: true, challengeType: 'totp', tempToken: pending2FA.tempToken };
+    }
     metadata.pending_2fa = null;
+    const loginResult = await this.completeLogin(user, metadata, currentFingerprint, ip, userAgent, rememberMe);
+    return { requires2FA: false, ...loginResult };
+  }
 
-    return this.completeLogin(user, metadata, currentFingerprint, ip, userAgent, rememberMe);
+  static async verifyLoginTotp(tempToken: string, code: string, ip = '127.0.0.1', userAgent = 'Unknown Device'): Promise<{ tokens: AuthTokens; user: UserPublicProfile }> {
+    if (!tempToken || !code) throw new Error('Authenticator code and session token are required.');
+    const result = await pool.query(`SELECT * FROM users WHERE metadata->'pending_2fa'->>'tempToken' = $1 AND deleted_at IS NULL`, [tempToken]);
+    const user: UserRecord = result.rows[0]; const pending = user?.metadata?.pending_2fa;
+    if (!user || !pending || !pending.requiresTotp || Date.now() > pending.expiresAt) throw new Error('Invalid or expired authentication session. Please log in again.');
+    if (!pending.emailVerified || !user.two_factor_enabled || !user.two_factor_secret) throw new Error('Complete the required email verification first.');
+    let valid = false; try { valid = await verifyTotp(decryptTotpSecret(user.two_factor_secret), code); } catch { throw new Error('Authenticator configuration is unavailable.'); }
+    if (!valid) throw new Error('Invalid authenticator code.');
+    const metadata: UserMetadata = { ...user.metadata, pending_2fa: null };
+    return this.completeLogin(user, metadata, generateDeviceFingerprint(userAgent, ip), ip, userAgent, pending.rememberMe);
+  }
+
+  static async startTotpSetup(userId: string): Promise<{ secret: string; qrCodeDataUrl: string }> {
+    const result = await pool.query('SELECT email, two_factor_enabled, metadata FROM users WHERE id = $1 AND deleted_at IS NULL', [userId]); const user = result.rows[0];
+    if (!user) throw new Error('User not found.'); if (user.two_factor_enabled) throw new Error('Authenticator app 2FA is already enabled.');
+    const setup = await createTotpSetup(user.email);
+    await pool.query('UPDATE users SET metadata = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify({ ...(user.metadata || {}), pending_2fa_setup: { secret: encryptTotpSecret(setup.secret), expiresAt: Date.now() + 600000 } }), userId]);
+    return setup;
+  }
+
+  static async confirmTotpSetup(userId: string, code: string): Promise<{ success: boolean; message: string }> {
+    const result = await pool.query('SELECT metadata FROM users WHERE id = $1 AND deleted_at IS NULL', [userId]); const user = result.rows[0]; const pending = user?.metadata?.pending_2fa_setup;
+    if (!pending || Date.now() > pending.expiresAt) throw new Error('Authenticator setup has expired. Start setup again.');
+    let secret: string; try { secret = decryptTotpSecret(pending.secret); } catch { throw new Error('Authenticator setup is unavailable.'); }
+    if (!await verifyTotp(secret, code)) throw new Error('Invalid authenticator code.');
+    const metadata = { ...user.metadata }; delete metadata.pending_2fa_setup;
+    await pool.query('UPDATE users SET two_factor_enabled = TRUE, two_factor_secret = $1, metadata = $2, updated_at = NOW() WHERE id = $3', [encryptTotpSecret(secret), JSON.stringify(metadata), userId]);
+    await pool.query(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values) VALUES ($1, 'UPDATE', 'users', $1, '{"action":"totp_enabled"}'::jsonb)`, [userId]);
+    return { success: true, message: 'Authenticator app 2FA is enabled.' };
+  }
+
+  static async disableTotp(userId: string, currentPassword: string, code: string): Promise<{ success: boolean; message: string }> {
+    const result = await pool.query('SELECT password_hash, two_factor_enabled, two_factor_secret FROM users WHERE id = $1 AND deleted_at IS NULL', [userId]); const user = result.rows[0];
+    if (!user || !user.two_factor_enabled || !user.two_factor_secret) throw new Error('Authenticator app 2FA is not enabled.');
+    if (!await bcrypt.compare(currentPassword || '', user.password_hash)) throw new Error('Current password is incorrect.');
+    if (!await verifyTotp(decryptTotpSecret(user.two_factor_secret), code || '')) throw new Error('Invalid authenticator code.');
+    await pool.query('UPDATE users SET two_factor_enabled = FALSE, two_factor_secret = NULL, updated_at = NOW() WHERE id = $1', [userId]);
+    await pool.query(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values) VALUES ($1, 'UPDATE', 'users', $1, '{"action":"totp_disabled"}'::jsonb)`, [userId]);
+    return { success: true, message: 'Authenticator app 2FA is disabled.' };
   }
 
   /**
@@ -839,6 +891,7 @@ export class AuthService {
       },
       15 * 60
     );
+    await pool.query('UPDATE user_sessions SET last_active_at = NOW() WHERE id = $1 AND revoked_at IS NULL', [session.session_id]);
 
     return {
       accessToken: newAccessToken,
@@ -879,6 +932,24 @@ export class AuthService {
     }
 
     return genericResponse;
+  }
+
+  static async listSecuritySessions(userId: string, currentSessionId?: string): Promise<any[]> {
+    const result = await pool.query(`SELECT id, user_agent, ip_address::text, created_at, last_active_at, expires_at, revoked_at FROM user_sessions WHERE user_id = $1 ORDER BY last_active_at DESC`, [userId]);
+    return result.rows.map((session) => ({ id: session.id, ...parseSessionUserAgent(session.user_agent), ip: session.ip_address, location: null, created_at: session.created_at, last_active_at: session.last_active_at, expires_at: session.expires_at, revoked_at: session.revoked_at, is_current: session.id === currentSessionId }));
+  }
+
+  static async revokeSecuritySession(userId: string, sessionId: string, currentSessionId?: string): Promise<{ revokedCurrent: boolean }> {
+    const result = await pool.query('UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL RETURNING id', [sessionId, userId]);
+    if (!result.rows[0]) throw new Error('Active session not found.');
+    await pool.query(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values) VALUES ($1, 'UPDATE', 'user_sessions', $2, '{"action":"session_revoked"}'::jsonb)`, [userId, sessionId]);
+    return { revokedCurrent: sessionId === currentSessionId };
+  }
+
+  static async revokeOtherSecuritySessions(userId: string, currentSessionId?: string): Promise<{ revoked: number }> {
+    const result = await pool.query('UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND id <> $2::uuid AND revoked_at IS NULL RETURNING id', [userId, currentSessionId || '00000000-0000-0000-0000-000000000000']);
+    await pool.query(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values) VALUES ($1, 'UPDATE', 'user_sessions', $1, $2::jsonb)`, [userId, JSON.stringify({ action: 'other_sessions_revoked', count: result.rowCount || 0 })]);
+    return { revoked: result.rowCount || 0 };
   }
 
   /**
@@ -1221,4 +1292,12 @@ function summarizeUserAgent(ua: string): string {
   }
   if (/Linux/i.test(ua)) return 'Linux';
   return 'Desktop Browser';
+}
+
+function parseSessionUserAgent(userAgent: string | null): { device: string; os: string; browser: string } {
+  const ua = userAgent || '';
+  const os = /Windows/i.test(ua) ? 'Windows' : /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iOS' : /Mac OS|Macintosh/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : 'Unknown OS';
+  const browser = /Edg\//i.test(ua) ? 'Microsoft Edge' : /Firefox\//i.test(ua) ? 'Firefox' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : 'Unknown browser';
+  const device = /iPhone/i.test(ua) ? 'iPhone' : /iPad/i.test(ua) ? 'iPad' : /Android/i.test(ua) ? 'Android device' : 'Desktop';
+  return { device, os, browser };
 }

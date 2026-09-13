@@ -30,7 +30,7 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { applyTheme, useAuth } from '../../context/AuthContext';
-import { ManagedApiKey, profileApi, UpdatePreferencesInput, UpdateProfileInput, UserPreferences, UserProfile } from '../../services/api/auth';
+import { ManagedApiKey, profileApi, SecuritySession, UpdatePreferencesInput, UpdateProfileInput, UserPreferences, UserProfile } from '../../services/api/auth';
 import './styles.css';
 
 type ProfileSection = 'general' | 'security' | 'preferences' | 'accounts' | 'connections';
@@ -187,6 +187,15 @@ export const ProfilePage: React.FC = () => {
   const [deactivationError, setDeactivationError] = useState<string | null>(null);
   const [deactivationSuccess, setDeactivationSuccess] = useState<string | null>(null);
   const [isDeactivating, setIsDeactivating] = useState(false);
+  const [sessions, setSessions] = useState<SecuritySession[]>([]);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+  const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
+  const [isSecurityBusy, setIsSecurityBusy] = useState(false);
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  const [disablePassword, setDisablePassword] = useState('');
+  const [disableCode, setDisableCode] = useState('');
+  const [showDisableTotp, setShowDisableTotp] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -239,6 +248,16 @@ export const ProfilePage: React.FC = () => {
   useEffect(() => {
     if (section === 'connections') void loadApiKeys();
   }, [loadApiKeys, section]);
+
+  const loadSecurity = useCallback(async () => {
+    try { setSessions((await profileApi.listSecuritySessions()).sessions); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to load active sessions.')); }
+  }, []);
+  useEffect(() => { if (section === 'security') void loadSecurity(); }, [section, loadSecurity]);
+  const startTotp = async () => { setIsSecurityBusy(true); setSecurityError(null); try { setTotpSetup(await profileApi.startTotpSetup()); setTotpCode(''); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to start setup.')); } finally { setIsSecurityBusy(false); } };
+  const confirmTotp = async () => { setIsSecurityBusy(true); setSecurityError(null); try { const result = await profileApi.confirmTotpSetup(totpCode); setSecuritySuccess(result.message); setTotpSetup(null); await loadProfile(); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to confirm setup.')); } finally { setIsSecurityBusy(false); } };
+  const disableTotp = async () => { setIsSecurityBusy(true); setSecurityError(null); try { const result = await profileApi.disableTotp(disablePassword, disableCode); setSecuritySuccess(result.message); setShowDisableTotp(false); setDisablePassword(''); setDisableCode(''); await loadProfile(); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to disable authenticator app 2FA.')); } finally { setIsSecurityBusy(false); } };
+  const revokeSession = async (session: SecuritySession) => { if (!window.confirm(`Revoke ${session.is_current ? 'your current' : 'this'} session?`)) return; setIsSecurityBusy(true); try { const result = await profileApi.revokeSecuritySession(session.id); if (result.revokedCurrent) { window.location.assign('/login'); return; } await loadSecurity(); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to revoke session.')); } finally { setIsSecurityBusy(false); } };
+  const revokeOthers = async () => { if (!window.confirm('Revoke every other signed-in session?')) return; setIsSecurityBusy(true); try { const result = await profileApi.revokeOtherSecuritySessions(); setSecuritySuccess(`${result.revoked} other session(s) revoked.`); await loadSecurity(); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to revoke sessions.')); } finally { setIsSecurityBusy(false); } };
 
   const updateField = (field: keyof ProfileForm, value: string) => {
     setForm((current) => (current ? { ...current, [field]: value } : current));
@@ -868,12 +887,28 @@ export const ProfilePage: React.FC = () => {
                     <div className="profile-section-icon"><ShieldCheck size={18} /></div>
                     <div>
                       <h3 id="profile-two-factor-title">Two-factor authentication</h3>
-                      <p>Additional sign-in protection is planned for a later Profile module.</p>
+                      <p>Protect every sign-in with your authenticator app.</p>
                     </div>
                   </div>
-                  <p className="profile-security-note">Klyra already verifies new devices during sign-in. There is no user-managed 2FA setting available yet.</p>
+                  <p className="profile-security-note">Status: <strong>{profile.two_factor_enabled ? 'Enabled' : 'Disabled'}</strong></p>
+                  <button type="button" className={profile.two_factor_enabled ? 'profile-danger-btn' : 'profile-primary-btn'} onClick={() => profile.two_factor_enabled ? setShowDisableTotp(true) : void startTotp()} disabled={isSecurityBusy}>
+                    {isSecurityBusy ? <Loader2 className="profile-spinner" size={16} /> : <ShieldCheck size={16} />}
+                    {profile.two_factor_enabled ? 'Disable 2FA' : 'Configure 2FA'}
+                  </button>
                 </aside>
               </div>
+              <section className="profile-security-card" style={{ marginTop: 20 }}>
+                <div className="profile-security-card-heading"><div className="profile-section-icon"><Monitor size={18} /></div><div><h3>Active sessions</h3><p>Review devices signed in to your account. Location is unavailable because Klyra does not infer it from IP addresses.</p></div></div>
+                {securityError && <div className="profile-message error"><AlertCircle size={17} /> {securityError}</div>}
+                {securitySuccess && <div className="profile-message success"><CheckCircle2 size={17} /> {securitySuccess}</div>}
+                <div className="profile-form-actions"><button type="button" className="profile-danger-btn" onClick={() => void revokeOthers()} disabled={isSecurityBusy}>Revoke all other sessions</button></div>
+                {sessions.map((session) => <div key={session.id} className="profile-security-note" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 0', borderTop: '1px solid var(--kly-border)' }}>
+                  <span><strong>{session.device} · {session.os} · {session.browser}</strong>{session.is_current ? ' (Current session)' : ''}<br />IP: {session.ip || 'Unavailable'} · Location: Unavailable · Last active: {formatDate(session.last_active_at)}</span>
+                  {!session.revoked_at && <button type="button" className="profile-secondary-btn" onClick={() => void revokeSession(session)} disabled={isSecurityBusy}>Revoke</button>}
+                </div>)}
+              </section>
+              {totpSetup && <div className="profile-modal-backdrop" role="dialog" aria-modal="true"><div className="profile-modal"><h3>Set up authenticator app</h3><p>Scan this QR code, or enter the manual key. This is shown only during setup.</p>{securityError && <div className="profile-message error" role="alert"><AlertCircle size={17} /> {securityError}</div>}<img src={totpSetup.qrCodeDataUrl} alt="Authenticator setup QR code" /><p><code>{totpSetup.secret}</code></p><input aria-label="Authenticator code" inputMode="numeric" maxLength={6} value={totpCode} onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))} placeholder="6-digit code" /><div className="profile-form-actions"><button type="button" className="profile-secondary-btn" onClick={() => setTotpSetup(null)} disabled={isSecurityBusy}>Cancel</button><button type="button" className="profile-primary-btn" onClick={() => void confirmTotp()} disabled={isSecurityBusy || totpCode.length !== 6}>Verify and enable</button></div></div></div>}
+              {showDisableTotp && <div className="profile-modal-backdrop" role="dialog" aria-modal="true"><div className="profile-modal"><h3>Disable authenticator app 2FA</h3><p>Enter your current password and a current authenticator code.</p><input type="password" autoComplete="current-password" value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} placeholder="Current password" /><input inputMode="numeric" maxLength={6} value={disableCode} onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ''))} placeholder="6-digit authenticator code" /><div className="profile-form-actions"><button type="button" className="profile-secondary-btn" onClick={() => setShowDisableTotp(false)} disabled={isSecurityBusy}>Cancel</button><button type="button" className="profile-danger-btn" onClick={() => void disableTotp()} disabled={isSecurityBusy || !disablePassword || disableCode.length !== 6}>Disable 2FA</button></div></div></div>}
             </>
           ) : section !== 'general' ? (
             <div className="profile-coming-soon">
