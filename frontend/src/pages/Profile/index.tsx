@@ -484,6 +484,15 @@ export const ProfilePage: React.FC = () => {
                         maxLength={256}
                         disabled={isChangingPassword}
                       />
+                      <button
+                        type="button"
+                        className="profile-password-toggle"
+                        onClick={() => setShowPasswords((current) => !current)}
+                        aria-label={showPasswords ? 'Hide passwords' : 'Show passwords'}
+                        disabled={isChangingPassword}
+                      >
+                        {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
                     </div>
                     <small>Use 8 to 256 characters.</small>
                   </div>
