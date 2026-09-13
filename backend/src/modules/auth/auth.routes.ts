@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AuthService, PasswordChangeError } from './auth.service';
+import { AccountDeactivationError, AuthService, PasswordChangeError } from './auth.service';
 import { EmailService } from './email.service';
 import { OtpError } from './otp.service';
 import { EmailDeliveryError } from './email.service';
@@ -85,7 +85,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     const result = await AuthService.login(email, password, !!rememberMe, ip, userAgent);
     res.json(result);
   } catch (err: any) {
-    const status = err.code === 'EMAIL_NOT_VERIFIED' ? 403 : err.message?.includes('locked') ? 423 : 401;
+    const status = err.code === 'EMAIL_NOT_VERIFIED' || err.code === 'ACCOUNT_INACTIVE' ? 403 : err.message?.includes('locked') ? 423 : 401;
     res.status(status).json({
       error: err.message || 'Login failed.',
       code: err.code || 'LOGIN_ERROR',
@@ -172,6 +172,41 @@ router.put('/change-password', requireAuth, async (req: Request, res: Response) 
       return;
     }
     res.status(500).json({ error: 'Unable to change password.' });
+  }
+});
+
+// 8c. DEACTIVATE ACCOUNT (authenticated, password re-authentication required)
+router.post('/account/deactivate', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await AuthService.deactivateAccount(req.user!.sub, req.body?.currentPassword);
+    res.json(result);
+  } catch (err: any) {
+    if (err instanceof AccountDeactivationError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: 'Unable to deactivate account.' });
+  }
+});
+
+// 8d. ACCOUNT REACTIVATION (public, email-OTP ownership proof)
+router.post('/account/reactivation/request', resendLimiter, async (req: Request, res: Response) => {
+  try {
+    const result = await AuthService.requestAccountReactivation(req.body?.email);
+    res.json(result);
+  } catch {
+    // Keep this endpoint enumeration-safe even for unexpected failures.
+    res.json({ success: true, message: 'If an eligible inactive account exists for this email address, a verification code has been sent.' });
+  }
+});
+
+router.post('/account/reactivation/confirm', authLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body || {};
+    const result = await AuthService.confirmAccountReactivation(email, otp);
+    res.json(result);
+  } catch (err: any) {
+    sendAuthError(res, err, 'Unable to reactivate this account.');
   }
 });
 

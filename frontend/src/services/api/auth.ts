@@ -68,7 +68,7 @@ export interface DemoEmailItem {
   to: string;
   from: string;
   subject: string;
-  category: 'VERIFY_EMAIL' | 'TWO_FACTOR_CODE' | 'RESET_PASSWORD';
+  category: 'VERIFY_EMAIL' | 'TWO_FACTOR_CODE' | 'RESET_PASSWORD' | 'REACTIVATE_ACCOUNT';
   previewText: string;
   htmlContent: string;
   actionUrl?: string;
@@ -226,6 +226,18 @@ export const authApi = {
       body: JSON.stringify({ token, password }),
     }),
 
+  requestAccountReactivation: (email: string) =>
+    request<{ success: boolean; message: string }>('/account/reactivation/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  confirmAccountReactivation: (email: string, otp: string) =>
+    request<{ success: boolean; message: string }>('/account/reactivation/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp }),
+    }),
+
   // Refresh token
   refreshToken: (refreshToken: string) =>
     request<AuthTokens>('/refresh-token', {
@@ -305,4 +317,9 @@ export const profileApi = {
     })),
   revokeApiKey: (keyId: string) => profileRequest('revoke this API key', () =>
     request<{ apiKey: ManagedApiKey; message: string }>(`/profile/api-keys/${keyId}/revoke`, { method: 'POST' })),
+  deactivateAccount: (currentPassword: string) => profileRequest('deactivate your account', () =>
+    request<{ success: boolean; message: string }>('/account/deactivate', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword }),
+    })),
 };

@@ -149,7 +149,8 @@ CREATE TYPE billing_interval AS ENUM (
 
 CREATE TYPE verification_type AS ENUM (
     'VERIFY_EMAIL',
-    'RESET_PASSWORD'
+    'RESET_PASSWORD',
+    'REACTIVATE_ACCOUNT'
 );
 
 CREATE TYPE doc_content_type AS ENUM (

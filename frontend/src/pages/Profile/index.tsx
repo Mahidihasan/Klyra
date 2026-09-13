@@ -145,7 +145,7 @@ function validatePasswordForm(form: PasswordForm): string | null {
 }
 
 export const ProfilePage: React.FC = () => {
-  const { user, isLoading: isAuthLoading, loadProfile: fetchProfile, updatePersonalInfo, uploadProfileAvatar, removeProfileAvatar, changeProfilePassword, updateProfilePreferences } = useAuth();
+  const { user, isLoading: isAuthLoading, loadProfile: fetchProfile, updatePersonalInfo, uploadProfileAvatar, removeProfileAvatar, changeProfilePassword, updateProfilePreferences, deactivateAccount } = useAuth();
   const userId = user?.id;
   const [profile, setProfile] = useState<UserProfile | null>(user);
   const [form, setForm] = useState<ProfileForm | null>(user ? toForm(user) : null);
@@ -181,6 +181,12 @@ export const ProfilePage: React.FC = () => {
   const [isSecretCopied, setIsSecretCopied] = useState(false);
   const [keyPendingRevocation, setKeyPendingRevocation] = useState<ManagedApiKey | null>(null);
   const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
+  const [deactivationStep, setDeactivationStep] = useState<'idle' | 'warning' | 'confirm'>('idle');
+  const [deactivationPassword, setDeactivationPassword] = useState('');
+  const [deactivationPhrase, setDeactivationPhrase] = useState('');
+  const [deactivationError, setDeactivationError] = useState<string | null>(null);
+  const [deactivationSuccess, setDeactivationSuccess] = useState<string | null>(null);
+  const [isDeactivating, setIsDeactivating] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -441,6 +447,30 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
+  const closeDeactivation = () => {
+    if (isDeactivating) return;
+    setDeactivationStep('idle');
+    setDeactivationPassword('');
+    setDeactivationPhrase('');
+    setDeactivationError(null);
+  };
+
+  const deactivate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!deactivationPassword || deactivationPhrase !== 'DEACTIVATE') return;
+    setIsDeactivating(true);
+    setDeactivationError(null);
+    try {
+      const result = await deactivateAccount(deactivationPassword);
+      setDeactivationSuccess(result.message);
+      setDeactivationPassword('');
+    } catch (err: unknown) {
+      setDeactivationError(getErrorMessage(err, 'Unable to deactivate your account.'));
+    } finally {
+      setIsDeactivating(false);
+    }
+  };
+
   if (isAuthLoading || isLoading) {
     return (
       <div className="profile-state" role="status">
@@ -697,7 +727,37 @@ export const ProfilePage: React.FC = () => {
                 <div className="profile-account-item"><KeyRound size={18} /><div><span>Account ID</span><code>{profile.id}</code></div></div>
                 <div className="profile-account-item"><Clock3 size={18} /><div><span>Last login</span><strong>{formatDate(profile.last_login_at)}{profile.last_login_ip ? ` · ${profile.last_login_ip}` : ''}</strong></div></div>
               </div>
-              <aside className="profile-unavailable"><Info size={18} /><div><h3>Deactivation and deletion unavailable</h3><p>Klyra does not yet expose a supported account deactivation or deletion workflow. No account action can be performed from this page.</p></div></aside>
+              {deactivationSuccess && <div className="profile-message success profile-account-message"><CheckCircle2 size={17} /> {deactivationSuccess}</div>}
+              <section className="profile-danger-zone" aria-labelledby="deactivate-account-title">
+                <div><h3 id="deactivate-account-title">Deactivate account</h3><p>Your account will be disabled and you will be signed out. Active sessions and API keys will be revoked. Your existing account and data records will be retained.</p></div>
+                <button type="button" className="profile-danger-btn" onClick={() => { setDeactivationStep('warning'); setDeactivationError(null); }}>Deactivate account</button>
+              </section>
+              <aside className="profile-unavailable"><Info size={18} /><div><h3>Permanent account deletion is currently unavailable.</h3><p>The platform needs additional data-retention, billing, repository, and external-service handling before permanent deletion can be safely supported.</p></div></aside>
+
+              {deactivationStep === 'warning' && (
+                <div className="profile-modal-backdrop" role="presentation">
+                  <div className="profile-key-modal" role="dialog" aria-modal="true" aria-labelledby="deactivation-warning-title">
+                    <button type="button" className="profile-modal-close" onClick={closeDeactivation} aria-label="Close"><X size={18} /></button>
+                    <h3 id="deactivation-warning-title">Deactivate your account?</h3>
+                    <p>This disables access immediately, signs you out everywhere, and revokes active API keys. Your account and data are retained; this is not permanent deletion.</p>
+                    <div className="profile-modal-actions"><button type="button" className="profile-secondary-btn" onClick={closeDeactivation}>Cancel</button><button type="button" className="profile-danger-btn" onClick={() => setDeactivationStep('confirm')}>Continue</button></div>
+                  </div>
+                </div>
+              )}
+
+              {deactivationStep === 'confirm' && (
+                <div className="profile-modal-backdrop" role="presentation">
+                  <form className="profile-key-modal" onSubmit={deactivate} aria-labelledby="deactivation-confirm-title">
+                    <button type="button" className="profile-modal-close" onClick={closeDeactivation} disabled={isDeactivating} aria-label="Close"><X size={18} /></button>
+                    <h3 id="deactivation-confirm-title">Confirm account deactivation</h3>
+                    <p>Enter your current password and type <strong>DEACTIVATE</strong> to confirm. This action signs you out after it succeeds.</p>
+                    {deactivationError && <div className="profile-message error profile-modal-message" role="alert"><AlertCircle size={17} /> {deactivationError}</div>}
+                    <div className="profile-field"><label htmlFor="deactivation-password">Current password</label><input id="deactivation-password" type="password" value={deactivationPassword} onChange={(event) => { setDeactivationPassword(event.target.value); setDeactivationError(null); }} autoComplete="current-password" disabled={isDeactivating} /></div>
+                    <div className="profile-field profile-confirmation-field"><label htmlFor="deactivation-phrase">Type DEACTIVATE to confirm</label><input id="deactivation-phrase" value={deactivationPhrase} onChange={(event) => { setDeactivationPhrase(event.target.value); setDeactivationError(null); }} autoComplete="off" disabled={isDeactivating} /></div>
+                    <div className="profile-modal-actions"><button type="button" className="profile-secondary-btn" onClick={closeDeactivation} disabled={isDeactivating}>Cancel</button><button type="submit" className="profile-danger-btn" disabled={isDeactivating || !deactivationPassword || deactivationPhrase !== 'DEACTIVATE'}>{isDeactivating ? <Loader2 className="profile-spinner" size={16} /> : <Trash2 size={16} />}{isDeactivating ? 'Deactivating…' : 'Deactivate account'}</button></div>
+                  </form>
+                </div>
+              )}
             </>
           ) : section === 'security' ? (
             <>

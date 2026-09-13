@@ -24,6 +24,7 @@ interface AuthContextType {
   removeProfileAvatar: () => Promise<{ user: UserProfile; message: string }>;
   changeProfilePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
   updateProfilePreferences: (preferences: UpdatePreferencesInput) => Promise<{ user: UserProfile; message: string }>;
+  deactivateAccount: (currentPassword: string) => Promise<{ success: boolean; message: string }>;
   openDemoInboxTab: () => void;
 }
 
@@ -190,6 +191,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return result;
   }, [cacheProfile]);
 
+  const deactivateAccount = useCallback(async (currentPassword: string) => {
+    const result = await profileApi.deactivateAccount(currentPassword);
+    // Do not clear state unless the server completed the account transaction.
+    clearSession();
+    return result;
+  }, [clearSession]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -207,6 +215,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         removeProfileAvatar,
         changeProfilePassword,
         updateProfilePreferences,
+        deactivateAccount,
         openDemoInboxTab,
       }}
     >

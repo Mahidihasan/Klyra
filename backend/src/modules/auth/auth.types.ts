@@ -123,7 +123,7 @@ export interface DemoEmail {
   to: string;
   from: string;
   subject: string;
-  category: 'VERIFY_EMAIL' | 'TWO_FACTOR_CODE' | 'RESET_PASSWORD';
+  category: 'VERIFY_EMAIL' | 'TWO_FACTOR_CODE' | 'RESET_PASSWORD' | 'REACTIVATE_ACCOUNT';
   previewText: string;
   htmlContent: string;
   actionUrl?: string;

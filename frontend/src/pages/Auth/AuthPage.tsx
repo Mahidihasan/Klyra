@@ -28,7 +28,9 @@ export type AuthMode =
   | '2fa'
   | 'forgot-password'
   | 'forgot-otp'
-  | 'reset-password';
+  | 'reset-password'
+  | 'reactivate-account'
+  | 'reactivate-otp';
 
 interface AuthPageProps {
   initialMode?: AuthMode;
@@ -122,7 +124,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         // Do not close during active multi-step flows
-        if (['verify-pending', '2fa', 'forgot-password', 'reset-password'].includes(mode)) {
+        if (['verify-pending', '2fa', 'forgot-password', 'reset-password', 'reactivate-account', 'reactivate-otp'].includes(mode)) {
           return;
         }
         handleModalClose();
@@ -287,7 +289,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
   // Auto-focus OTP entry when entering an OTP mode
   useEffect(() => {
-    if (mode === 'verify-email' || mode === 'forgot-otp') {
+    if (mode === 'verify-email' || mode === 'forgot-otp' || mode === 'reactivate-otp') {
       setOtpDigits(['', '', '', '', '', '']);
       const t = setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
       return () => clearTimeout(t);
@@ -403,6 +405,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setResendCooldown(60);
         setError(err.message || 'Please verify your email address before logging in.');
         setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
+        return;
+      }
+
+      if (err.code === 'ACCOUNT_INACTIVE') {
+        setMode('reactivate-account');
+        setError('This account is inactive. Verify your email to reactivate it.');
         return;
       }
 
@@ -604,6 +612,56 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
       setError(err.message || 'Failed to resend verification code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRequestReactivation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await authApi.requestAccountReactivation(email);
+      setSuccessMessage(res.message);
+      setResendCooldown(60);
+      setMode('reactivate-otp');
+    } catch (err: any) {
+      setError(err.message || 'Unable to request a reactivation code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmReactivation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await authApi.confirmAccountReactivation(email, otpDigits.join(''));
+      setSuccessMessage(res.message);
+      setOtpDigits(['', '', '', '', '', '']);
+      setMode('login');
+    } catch (err: any) {
+      setError(err.message || 'Unable to reactivate this account.');
+      setOtpDigits(['', '', '', '', '', '']);
+      otpInputRefs.current[0]?.focus();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendReactivationOtp = async () => {
+    if (resendCooldown > 0) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await authApi.requestAccountReactivation(email);
+      setSuccessMessage(res.message);
+      setResendCooldown(60);
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Unable to request a reactivation code.');
     } finally {
       setIsLoading(false);
     }
@@ -1226,6 +1284,84 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 }}
               >
                 Back
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ================= VIEW: ACCOUNT REACTIVATION ================= */}
+        {mode === 'reactivate-account' && (
+          <form className="auth-form animate-fade-in" onSubmit={handleRequestReactivation}>
+            <div className="form-title-group">
+              <h2 className="form-title">Reactivate your account</h2>
+              <p className="form-subtitle">
+                Confirm access to your account email and we’ll send a one-time reactivation code.
+              </p>
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Account Email</label>
+              <div className="input-field-wrapper">
+                <Mail size={16} className="field-icon" />
+                <input
+                  type="email"
+                  className="auth-input"
+                  placeholder="name@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+
+            <button type="submit" className="auth-submit-btn" disabled={isLoading}>
+              {isLoading ? <><RefreshCw size={16} className="spin-icon" /><span>Sending Code...</span></> : <><span>Send Reactivation Code</span><ArrowRight size={16} /></>}
+            </button>
+
+            <button type="button" className="text-action-link" onClick={() => { setError(null); setSuccessMessage(null); setMode('login'); }}>
+              Back to Sign In
+            </button>
+          </form>
+        )}
+
+        {mode === 'reactivate-otp' && (
+          <form className="auth-form animate-fade-in" onSubmit={handleConfirmReactivation}>
+            <div className="form-title-group">
+              <h2 className="form-title">Enter reactivation code</h2>
+              <p className="form-subtitle">
+                Enter the 6-digit code sent to <strong style={{ color: '#f8fafc' }}>{email}</strong>. Existing sessions and API keys remain revoked for your security.
+              </p>
+            </div>
+
+            <div className="otp-boxes-row">
+              {otpDigits.map((digit, idx) => (
+                <input
+                  key={idx}
+                  ref={(el) => (otpInputRefs.current[idx] = el)}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={1}
+                  className="otp-digit-input"
+                  value={digit}
+                  onChange={(e) => handleOtpChange(idx, e.target.value)}
+                  onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                  autoFocus={idx === 0}
+                />
+              ))}
+            </div>
+
+            <button type="submit" className="auth-submit-btn" disabled={isLoading || otpDigits.join('').length !== 6}>
+              {isLoading ? <><RefreshCw size={16} className="spin-icon" /><span>Reactivating...</span></> : <><KeyRound size={16} /><span>Reactivate Account</span></>}
+            </button>
+
+            <div className="two-factor-actions">
+              <button type="button" className="secondary-btn-inline" onClick={handleResendReactivationOtp} disabled={isLoading || resendCooldown > 0}>
+                {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Code'}
+              </button>
+              <button type="button" className="secondary-btn-inline" onClick={() => { setError(null); setSuccessMessage(null); setMode('login'); }}>
+                Back to Sign In
               </button>
             </div>
           </form>

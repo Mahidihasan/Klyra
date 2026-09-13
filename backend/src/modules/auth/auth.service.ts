@@ -31,6 +31,13 @@ export class PasswordChangeError extends Error {
   }
 }
 
+export class AccountDeactivationError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = 'AccountDeactivationError';
+  }
+}
+
 function sanitizeUser(user: any): UserPublicProfile {
   const metadata: UserMetadata = user.metadata || {};
   const storedPreferences: Partial<UserPreferences> = metadata.preferences || {};
@@ -204,6 +211,67 @@ export class AuthService {
       throw error;
     }
     return (await this.getProfile(userId))!;
+  }
+
+  /**
+   * Disable an account without deleting its retained records. Password
+   * re-authentication prevents a stolen browser session from disabling a user.
+   */
+  static async deactivateAccount(userId: string, currentPassword: unknown): Promise<{ success: boolean; message: string }> {
+    if (typeof currentPassword !== 'string' || !currentPassword || currentPassword.length > 256) {
+      throw new AccountDeactivationError('Current password is required.', 400);
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const userResult = await client.query(
+        `SELECT id, password_hash, status, is_active
+         FROM users
+         WHERE id = $1 AND deleted_at IS NULL
+         FOR UPDATE`,
+        [userId],
+      );
+      const user = userResult.rows[0];
+      if (!user) throw new AccountDeactivationError('Account not found.', 404);
+      if (user.status !== 'ACTIVE' || !user.is_active) {
+        throw new AccountDeactivationError('This account is already inactive.', 400);
+      }
+
+      const passwordMatches = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!passwordMatches) {
+        throw new AccountDeactivationError('Current password is incorrect.', 401);
+      }
+
+      await client.query(
+        `UPDATE users
+         SET status = 'INACTIVE', is_active = FALSE, updated_at = NOW()
+         WHERE id = $1`,
+        [userId],
+      );
+      const sessionResult = await client.query(
+        'UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL',
+        [userId],
+      );
+      const keyResult = await client.query(
+        `UPDATE api_keys
+         SET status = 'REVOKED', is_active = FALSE, revoked_at = NOW()
+         WHERE user_id = $1 AND status = 'ACTIVE' AND is_active = TRUE`,
+        [userId],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'SUSPEND', 'users', $1, $2::jsonb)`,
+        [userId, JSON.stringify({ action: 'account_deactivated', sessions_revoked: sessionResult.rowCount, api_keys_revoked: keyResult.rowCount })],
+      );
+      await client.query('COMMIT');
+      return { success: true, message: 'Your account has been deactivated and you have been signed out.' };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /** Upload a replacement avatar and persist only its Cloudinary references. */
@@ -454,6 +522,12 @@ export class AuthService {
       throw new Error('Invalid email or password.');
     }
 
+    if (user.status !== 'ACTIVE' || !user.is_active) {
+      const err = new Error('Account is inactive or suspended.') as any;
+      if (user.status === 'INACTIVE' && !user.is_active) err.code = 'ACCOUNT_INACTIVE';
+      throw err;
+    }
+
     const metadata: UserMetadata = user.metadata || {};
 
     // 1. Check account lockout
@@ -597,6 +671,10 @@ export class AuthService {
       throw new Error('Invalid or expired 2FA session. Please log in again.');
     }
 
+    if (user.status !== 'ACTIVE' || !user.is_active) {
+      throw new Error('Account is inactive or suspended.');
+    }
+
     const metadata: UserMetadata = user.metadata || {};
     const pending2FA = metadata.pending_2fa;
 
@@ -735,7 +813,7 @@ export class AuthService {
     const tokenHash = sha256(rawRefreshToken);
     const sessionRes = await pool.query(
       `SELECT s.id as session_id, s.user_id, s.expires_at, s.revoked_at,
-              u.id, u.email, u.name, u.role, u.status
+              u.id, u.email, u.name, u.role, u.status, u.is_active, u.deleted_at
        FROM user_sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.refresh_token_hash = $1`,
@@ -746,7 +824,9 @@ export class AuthService {
     if (!session) throw new Error('Invalid refresh token.');
     if (session.revoked_at) throw new Error('Session has been revoked.');
     if (new Date(session.expires_at) < new Date()) throw new Error('Session has expired.');
-    if (session.status !== 'ACTIVE') throw new Error('Account is inactive or suspended.');
+    if (session.status !== 'ACTIVE' || !session.is_active || session.deleted_at) {
+      throw new Error('Account is inactive or suspended.');
+    }
 
     // Issue new 15-minute access token
     const newAccessToken = signJwt(
@@ -799,6 +879,91 @@ export class AuthService {
     }
 
     return genericResponse;
+  }
+
+  /**
+   * Request proof-of-email before restoring a voluntarily deactivated account.
+   * This response is deliberately identical for every email/status combination
+   * so callers cannot use it to discover which accounts exist or are inactive.
+   */
+  static async requestAccountReactivation(email: string): Promise<{ success: boolean; message: string }> {
+    const genericResponse = {
+      success: true,
+      message: 'If an eligible inactive account exists for this email address, a verification code has been sent.',
+    };
+    if (typeof email !== 'string' || !email.trim()) return genericResponse;
+
+    const cleanEmail = email.trim().toLowerCase();
+    const userRes = await pool.query(
+      `SELECT id, email
+       FROM users
+       WHERE email = $1 AND status = 'INACTIVE' AND is_active = FALSE AND deleted_at IS NULL`,
+      [cleanEmail],
+    );
+    const user = userRes.rows[0];
+    if (!user) return genericResponse;
+
+    try {
+      const otp = await issueOtp(user.id, 'ACCOUNT_REACTIVATION');
+      await OtpEmailService.sendAccountReactivationOTP(user.email, otp);
+    } catch (err) {
+      // Preserve the enumeration-safe response even if delivery or resend
+      // policy prevents issuance. The provider internals remain server-only.
+      // eslint-disable-next-line no-console
+      console.error('[auth] Account reactivation OTP could not be issued.');
+    }
+    return genericResponse;
+  }
+
+  /**
+   * Restore only a voluntarily deactivated account after email-OTP ownership
+   * proof. SUSPENDED, BANNED, deleted, and already-active accounts never match
+   * this transition. Revoked sessions and API keys are intentionally untouched.
+   */
+  static async confirmAccountReactivation(email: string, otp: string): Promise<{ success: boolean; message: string }> {
+    if (typeof email !== 'string' || !email.trim() || typeof otp !== 'string' || !otp.trim()) {
+      throw new OtpError('OTP_INVALID', OTP_ERROR_MESSAGES.OTP_INVALID);
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const userRes = await pool.query(
+      `SELECT id
+       FROM users
+       WHERE email = $1 AND status = 'INACTIVE' AND is_active = FALSE AND deleted_at IS NULL`,
+      [cleanEmail],
+    );
+    const user = userRes.rows[0];
+    if (!user) throw new OtpError('OTP_INVALID', OTP_ERROR_MESSAGES.OTP_INVALID);
+
+    await verifyOtp(user.id, 'ACCOUNT_REACTIVATION', otp);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `UPDATE users
+         SET status = 'ACTIVE', is_active = TRUE, updated_at = NOW()
+         WHERE id = $1 AND status = 'INACTIVE' AND is_active = FALSE AND deleted_at IS NULL
+         RETURNING id`,
+        [user.id],
+      );
+      if (!result.rows[0]) {
+        throw new OtpError('OTP_INVALID', OTP_ERROR_MESSAGES.OTP_INVALID);
+      }
+      await client.query(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'UPDATE', 'users', $1, $2::jsonb)`,
+        [user.id, JSON.stringify({ action: 'account_reactivated' })],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return { success: true, message: 'Your account has been reactivated. Please sign in to continue.' };
   }
 
   /**
