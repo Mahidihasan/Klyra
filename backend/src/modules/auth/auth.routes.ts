@@ -222,6 +222,16 @@ router.put('/profile', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+router.put('/profile/preferences', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = await AuthService.updatePreferences(req.user!.sub, req.body || {});
+    res.json({ user, message: 'Preferences saved successfully.' });
+  } catch (err: any) {
+    const status = err.message === 'User not found.' ? 404 : 400;
+    res.status(status).json({ error: err.message || 'Failed to save preferences.' });
+  }
+});
+
 router.post('/profile/avatar', requireAuth, (req: Request, res: Response) => {
   avatarUpload.single('avatar')(req, res, async (err: any) => {
     if (err) {

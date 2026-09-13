@@ -9,6 +9,8 @@ import {
   AuthTokens,
   LoginHistoryItem,
   UpdateProfileInput,
+  UpdatePreferencesInput,
+  UserPreferences,
 } from './auth.types';
 import {
   signJwt,
@@ -30,6 +32,8 @@ export class PasswordChangeError extends Error {
 }
 
 function sanitizeUser(user: any): UserPublicProfile {
+  const metadata: UserMetadata = user.metadata || {};
+  const storedPreferences: Partial<UserPreferences> = metadata.preferences || {};
   return {
     id: user.id,
     email: user.email,
@@ -37,13 +41,32 @@ function sanitizeUser(user: any): UserPublicProfile {
     role: user.role,
     email_verified_at: user.email_verified_at,
     status: user.status,
+    is_active: user.is_active,
+    two_factor_enabled: user.two_factor_enabled,
     avatar_url: user.avatar_url,
     bio: user.bio,
     company: user.company,
     website: user.website,
+    preferences: {
+      theme: storedPreferences.theme === 'light' || storedPreferences.theme === 'system' ? storedPreferences.theme : 'dark',
+      timezone: typeof storedPreferences.timezone === 'string' ? storedPreferences.timezone : 'UTC',
+      notifications: {
+        email: user.email_enabled ?? true,
+        push: user.push_enabled ?? true,
+        in_app: user.in_app_enabled ?? true,
+      },
+    },
+    last_login_at: user.last_login_at,
+    last_login_ip: user.last_login_ip,
     created_at: user.created_at,
+    updated_at: user.updated_at,
   };
 }
+
+const PUBLIC_PROFILE_FIELDS = `u.id, u.email, u.name, u.role, u.email_verified_at, u.status,
+  u.is_active, u.two_factor_enabled, u.avatar_url, u.bio, u.company, u.website,
+  u.metadata, u.last_login_at, u.last_login_ip::text, u.created_at, u.updated_at,
+  np.email_enabled, np.push_enabled, np.in_app_enabled`;
 
 function maskEmail(email: string): string {
   const [name, domain] = email.split('@');
@@ -56,10 +79,10 @@ export class AuthService {
   /** Return the safe, authenticated-user profile shape used by the client. */
   static async getProfile(userId: string): Promise<UserPublicProfile | null> {
     const result = await pool.query(
-      `SELECT id, email, name, role, email_verified_at, status, avatar_url,
-              bio, company, website, created_at
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${PUBLIC_PROFILE_FIELDS}
+       FROM users u
+       LEFT JOIN notification_preferences np ON np.user_id = u.id
+       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId],
     );
 
@@ -122,8 +145,7 @@ export class AuthService {
       `UPDATE users
        SET ${fields.join(', ')}, updated_at = NOW()
        WHERE id = $${values.length} AND deleted_at IS NULL
-       RETURNING id, email, name, role, email_verified_at, status, avatar_url,
-                 bio, company, website, created_at`,
+       RETURNING id`,
       values,
     );
 
@@ -136,7 +158,52 @@ export class AuthService {
       [userId, JSON.stringify({ profile_fields: fields.map((field) => field.split(' ')[0]) })],
     );
 
-    return sanitizeUser(user);
+    return (await this.getProfile(userId))!;
+  }
+
+  static async updatePreferences(userId: string, input: UpdatePreferencesInput): Promise<UserPublicProfile> {
+    const current = await this.getProfile(userId);
+    if (!current) throw new Error('User not found.');
+
+    const theme = input.theme === undefined ? current.preferences.theme : input.theme;
+    const timezone = input.timezone === undefined ? current.preferences.timezone : input.timezone;
+    const notifications = input.notifications === undefined ? current.preferences.notifications : input.notifications;
+
+    if (theme !== 'dark' && theme !== 'light' && theme !== 'system') throw new Error('Theme must be dark, light, or system.');
+    if (typeof timezone !== 'string' || timezone.length < 1 || timezone.length > 100) throw new Error('Timezone must be valid.');
+    try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { throw new Error('Timezone must be valid.'); }
+    if (!notifications || typeof notifications !== 'object' || typeof (notifications as any).email !== 'boolean' || typeof (notifications as any).push !== 'boolean' || typeof (notifications as any).in_app !== 'boolean') {
+      throw new Error('Notification preferences must include Email, Push, and In-app settings.');
+    }
+
+    const metadataPreferences = { theme, timezone };
+    await pool.query('BEGIN');
+    try {
+      await pool.query(
+        `UPDATE users
+         SET metadata = jsonb_set(metadata, '{preferences}',
+           (COALESCE(metadata -> 'preferences', '{}'::jsonb) - 'language') || $1::jsonb, true),
+           updated_at = NOW()
+         WHERE id = $2 AND deleted_at IS NULL`,
+        [JSON.stringify(metadataPreferences), userId],
+      );
+      await pool.query(
+        `INSERT INTO notification_preferences (user_id, email_enabled, push_enabled, in_app_enabled)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id) DO UPDATE SET email_enabled = EXCLUDED.email_enabled,
+           push_enabled = EXCLUDED.push_enabled, in_app_enabled = EXCLUDED.in_app_enabled, updated_at = NOW()`,
+        [userId, (notifications as any).email, (notifications as any).push, (notifications as any).in_app],
+      );
+      await pool.query(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'UPDATE', 'users', $1, '{"profile_fields":["preferences"]}'::jsonb)`, [userId],
+      );
+      await pool.query('COMMIT');
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      throw error;
+    }
+    return (await this.getProfile(userId))!;
   }
 
   /** Upload a replacement avatar and persist only its Cloudinary references. */
@@ -179,7 +246,7 @@ export class AuthService {
       [userId],
     );
 
-    return sanitizeUser(user);
+    return (await this.getProfile(userId))!;
   }
 
   /** Remove the avatar reference and clean up its Cloudinary asset. */
@@ -216,7 +283,7 @@ export class AuthService {
       [userId],
     );
 
-    return sanitizeUser(user);
+    return (await this.getProfile(userId))!;
   }
 
   /**

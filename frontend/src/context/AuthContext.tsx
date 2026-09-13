@@ -1,6 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authApi, UserProfile, AuthTokens, LoginResponse } from '../services/api/auth';
 
+export function applyTheme(theme: UserProfile['preferences']['theme']) {
+  const resolved = theme === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+    : theme;
+  document.documentElement.dataset.theme = resolved;
+  document.documentElement.style.colorScheme = resolved;
+}
+
 interface AuthContextType {
   user: UserProfile | null;
   accessToken: string | null;
@@ -21,6 +29,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return localStorage.getItem('klyra_access_token');
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (!user?.preferences) return;
+    applyTheme(user.preferences.theme);
+    if (user.preferences.theme !== 'system') return;
+    const query = window.matchMedia('(prefers-color-scheme: light)');
+    const onChange = () => applyTheme('system');
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, [user?.preferences?.theme]);
 
   // Helper to open Demo Inbox in a new browser tab
   const openDemoInboxTab = useCallback(() => {

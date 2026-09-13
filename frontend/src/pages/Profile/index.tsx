@@ -3,13 +3,19 @@ import {
   Building2,
   CheckCircle2,
   AlertCircle,
+  Bell,
+  CalendarDays,
+  Clock3,
   Eye,
   EyeOff,
   Globe2,
+  Info,
   KeyRound,
   Lock,
   Loader2,
   Mail,
+  Monitor,
+  Moon,
   Save,
   ShieldCheck,
   SlidersHorizontal,
@@ -19,8 +25,8 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useAuth } from '../../context/AuthContext';
-import { authApi, UpdateProfileInput, UserProfile } from '../../services/api/auth';
+import { applyTheme, useAuth } from '../../context/AuthContext';
+import { authApi, UpdatePreferencesInput, UpdateProfileInput, UserPreferences, UserProfile } from '../../services/api/auth';
 import './styles.css';
 
 type ProfileSection = 'general' | 'security' | 'preferences' | 'accounts';
@@ -33,7 +39,7 @@ const SECTIONS: Array<{ id: ProfileSection; label: string; icon: React.ReactNode
     label: 'Preferences & Notifications',
     icon: <SlidersHorizontal size={17} />,
   },
-  { id: 'accounts', label: 'Connected Accounts & API Keys', icon: <KeyRound size={17} /> },
+  { id: 'accounts', label: 'Account Information', icon: <KeyRound size={17} /> },
 ];
 
 interface ProfileForm {
@@ -91,6 +97,14 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function formatDate(value: string | null): string {
+  return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Not available';
+}
+
+function roleDescription(role: string): string {
+  return role.toLowerCase() === 'admin' ? 'Administrator — full platform access' : 'User — standard account access';
+}
+
 interface PasswordForm {
   currentPassword: string;
   newPassword: string;
@@ -101,6 +115,12 @@ const EMPTY_PASSWORD_FORM: PasswordForm = {
   currentPassword: '',
   newPassword: '',
   confirmPassword: '',
+};
+
+const DEFAULT_PREFERENCES: UserPreferences = {
+  theme: 'dark',
+  timezone: 'UTC',
+  notifications: { email: true, push: true, in_app: true },
 };
 
 function validatePasswordForm(form: PasswordForm): string | null {
@@ -140,6 +160,10 @@ export const ProfilePage: React.FC = () => {
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [showPasswords, setShowPasswords] = useState(false);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(user?.preferences || null);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
+  const [preferencesError, setPreferencesError] = useState<string | null>(null);
+  const [preferencesSuccess, setPreferencesSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -163,6 +187,7 @@ export const ProfilePage: React.FC = () => {
       const { user: currentProfile } = await authApi.getProfile();
       setProfile(currentProfile);
       setForm(toForm(currentProfile));
+      setPreferences(currentProfile.preferences);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Unable to load your profile.'));
     } finally {
@@ -303,6 +328,34 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
+  const updatePreferences = (changes: Partial<UserPreferences>) => {
+    setPreferences((current) => current ? { ...current, ...changes } : current);
+    if (changes.theme) {
+      applyTheme(changes.theme);
+    }
+    setPreferencesError(null);
+    setPreferencesSuccess(null);
+  };
+
+  const savePreferences = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!preferences) return;
+    setIsSavingPreferences(true);
+    setPreferencesError(null);
+    setPreferencesSuccess(null);
+    try {
+      const result = await authApi.updatePreferences(preferences as UpdatePreferencesInput);
+      setProfile(result.user);
+      setPreferences(result.user.preferences);
+      await refreshProfile();
+      setPreferencesSuccess(result.message);
+    } catch (err: unknown) {
+      setPreferencesError(getErrorMessage(err, 'Unable to save preferences.'));
+    } finally {
+      setIsSavingPreferences(false);
+    }
+  };
+
   if (isAuthLoading || isLoading) {
     return (
       <div className="profile-state" role="status">
@@ -426,7 +479,39 @@ export const ProfilePage: React.FC = () => {
         </nav>
 
         <section className="profile-panel" aria-labelledby="profile-section-title">
-          {section === 'security' ? (
+          {section === 'preferences' && preferences ? (
+            <>
+              <header className="profile-panel-header">
+                <div><p className="profile-eyebrow">PREFERENCES</p><h2 id="profile-section-title">Preferences & Notifications</h2><p>Choose how Klyra looks and how it can contact you.</p></div>
+              </header>
+              <form className="profile-preferences-form" onSubmit={savePreferences} noValidate>
+                {preferencesError && <div className="profile-message error"><AlertCircle size={17} /> {preferencesError}</div>}
+                {preferencesSuccess && <div className="profile-message success"><CheckCircle2 size={17} /> {preferencesSuccess}</div>}
+                <div className="profile-preference-group">
+                  <div><h3>Theme</h3><p>Applies across Klyra immediately and is saved with your preferences.</p></div>
+                  <div className="profile-theme-options" role="radiogroup" aria-label="Theme preference">
+                    {(['dark', 'light', 'system'] as const).map((theme) => <button key={theme} type="button" className={preferences.theme === theme ? 'active' : ''} onClick={() => updatePreferences({ theme })} disabled={isSavingPreferences} role="radio" aria-checked={preferences.theme === theme}>{theme === 'system' ? <Monitor size={17} /> : theme === 'dark' ? <Moon size={17} /> : <Globe2 size={17} />}<span>{theme[0].toUpperCase() + theme.slice(1)}</span></button>)}
+                  </div>
+                </div>
+                <div className="profile-preference-grid">
+                  <div className="profile-field"><label htmlFor="profile-timezone">Timezone</label><select id="profile-timezone" value={preferences.timezone} onChange={(event) => updatePreferences({ timezone: event.target.value })} disabled={isSavingPreferences}><option value="UTC">UTC</option><option value="Asia/Dhaka">Asia/Dhaka</option><option value="America/New_York">America/New_York</option><option value="America/Los_Angeles">America/Los_Angeles</option><option value="Europe/London">Europe/London</option><option value="Europe/Berlin">Europe/Berlin</option><option value="Asia/Tokyo">Asia/Tokyo</option><option value="Australia/Sydney">Australia/Sydney</option></select></div>
+                </div>
+                <div className="profile-preference-group"><div><h3>Notification channels</h3><p>Delivery preferences are saved now; notification delivery may depend on the relevant Klyra service being enabled.</p></div><div className="profile-toggle-list">{([{ key: 'email', label: 'Email', icon: <Mail size={17} /> }, { key: 'push', label: 'Push', icon: <Bell size={17} /> }, { key: 'in_app', label: 'In-app', icon: <Monitor size={17} /> }] as const).map(({ key, label, icon }) => <label key={key} className="profile-toggle"><span>{icon}<span>{label}</span></span><input type="checkbox" checked={preferences.notifications[key]} onChange={(event) => updatePreferences({ notifications: { ...preferences.notifications, [key]: event.target.checked } })} disabled={isSavingPreferences} /><i aria-hidden="true" /></label>)}</div></div>
+                <div className="profile-form-actions"><button type="button" className="profile-secondary-btn" onClick={() => { setPreferences(DEFAULT_PREFERENCES); applyTheme(DEFAULT_PREFERENCES.theme); setPreferencesError(null); setPreferencesSuccess(null); }} disabled={isSavingPreferences}>Reset to defaults</button><button type="submit" className="profile-primary-btn" disabled={isSavingPreferences}>{isSavingPreferences ? <Loader2 className="profile-spinner" size={17} /> : <Save size={17} />}{isSavingPreferences ? 'Saving…' : 'Save preferences'}</button></div>
+              </form>
+            </>
+          ) : section === 'accounts' ? (
+            <>
+              <header className="profile-panel-header"><div><p className="profile-eyebrow">ACCOUNT</p><h2 id="profile-section-title">Account Information</h2><p>Read-only account metadata and lifecycle availability.</p></div></header>
+              <div className="profile-account-grid">
+                <div className="profile-account-item"><CalendarDays size={18} /><div><span>Account created</span><strong>{formatDate(profile.created_at)}</strong></div></div>
+                <div className="profile-account-item"><ShieldCheck size={18} /><div><span>Role & permissions</span><strong>{roleDescription(profile.role)}</strong></div></div>
+                <div className="profile-account-item"><KeyRound size={18} /><div><span>Account ID</span><code>{profile.id}</code></div></div>
+                <div className="profile-account-item"><Clock3 size={18} /><div><span>Last login</span><strong>{formatDate(profile.last_login_at)}{profile.last_login_ip ? ` · ${profile.last_login_ip}` : ''}</strong></div></div>
+              </div>
+              <aside className="profile-unavailable"><Info size={18} /><div><h3>Deactivation and deletion unavailable</h3><p>Klyra does not yet expose a supported account deactivation or deletion workflow. No account action can be performed from this page.</p></div></aside>
+            </>
+          ) : section === 'security' ? (
             <>
               <header className="profile-panel-header">
                 <div>

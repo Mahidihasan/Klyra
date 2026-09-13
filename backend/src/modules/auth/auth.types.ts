@@ -38,11 +38,29 @@ export interface Pending2FA {
   tempToken: string;
 }
 
+/** Theme options exposed in Profile → Preferences. */
+export type ThemePreference = 'light' | 'dark' | 'system';
+
+/** Delivery channel toggles from the existing notification_preferences table. */
+export interface NotificationPreferences {
+  email: boolean;
+  push: boolean;
+  in_app: boolean;
+}
+
+/** User-editable preferences. Theme and timezone live in users.metadata. */
+export interface UserPreferences {
+  theme: ThemePreference;
+  timezone: string;
+  notifications: NotificationPreferences;
+}
+
 export interface UserMetadata {
   failed_attempts?: number;
   locked_until?: string | null;
   known_devices?: KnownDevice[];
   pending_2fa?: Pending2FA | null;
+  preferences?: UserPreferences;
   [key: string]: any;
 }
 
@@ -53,11 +71,17 @@ export interface UserPublicProfile {
   role: string;
   email_verified_at: string | null;
   status: string;
+  is_active: boolean;
+  two_factor_enabled: boolean;
   avatar_url: string | null;
   bio: string | null;
   company: string | null;
   website: string | null;
+  preferences: UserPreferences;
+  last_login_at: string | null;
+  last_login_ip: string | null;
   created_at: string;
+  updated_at: string | null;
 }
 
 /** Fields an authenticated user may update from their profile. */
@@ -66,6 +90,16 @@ export interface UpdateProfileInput {
   bio?: unknown;
   company?: unknown;
   website?: unknown;
+}
+
+/**
+ * Fields an authenticated user may update from Profile → Preferences.
+ * All optional and typed unknown so the service validates each explicitly.
+ */
+export interface UpdatePreferencesInput {
+  theme?: unknown;
+  timezone?: unknown;
+  notifications?: unknown;
 }
 
 export interface JwtPayload {

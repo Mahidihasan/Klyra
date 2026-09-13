@@ -5,12 +5,28 @@ export interface UserProfile {
   role: string;
   email_verified_at: string | null;
   status: string;
+  is_active: boolean;
+  two_factor_enabled: boolean;
   avatar_url: string | null;
   bio: string | null;
   company: string | null;
   website: string | null;
+  preferences: UserPreferences;
+  last_login_at: string | null;
+  last_login_ip: string | null;
   created_at: string;
+  updated_at: string | null;
 }
+
+export type ThemePreference = 'dark' | 'light' | 'system';
+
+export interface UserPreferences {
+  theme: ThemePreference;
+  timezone: string;
+  notifications: { email: boolean; push: boolean; in_app: boolean };
+}
+
+export interface UpdatePreferencesInput extends UserPreferences {}
 
 export interface UpdateProfileInput {
   name: string;
@@ -205,6 +221,11 @@ export const authApi = {
     request<{ user: UserProfile; message: string }>('/profile', {
       method: 'PUT',
       body: JSON.stringify(profile),
+    }),
+  updatePreferences: (preferences: UpdatePreferencesInput) =>
+    request<{ user: UserProfile; message: string }>('/profile/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
     }),
   uploadAvatar: (file: File) =>
     uploadAvatarRequest<{ user: UserProfile; message: string }>(file),
