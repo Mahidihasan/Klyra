@@ -5,10 +5,13 @@ import {
   AlertCircle,
   Bell,
   CalendarDays,
+  Chrome,
   Clock3,
+  Copy,
   Eye,
   EyeOff,
   Globe2,
+  Github,
   Info,
   KeyRound,
   Lock,
@@ -22,14 +25,15 @@ import {
   Trash2,
   Upload,
   UserRound,
+  X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { applyTheme, useAuth } from '../../context/AuthContext';
-import { UpdatePreferencesInput, UpdateProfileInput, UserPreferences, UserProfile } from '../../services/api/auth';
+import { ManagedApiKey, profileApi, UpdatePreferencesInput, UpdateProfileInput, UserPreferences, UserProfile } from '../../services/api/auth';
 import './styles.css';
 
-type ProfileSection = 'general' | 'security' | 'preferences' | 'accounts';
+type ProfileSection = 'general' | 'security' | 'preferences' | 'accounts' | 'connections';
 
 const SECTIONS: Array<{ id: ProfileSection; label: string; icon: React.ReactNode }> = [
   { id: 'general', label: 'General & Personal Info', icon: <UserRound size={17} /> },
@@ -40,6 +44,7 @@ const SECTIONS: Array<{ id: ProfileSection; label: string; icon: React.ReactNode
     icon: <SlidersHorizontal size={17} />,
   },
   { id: 'accounts', label: 'Account Information', icon: <KeyRound size={17} /> },
+  { id: 'connections', label: 'Connected Accounts & API Keys', icon: <KeyRound size={17} /> },
 ];
 
 interface ProfileForm {
@@ -165,6 +170,17 @@ export const ProfilePage: React.FC = () => {
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
   const [preferencesSuccess, setPreferencesSuccess] = useState<string | null>(null);
+  const [apiKeys, setApiKeys] = useState<ManagedApiKey[]>([]);
+  const [isApiKeysLoading, setIsApiKeysLoading] = useState(false);
+  const [apiKeysError, setApiKeysError] = useState<string | null>(null);
+  const [apiKeysSuccess, setApiKeysSuccess] = useState<string | null>(null);
+  const [isCreateKeyOpen, setIsCreateKeyOpen] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [isCreatingKey, setIsCreatingKey] = useState(false);
+  const [oneTimeSecret, setOneTimeSecret] = useState<string | null>(null);
+  const [isSecretCopied, setIsSecretCopied] = useState(false);
+  const [keyPendingRevocation, setKeyPendingRevocation] = useState<ManagedApiKey | null>(null);
+  const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -200,6 +216,23 @@ export const ProfilePage: React.FC = () => {
   useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
+
+  const loadApiKeys = useCallback(async () => {
+    setIsApiKeysLoading(true);
+    setApiKeysError(null);
+    try {
+      const result = await profileApi.listApiKeys();
+      setApiKeys(result.apiKeys);
+    } catch (err: unknown) {
+      setApiKeysError(getErrorMessage(err, 'Unable to load API keys.'));
+    } finally {
+      setIsApiKeysLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (section === 'connections') void loadApiKeys();
+  }, [loadApiKeys, section]);
 
   const updateField = (field: keyof ProfileForm, value: string) => {
     setForm((current) => (current ? { ...current, [field]: value } : current));
@@ -354,6 +387,60 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
+  const createApiKey = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = newKeyName.trim();
+    if (!name || name.length > 100) {
+      setApiKeysError('API key name must be between 1 and 100 characters.');
+      return;
+    }
+
+    setIsCreatingKey(true);
+    setApiKeysError(null);
+    setApiKeysSuccess(null);
+    try {
+      const result = await profileApi.createApiKey(name);
+      setApiKeys((current) => [result.apiKey, ...current]);
+      setNewKeyName('');
+      setIsCreateKeyOpen(false);
+      setOneTimeSecret(result.secret);
+      setIsSecretCopied(false);
+      setApiKeysSuccess(result.message);
+    } catch (err: unknown) {
+      setApiKeysError(getErrorMessage(err, 'Unable to create API key.'));
+    } finally {
+      setIsCreatingKey(false);
+    }
+  };
+
+  const revokeApiKey = async () => {
+    const key = keyPendingRevocation;
+    if (!key) return;
+    setRevokingKeyId(key.id);
+    setApiKeysError(null);
+    setApiKeysSuccess(null);
+    try {
+      const result = await profileApi.revokeApiKey(key.id);
+      setApiKeys((current) => current.map((item) => item.id === key.id ? result.apiKey : item));
+      setApiKeysSuccess(result.message);
+      setKeyPendingRevocation(null);
+    } catch (err: unknown) {
+      setApiKeysError(getErrorMessage(err, 'Unable to revoke API key.'));
+    } finally {
+      setRevokingKeyId(null);
+    }
+  };
+
+  const copyOneTimeSecret = async () => {
+    if (!oneTimeSecret) return;
+    try {
+      await navigator.clipboard.writeText(oneTimeSecret);
+      setIsSecretCopied(true);
+    } catch {
+      setApiKeysError('Unable to copy the API key. Please copy it manually before closing this dialog.');
+    }
+  };
+
   if (isAuthLoading || isLoading) {
     return (
       <div className="profile-state" role="status">
@@ -487,7 +574,100 @@ export const ProfilePage: React.FC = () => {
         </nav>
 
         <section className="profile-panel" aria-labelledby="profile-section-title">
-          {section === 'preferences' && preferences ? (
+          {section === 'connections' ? (
+            <>
+              <header className="profile-panel-header profile-keys-header">
+                <div>
+                  <p className="profile-eyebrow">CREDENTIALS</p>
+                  <h2 id="profile-section-title">Connected Accounts &amp; API Keys</h2>
+                  <p>Manage developer credentials and available account integrations.</p>
+                </div>
+                <button type="button" className="profile-primary-btn" onClick={() => { setIsCreateKeyOpen(true); setApiKeysError(null); }} disabled={isApiKeysLoading || isCreatingKey}>
+                  <KeyRound size={17} /> Create API key
+                </button>
+              </header>
+
+              {apiKeysError && <div className="profile-message error" role="alert"><AlertCircle size={17} /> {apiKeysError}</div>}
+              {apiKeysSuccess && <div className="profile-message success"><CheckCircle2 size={17} /> {apiKeysSuccess}</div>}
+
+              <div className="profile-keys-section">
+                <div className="profile-section-heading">
+                  <div><h3>API Keys</h3><p>Secrets are shown only once, when a key is created.</p></div>
+                </div>
+                {isApiKeysLoading ? (
+                  <div className="profile-inline-state" role="status"><Loader2 className="profile-spinner" size={18} /> Loading API keys…</div>
+                ) : apiKeys.length === 0 ? (
+                  <div className="profile-empty-state"><KeyRound size={22} /><strong>No API keys yet</strong><span>Create a key when you need a developer credential.</span></div>
+                ) : (
+                  <div className="profile-api-key-list">
+                    {apiKeys.map((key) => (
+                      <div key={key.id} className="profile-api-key-row">
+                        <div className="profile-api-key-main">
+                          <strong>{key.name}</strong>
+                          <code>{key.keyPrefix}••••••••</code>
+                          <span>Created {formatDate(key.createdAt)}</span>
+                          {key.revokedAt && <span>Revoked {formatDate(key.revokedAt)}</span>}
+                        </div>
+                        <div className="profile-api-key-actions">
+                          <span className={`profile-key-status ${key.status.toLowerCase()}`}>{key.status}</span>
+                          {key.status === 'ACTIVE' && (
+                            <button type="button" className="profile-danger-btn" onClick={() => setKeyPendingRevocation(key)} disabled={revokingKeyId === key.id}>
+                              <Trash2 size={15} /> Revoke
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="profile-keys-section">
+                <div className="profile-section-heading"><div><h3>Connected Accounts</h3><p>Third-party account linking requires OAuth configuration.</p></div></div>
+                <div className="profile-connected-grid">
+                  <div className="profile-connected-card"><Github size={22} /><div><h4>GitHub</h4><p>OAuth not configured</p></div><span>Unavailable</span></div>
+                  <div className="profile-connected-card"><Chrome size={22} /><div><h4>Google</h4><p>OAuth not configured</p></div><span>Unavailable</span></div>
+                </div>
+              </div>
+
+              {isCreateKeyOpen && (
+                <div className="profile-modal-backdrop" role="presentation">
+                  <form className="profile-key-modal" onSubmit={createApiKey} aria-labelledby="create-api-key-title">
+                    <button type="button" className="profile-modal-close" onClick={() => { setIsCreateKeyOpen(false); setNewKeyName(''); }} disabled={isCreatingKey} aria-label="Close"><X size={18} /></button>
+                    <h3 id="create-api-key-title">Create API key</h3>
+                    <p>Name this key so you can identify it later. The secret will be shown only once.</p>
+                    <div className="profile-field"><label htmlFor="new-api-key-name">Key name</label><input id="new-api-key-name" value={newKeyName} onChange={(event) => setNewKeyName(event.target.value)} maxLength={100} placeholder="e.g. Local development" autoFocus disabled={isCreatingKey} /></div>
+                    <div className="profile-modal-actions"><button type="button" className="profile-secondary-btn" onClick={() => { setIsCreateKeyOpen(false); setNewKeyName(''); }} disabled={isCreatingKey}>Cancel</button><button type="submit" className="profile-primary-btn" disabled={isCreatingKey}>{isCreatingKey ? <Loader2 className="profile-spinner" size={16} /> : <KeyRound size={16} />}{isCreatingKey ? 'Creating…' : 'Create key'}</button></div>
+                  </form>
+                </div>
+              )}
+
+              {oneTimeSecret && (
+                <div className="profile-modal-backdrop" role="presentation">
+                  <div className="profile-key-modal profile-secret-modal" role="dialog" aria-modal="true" aria-labelledby="api-key-secret-title">
+                    <button type="button" className="profile-modal-close" onClick={() => setOneTimeSecret(null)} aria-label="Close"><X size={18} /></button>
+                    <CheckCircle2 className="profile-secret-icon" size={25} />
+                    <h3 id="api-key-secret-title">Copy your API key now</h3>
+                    <p>This is the only time Klyra will show the complete secret. Store it securely before closing this dialog.</p>
+                    <code className="profile-secret-value">{oneTimeSecret}</code>
+                    <button type="button" className="profile-secondary-btn" onClick={() => void copyOneTimeSecret()}><Copy size={16} />{isSecretCopied ? 'Copied' : 'Copy key'}</button>
+                    <button type="button" className="profile-primary-btn" onClick={() => setOneTimeSecret(null)}>I stored this key</button>
+                  </div>
+                </div>
+              )}
+
+              {keyPendingRevocation && (
+                <div className="profile-modal-backdrop" role="presentation">
+                  <div className="profile-key-modal" role="dialog" aria-modal="true" aria-labelledby="revoke-api-key-title">
+                    <button type="button" className="profile-modal-close" onClick={() => setKeyPendingRevocation(null)} disabled={Boolean(revokingKeyId)} aria-label="Close"><X size={18} /></button>
+                    <h3 id="revoke-api-key-title">Revoke API key?</h3>
+                    <p><strong>{keyPendingRevocation.name}</strong> will stop working immediately. This action cannot be undone.</p>
+                    <div className="profile-modal-actions"><button type="button" className="profile-secondary-btn" onClick={() => setKeyPendingRevocation(null)} disabled={Boolean(revokingKeyId)}>Cancel</button><button type="button" className="profile-danger-btn" onClick={() => void revokeApiKey()} disabled={Boolean(revokingKeyId)}>{revokingKeyId ? <Loader2 className="profile-spinner" size={16} /> : <Trash2 size={16} />}{revokingKeyId ? 'Revoking…' : 'Revoke key'}</button></div>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : section === 'preferences' && preferences ? (
             <>
               <header className="profile-panel-header">
                 <div><p className="profile-eyebrow">PREFERENCES</p><h2 id="profile-section-title">Preferences & Notifications</h2><p>Choose how Klyra looks and how it can contact you.</p></div>

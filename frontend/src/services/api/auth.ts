@@ -35,6 +35,20 @@ export interface UpdateProfileInput {
   website: string | null;
 }
 
+export type ManagedApiKeyStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+
+/** Safe API-key metadata. List responses never include a key hash or secret. */
+export interface ManagedApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  status: ManagedApiKeyStatus;
+  isActive: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
@@ -282,4 +296,13 @@ export const profileApi = {
     request<{ success: boolean; message: string }>('/change-password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) })),
   updatePreferences: (preferences: UpdatePreferencesInput) => profileRequest('save your preferences', () =>
     request<{ user: UserProfile; message: string }>('/profile/preferences', { method: 'PUT', body: JSON.stringify(preferences) })),
+  listApiKeys: () => profileRequest('load your API keys', () =>
+    request<{ apiKeys: ManagedApiKey[] }>('/profile/api-keys')),
+  createApiKey: (name: string) => profileRequest('create your API key', () =>
+    request<{ apiKey: ManagedApiKey; secret: string; message: string }>('/profile/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    })),
+  revokeApiKey: (keyId: string) => profileRequest('revoke this API key', () =>
+    request<{ apiKey: ManagedApiKey; message: string }>(`/profile/api-keys/${keyId}/revoke`, { method: 'POST' })),
 };
