@@ -6,7 +6,17 @@ export interface UserProfile {
   email_verified_at: string | null;
   status: string;
   avatar_url: string | null;
+  bio: string | null;
+  company: string | null;
+  website: string | null;
   created_at: string;
+}
+
+export interface UpdateProfileInput {
+  name: string;
+  company: string | null;
+  bio: string | null;
+  website: string | null;
 }
 
 export interface AuthTokens {
@@ -158,6 +168,14 @@ export const authApi = {
 
   // Current user
   me: () => request<{ user: UserProfile }>('/me'),
+
+  // Profile
+  getProfile: () => request<{ user: UserProfile }>('/profile'),
+  updateProfile: (profile: UpdateProfileInput) =>
+    request<{ user: UserProfile; message: string }>('/profile', {
+      method: 'PUT',
+      body: JSON.stringify(profile),
+    }),
 
   // Login history
   loginHistory: () => request<{ history: LoginHistoryItem[] }>('/login-history'),

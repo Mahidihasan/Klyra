@@ -22,6 +22,7 @@ interface TopbarProps {
   setSearchQuery: (query: string) => void;
   onOpenCommandPalette: () => void;
   onToggleMobileSidebar: () => void;
+  onOpenProfile: () => void;
   onOpenLogin?: () => void;
   onOpenRegister?: () => void;
 }
@@ -31,6 +32,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   setSearchQuery,
   onOpenCommandPalette,
   onToggleMobileSidebar,
+  onOpenProfile,
   onOpenLogin,
   onOpenRegister,
 }) => {
@@ -53,6 +55,11 @@ export const Topbar: React.FC<TopbarProps> = ({
     : 'AD';
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const handleOpenProfile = () => {
+    setShowUserMenu(false);
+    onOpenProfile();
+  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -162,20 +169,27 @@ export const Topbar: React.FC<TopbarProps> = ({
             {/* User Profile Dropdown */}
             <div className="popover-wrapper" ref={userRef}>
               <button className="user-profile-btn" onClick={() => setShowUserMenu(!showUserMenu)}>
-                <div className="user-avatar">{initials}</div>
+                <div className="user-avatar">
+                  {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : initials}
+                </div>
               </button>
 
               {showUserMenu && (
                 <div className="dropdown-panel user-panel animate-fade-in">
                   <div className="user-menu-header">
-                    <div className="user-avatar-large">{initials}</div>
+                    <div className="user-avatar-large">
+                      {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : initials}
+                    </div>
                     <div>
                       <div className="user-full-name">{user?.name || 'Alex Dev'}</div>
                       <div className="user-email">{user?.email || 'developer@apimarket.io'}</div>
                     </div>
                   </div>
                   <div className="user-menu-divider" />
-                  <button className="user-menu-item" onClick={() => setShowUserMenu(false)}>
+                  <button
+                    className="user-menu-item"
+                    onClick={handleOpenProfile}
+                  >
                     <User size={16} />
                     <span>My Profile</span>
                   </button>
@@ -703,6 +717,14 @@ export const Topbar: React.FC<TopbarProps> = ({
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .user-avatar img,
+  .user-avatar-large img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
   }
 
 

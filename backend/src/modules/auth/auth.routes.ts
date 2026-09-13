@@ -5,7 +5,6 @@ import { OtpError } from './otp.service';
 import { EmailDeliveryError } from './email.service';
 import { authLimiter, resendLimiter } from './auth.rate-limiter';
 import { requireAuth } from './auth.middleware';
-import { pool } from '../../services/database.service';
 
 const router = Router();
 
@@ -170,18 +169,35 @@ router.post('/refresh-token', async (req: Request, res: Response) => {
 router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.sub;
-    const userRes = await pool.query(
-      `SELECT id, email, name, role, email_verified_at, status, avatar_url, created_at
-       FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [userId]
-    );
-
-    const user = userRes.rows[0];
+    const user = await AuthService.getProfile(userId!);
     if (!user) return res.status(404).json({ error: 'User not found.' });
 
     res.json({ user });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to fetch user profile.' });
+  }
+});
+
+// 10b. PROFILE READ / UPDATE
+// Profile lives under the established /api/auth base rather than the stale
+// documented /api/v1/users surface.
+router.get('/profile', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = await AuthService.getProfile(req.user!.sub);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    res.json({ user });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch profile.' });
+  }
+});
+
+router.put('/profile', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = await AuthService.updateProfile(req.user!.sub, req.body || {});
+    res.json({ user, message: 'Profile updated successfully.' });
+  } catch (err: any) {
+    const status = err.message === 'User not found.' ? 404 : 400;
+    res.status(status).json({ error: err.message || 'Failed to update profile.' });
   }
 });
 

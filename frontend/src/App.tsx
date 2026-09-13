@@ -14,6 +14,7 @@ import { ApiBuilder } from './pages/ApiBuilder/index';
 import { ApiBuildPage } from './pages/ApiBuild';
 import { BillingPage } from './pages/Billing/index';
 import { RepositoriesPage } from './pages/Repositories/index';
+import { ProfilePage } from './pages/Profile';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -216,6 +217,11 @@ function AppContent() {
     setCollections((prev) => [newCol, ...prev]);
   };
 
+  const handleOpenProfile = () => {
+    setIsMobileSidebarOpen(false);
+    setActiveTab('profile');
+  };
+
   // 1. Check if user opened Demo Inbox (dedicated window or view param)
   const isDemoInboxRoute =
     typeof window !== 'undefined' &&
@@ -312,6 +318,7 @@ function AppContent() {
             setSearchQuery={setSearchQuery}
             onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
             onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
+            onOpenProfile={handleOpenProfile}
             onOpenLogin={() => {
               setAuthModalMode('login');
               setShowAuthModal(true);
@@ -509,6 +516,10 @@ function AppContent() {
                       </div>
                     </section>
                   </div>
+                </main>
+              ) : activeTab === 'profile' ? (
+                <main className="content-page-wrapper">
+                  <ProfilePage />
                 </main>
               ) : activeTab === 'billing' ? (
                 <main className="content-page-wrapper">

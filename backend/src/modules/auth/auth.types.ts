@@ -54,7 +54,18 @@ export interface UserPublicProfile {
   email_verified_at: string | null;
   status: string;
   avatar_url: string | null;
+  bio: string | null;
+  company: string | null;
+  website: string | null;
   created_at: string;
+}
+
+/** Fields an authenticated user may update from their profile. */
+export interface UpdateProfileInput {
+  name?: unknown;
+  bio?: unknown;
+  company?: unknown;
+  website?: unknown;
 }
 
 export interface JwtPayload {

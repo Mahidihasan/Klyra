@@ -6,6 +6,7 @@ import {
   UserPublicProfile,
   AuthTokens,
   LoginHistoryItem,
+  UpdateProfileInput,
 } from './auth.types';
 import {
   signJwt,
@@ -28,6 +29,9 @@ function sanitizeUser(user: any): UserPublicProfile {
     email_verified_at: user.email_verified_at,
     status: user.status,
     avatar_url: user.avatar_url,
+    bio: user.bio,
+    company: user.company,
+    website: user.website,
     created_at: user.created_at,
   };
 }
@@ -40,6 +44,92 @@ function maskEmail(email: string): string {
 }
 
 export class AuthService {
+  /** Return the safe, authenticated-user profile shape used by the client. */
+  static async getProfile(userId: string): Promise<UserPublicProfile | null> {
+    const result = await pool.query(
+      `SELECT id, email, name, role, email_verified_at, status, avatar_url,
+              bio, company, website, created_at
+       FROM users
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+
+    return result.rows[0] ? sanitizeUser(result.rows[0]) : null;
+  }
+
+  /**
+   * Update the profile fields that are already represented in the users table.
+   * Passwords, email, roles, session data and 2FA state deliberately cannot be
+   * changed through this path.
+   */
+  static async updateProfile(userId: string, input: UpdateProfileInput): Promise<UserPublicProfile> {
+    const fields: string[] = [];
+    const values: Array<string | null> = [];
+
+    const add = (column: string, value: string | null) => {
+      values.push(value);
+      fields.push(`${column} = $${values.length}`);
+    };
+
+    if (input.name !== undefined) {
+      if (typeof input.name !== 'string') throw new Error('Name must be a string.');
+      const name = input.name.trim();
+      if (name.length < 2 || name.length > 100) {
+        throw new Error('Name must be between 2 and 100 characters.');
+      }
+      add('name', name);
+    }
+
+    if (input.company !== undefined) {
+      add('company', normalizeOptionalProfileText(input.company, 'Company', 255));
+    }
+
+    if (input.bio !== undefined) {
+      add('bio', normalizeOptionalProfileText(input.bio, 'Bio', 2000));
+    }
+
+    if (input.website !== undefined) {
+      const website = normalizeOptionalProfileText(input.website, 'Website', 500);
+      if (website) {
+        let url: URL;
+        try {
+          url = new URL(website);
+        } catch {
+          throw new Error('Website must be a valid URL.');
+        }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+          throw new Error('Website must use http:// or https://.');
+        }
+      }
+      add('website', website);
+    }
+
+    if (fields.length === 0) {
+      throw new Error('Provide at least one profile field to update.');
+    }
+
+    values.push(userId);
+    const result = await pool.query(
+      `UPDATE users
+       SET ${fields.join(', ')}, updated_at = NOW()
+       WHERE id = $${values.length} AND deleted_at IS NULL
+       RETURNING id, email, name, role, email_verified_at, status, avatar_url,
+                 bio, company, website, created_at`,
+      values,
+    );
+
+    const user = result.rows[0];
+    if (!user) throw new Error('User not found.');
+
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'UPDATE', 'users', $1, $2::jsonb)`,
+      [userId, JSON.stringify({ profile_fields: fields.map((field) => field.split(' ')[0]) })],
+    );
+
+    return sanitizeUser(user);
+  }
+
   /**
    * Register a new platform user (unverified) and email an OTP for
    * email verification. On email delivery failure the created user is
@@ -703,6 +793,16 @@ export class AuthService {
       };
     });
   }
+}
+
+function normalizeOptionalProfileText(value: unknown, field: string, maxLength: number): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') throw new Error(`${field} must be a string.`);
+  const normalized = value.trim();
+  if (normalized.length > maxLength) {
+    throw new Error(`${field} must be ${maxLength} characters or fewer.`);
+  }
+  return normalized || null;
 }
 
 function summarizeUserAgent(ua: string): string {
