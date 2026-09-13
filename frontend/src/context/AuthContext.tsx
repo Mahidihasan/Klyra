@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi, UserProfile, AuthTokens, LoginResponse } from '../services/api/auth';
+import { authApi, profileApi, UpdatePreferencesInput, UpdateProfileInput, UserProfile, AuthTokens, LoginResponse } from '../services/api/auth';
 
 export function applyTheme(theme: UserProfile['preferences']['theme']) {
   const resolved = theme === 'system'
@@ -17,7 +17,13 @@ interface AuthContextType {
   login: (email: string, password: string, rememberMe?: boolean) => Promise<LoginResponse>;
   verify2FA: (tempToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
+  loadProfile: () => Promise<UserProfile>;
   refreshProfile: () => Promise<void>;
+  updatePersonalInfo: (profile: UpdateProfileInput) => Promise<{ user: UserProfile; message: string }>;
+  uploadProfileAvatar: (file: File) => Promise<{ user: UserProfile; message: string }>;
+  removeProfileAvatar: () => Promise<{ user: UserProfile; message: string }>;
+  changeProfilePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
+  updateProfilePreferences: (preferences: UpdatePreferencesInput) => Promise<{ user: UserProfile; message: string }>;
   openDemoInboxTab: () => void;
 }
 
@@ -29,6 +35,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return localStorage.getItem('klyra_access_token');
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const cacheProfile = useCallback((profile: UserProfile) => {
+    setUser(profile);
+    localStorage.setItem('klyra_user', JSON.stringify(profile));
+  }, []);
 
   useEffect(() => {
     if (!user?.preferences) return;
@@ -87,8 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         // Try fetching current user profile
         const { user: profile } = await authApi.me();
-        setUser(profile);
-        localStorage.setItem('klyra_user', JSON.stringify(profile));
+        cacheProfile(profile);
       } catch (err: any) {
         // Access token might be expired, attempt refresh
         if (storedRefresh) {
@@ -97,8 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.setItem('klyra_access_token', newTokens.accessToken);
             setAccessToken(newTokens.accessToken);
             const { user: profile } = await authApi.me();
-            setUser(profile);
-            localStorage.setItem('klyra_user', JSON.stringify(profile));
+            cacheProfile(profile);
           } catch {
             clearSession();
           }
@@ -111,7 +120,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     initAuth();
-  }, [clearSession]);
+  }, [cacheProfile, clearSession]);
 
   const login = async (email: string, password: string, rememberMe = false): Promise<LoginResponse> => {
     const res = await authApi.login(email, password, rememberMe);
@@ -136,15 +145,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const refreshProfile = async (): Promise<void> => {
+  const refreshProfile = useCallback(async (): Promise<void> => {
     try {
       const { user: profile } = await authApi.me();
-      setUser(profile);
-      localStorage.setItem('klyra_user', JSON.stringify(profile));
+      cacheProfile(profile);
     } catch {
       // Keep existing profile
     }
-  };
+  }, [cacheProfile]);
+
+  const loadProfile = useCallback(async (): Promise<UserProfile> => {
+    const { user: profile } = await profileApi.getProfile();
+    cacheProfile(profile);
+    return profile;
+  }, [cacheProfile]);
+
+  const updatePersonalInfo = useCallback(async (profile: UpdateProfileInput) => {
+    const result = await profileApi.updatePersonalInfo(profile);
+    cacheProfile(result.user);
+    return result;
+  }, [cacheProfile]);
+
+  const uploadProfileAvatar = useCallback(async (file: File) => {
+    const result = await profileApi.uploadAvatar(file);
+    cacheProfile(result.user);
+    return result;
+  }, [cacheProfile]);
+
+  const removeProfileAvatar = useCallback(async () => {
+    const result = await profileApi.removeAvatar();
+    cacheProfile(result.user);
+    return result;
+  }, [cacheProfile]);
+
+  const changeProfilePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const result = await profileApi.changePassword(currentPassword, newPassword);
+    await refreshProfile();
+    return result;
+  }, [refreshProfile]);
+
+  const updateProfilePreferences = useCallback(async (preferences: UpdatePreferencesInput) => {
+    const result = await profileApi.updatePreferences(preferences);
+    cacheProfile(result.user);
+    return result;
+  }, [cacheProfile]);
 
   return (
     <AuthContext.Provider
@@ -156,7 +200,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         verify2FA,
         logout,
+        loadProfile,
         refreshProfile,
+        updatePersonalInfo,
+        uploadProfileAvatar,
+        removeProfileAvatar,
+        changeProfilePassword,
+        updateProfilePreferences,
         openDemoInboxTab,
       }}
     >

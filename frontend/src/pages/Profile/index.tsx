@@ -26,7 +26,7 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { applyTheme, useAuth } from '../../context/AuthContext';
-import { authApi, UpdatePreferencesInput, UpdateProfileInput, UserPreferences, UserProfile } from '../../services/api/auth';
+import { UpdatePreferencesInput, UpdateProfileInput, UserPreferences, UserProfile } from '../../services/api/auth';
 import './styles.css';
 
 type ProfileSection = 'general' | 'security' | 'preferences' | 'accounts';
@@ -140,12 +140,13 @@ function validatePasswordForm(form: PasswordForm): string | null {
 }
 
 export const ProfilePage: React.FC = () => {
-  const { user, isLoading: isAuthLoading, refreshProfile } = useAuth();
+  const { user, isLoading: isAuthLoading, loadProfile: fetchProfile, updatePersonalInfo, uploadProfileAvatar, removeProfileAvatar, changeProfilePassword, updateProfilePreferences } = useAuth();
   const userId = user?.id;
   const [profile, setProfile] = useState<UserProfile | null>(user);
   const [form, setForm] = useState<ProfileForm | null>(user ? toForm(user) : null);
   const [section, setSection] = useState<ProfileSection>('general');
   const [isLoading, setIsLoading] = useState(Boolean(user));
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -182,18 +183,19 @@ export const ProfilePage: React.FC = () => {
     }
 
     setIsLoading(true);
+    setProfileLoadError(null);
     setError(null);
     try {
-      const { user: currentProfile } = await authApi.getProfile();
+      const currentProfile = await fetchProfile();
       setProfile(currentProfile);
       setForm(toForm(currentProfile));
       setPreferences(currentProfile.preferences);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Unable to load your profile.'));
+      setProfileLoadError(getErrorMessage(err, 'Unable to load your profile.'));
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, [fetchProfile, userId]);
 
   useEffect(() => {
     void loadProfile();
@@ -234,11 +236,10 @@ export const ProfilePage: React.FC = () => {
     setAvatarError(null);
     setAvatarSuccess(null);
     try {
-      const result = await authApi.uploadAvatar(avatarFile);
+      const result = await uploadProfileAvatar(avatarFile);
       setProfile(result.user);
       setAvatarFile(null);
       setAvatarPreview(null);
-      await refreshProfile();
       setAvatarSuccess(result.message);
     } catch (error: unknown) {
       setAvatarError(getErrorMessage(error, 'Unable to upload your profile picture.'));
@@ -252,11 +253,10 @@ export const ProfilePage: React.FC = () => {
     setAvatarError(null);
     setAvatarSuccess(null);
     try {
-      const result = await authApi.removeAvatar();
+      const result = await removeProfileAvatar();
       setProfile(result.user);
       setAvatarFile(null);
       setAvatarPreview(null);
-      await refreshProfile();
       setAvatarSuccess(result.message);
     } catch (error: unknown) {
       setAvatarError(getErrorMessage(error, 'Unable to remove your profile picture.'));
@@ -288,10 +288,9 @@ export const ProfilePage: React.FC = () => {
     setError(null);
     setSuccess(null);
     try {
-      const result = await authApi.updateProfile(payload);
+      const result = await updatePersonalInfo(payload);
       setProfile(result.user);
       setForm(toForm(result.user));
-      await refreshProfile();
       setSuccess(result.message);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Unable to save your profile.'));
@@ -318,7 +317,7 @@ export const ProfilePage: React.FC = () => {
     setPasswordError(null);
     setPasswordSuccess(null);
     try {
-      const result = await authApi.changePassword(passwordForm.currentPassword, passwordForm.newPassword);
+      const result = await changeProfilePassword(passwordForm.currentPassword, passwordForm.newPassword);
       setPasswordForm(EMPTY_PASSWORD_FORM);
       setPasswordSuccess(result.message);
     } catch (err: unknown) {
@@ -344,10 +343,9 @@ export const ProfilePage: React.FC = () => {
     setPreferencesError(null);
     setPreferencesSuccess(null);
     try {
-      const result = await authApi.updatePreferences(preferences as UpdatePreferencesInput);
+      const result = await updateProfilePreferences(preferences as UpdatePreferencesInput);
       setProfile(result.user);
       setPreferences(result.user.preferences);
-      await refreshProfile();
       setPreferencesSuccess(result.message);
     } catch (err: unknown) {
       setPreferencesError(getErrorMessage(err, 'Unable to save preferences.'));
@@ -360,6 +358,16 @@ export const ProfilePage: React.FC = () => {
     return (
       <div className="profile-state" role="status">
         <Loader2 className="profile-spinner" size={22} /> Loading your profile…
+      </div>
+    );
+  }
+
+  if (profileLoadError) {
+    return (
+      <div className="profile-state profile-error-state" role="alert">
+        <AlertCircle size={22} />
+        <div><strong>Unable to load your profile</strong><p>{profileLoadError}</p></div>
+        <button type="button" className="profile-secondary-btn" onClick={() => void loadProfile()} disabled={isLoading}>Retry</button>
       </div>
     );
   }
@@ -664,6 +672,7 @@ export const ProfilePage: React.FC = () => {
                     maxLength={100}
                     autoComplete="name"
                     required
+                    disabled={isSaving}
                   />
                   <small>Klyra currently stores a single full-name field.</small>
                 </div>
@@ -672,7 +681,7 @@ export const ProfilePage: React.FC = () => {
                   <label htmlFor="profile-email">Email</label>
                   <div className="profile-readonly-input">
                     <Mail size={16} />
-                    <input id="profile-email" value={profile.email} readOnly aria-readonly="true" />
+                    <input id="profile-email" value={profile.email} readOnly aria-readonly="true" disabled={isSaving} />
                   </div>
                   <small>Email changes are not part of this module.</small>
                 </div>
@@ -685,6 +694,7 @@ export const ProfilePage: React.FC = () => {
                     onChange={(event) => updateField('company', event.target.value)}
                     maxLength={255}
                     autoComplete="organization"
+                    disabled={isSaving}
                   />
                 </div>
 
@@ -700,6 +710,7 @@ export const ProfilePage: React.FC = () => {
                       maxLength={500}
                       placeholder="https://example.com"
                       autoComplete="url"
+                      disabled={isSaving}
                     />
                   </div>
                 </div>
@@ -716,6 +727,7 @@ export const ProfilePage: React.FC = () => {
                     maxLength={2000}
                     rows={5}
                     placeholder="Tell the Klyra community a little about yourself."
+                    disabled={isSaving}
                   />
                 </div>
 

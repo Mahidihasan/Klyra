@@ -75,6 +75,24 @@ export interface LoginHistoryItem {
 
 const BASE_URL = '/api/auth';
 
+class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
+export class ProfileApiError extends Error {
+  constructor(message: string, readonly status?: number, readonly backendMessage?: string) {
+    super(message);
+    this.name = 'ProfileApiError';
+  }
+}
+
 function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem('klyra_access_token');
   const headers: Record<string, string> = {
@@ -101,11 +119,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!res.ok) {
-    const error = new Error(data?.error || `Request failed with status ${res.status}`) as any;
-    error.status = res.status;
-    error.code = data?.code;
-    error.retryAfter = data?.retryAfter;
-    throw error;
+    throw new ApiRequestError(data?.error || `Request failed with status ${res.status}`, res.status, data?.code);
   }
 
   return data as T;
@@ -129,7 +143,7 @@ async function uploadAvatarRequest<T>(file: File): Promise<T> {
     // Non-JSON response
   }
   if (!res.ok) {
-    throw new Error(data?.error || `Request failed with status ${res.status}`);
+    throw new ApiRequestError(data?.error || `Request failed with status ${res.status}`, res.status, data?.code);
   }
   return data as T;
 }
@@ -198,13 +212,6 @@ export const authApi = {
       body: JSON.stringify({ token, password }),
     }),
 
-  // Change password (authenticated)
-  changePassword: (currentPassword: string, newPassword: string) =>
-    request<{ success: boolean; message: string }>('/change-password', {
-      method: 'PUT',
-      body: JSON.stringify({ currentPassword, newPassword }),
-    }),
-
   // Refresh token
   refreshToken: (refreshToken: string) =>
     request<AuthTokens>('/refresh-token', {
@@ -214,23 +221,6 @@ export const authApi = {
 
   // Current user
   me: () => request<{ user: UserProfile }>('/me'),
-
-  // Profile
-  getProfile: () => request<{ user: UserProfile }>('/profile'),
-  updateProfile: (profile: UpdateProfileInput) =>
-    request<{ user: UserProfile; message: string }>('/profile', {
-      method: 'PUT',
-      body: JSON.stringify(profile),
-    }),
-  updatePreferences: (preferences: UpdatePreferencesInput) =>
-    request<{ user: UserProfile; message: string }>('/profile/preferences', {
-      method: 'PUT',
-      body: JSON.stringify(preferences),
-    }),
-  uploadAvatar: (file: File) =>
-    uploadAvatarRequest<{ user: UserProfile; message: string }>(file),
-  removeAvatar: () =>
-    request<{ user: UserProfile; message: string }>('/profile/avatar', { method: 'DELETE' }),
 
   // Login history
   loginHistory: () => request<{ history: LoginHistoryItem[] }>('/login-history'),
@@ -252,4 +242,44 @@ export const authApi = {
       window.open('/demo-inbox', '_blank');
     }
   },
+};
+
+function profileError(error: unknown, operation: string): ProfileApiError {
+  if (error instanceof ProfileApiError) return error;
+  if (error instanceof ApiRequestError) {
+    const prefix: Record<number, string> = {
+      400: 'Please review the submitted profile information.',
+      401: 'Your session has expired. Please sign in again.',
+      403: 'You do not have permission to perform this profile action.',
+      422: 'Some profile information needs attention.',
+      500: 'Klyra could not complete this request right now.',
+    };
+    const detail = error.message;
+    return new ProfileApiError(`${prefix[error.status] || `Unable to ${operation}.`} ${detail}`, error.status, detail);
+  }
+  const detail = error instanceof Error ? error.message : '';
+  return new ProfileApiError(`Unable to ${operation}. ${detail || 'Please check your connection and try again.'}`, undefined, detail);
+}
+
+async function profileRequest<T>(operation: string, action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    throw profileError(error, operation);
+  }
+}
+
+/** Dedicated Profile API surface, sharing Klyra's established auth transport. */
+export const profileApi = {
+  getProfile: () => profileRequest('load your profile', () => request<{ user: UserProfile }>('/profile')),
+  updatePersonalInfo: (profile: UpdateProfileInput) => profileRequest('save your profile', () =>
+    request<{ user: UserProfile; message: string }>('/profile', { method: 'PUT', body: JSON.stringify(profile) })),
+  uploadAvatar: (file: File) => profileRequest('upload your profile picture', () =>
+    uploadAvatarRequest<{ user: UserProfile; message: string }>(file)),
+  removeAvatar: () => profileRequest('remove your profile picture', () =>
+    request<{ user: UserProfile; message: string }>('/profile/avatar', { method: 'DELETE' })),
+  changePassword: (currentPassword: string, newPassword: string) => profileRequest('change your password', () =>
+    request<{ success: boolean; message: string }>('/change-password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) })),
+  updatePreferences: (preferences: UpdatePreferencesInput) => profileRequest('save your preferences', () =>
+    request<{ user: UserProfile; message: string }>('/profile/preferences', { method: 'PUT', body: JSON.stringify(preferences) })),
 };

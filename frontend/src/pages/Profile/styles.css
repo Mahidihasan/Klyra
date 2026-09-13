@@ -101,6 +101,9 @@
 .profile-unavailable h3 { color: #fcd34d; font-size: 13px; }
 .profile-unavailable p { margin-top: 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .profile-state, .profile-coming-soon { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 240px; color: var(--text-secondary); }
+.profile-error-state { flex-wrap: wrap; text-align: left; padding: 28px; }
+.profile-error-state strong { display: block; color: var(--text-primary); }
+.profile-error-state p { margin-top: 3px; color: var(--text-muted); font-size: 12px; }
 .profile-coming-soon { flex-direction: column; text-align: center; }
 .profile-coming-soon h2 { margin-top: 8px; }
 .profile-coming-soon p { color: var(--text-muted); }
