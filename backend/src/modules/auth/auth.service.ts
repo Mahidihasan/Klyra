@@ -1,5 +1,7 @@
 import bcrypt from 'bcryptjs';
+import type { Express } from 'express';
 import { pool } from '../../services/database.service';
+import { CLOUDINARY_FOLDERS, deleteFile, uploadFile } from '../../services/storage.service';
 import {
   UserRecord,
   UserMetadata,
@@ -125,6 +127,86 @@ export class AuthService {
       `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
        VALUES ($1, 'UPDATE', 'users', $1, $2::jsonb)`,
       [userId, JSON.stringify({ profile_fields: fields.map((field) => field.split(' ')[0]) })],
+    );
+
+    return sanitizeUser(user);
+  }
+
+  /** Upload a replacement avatar and persist only its Cloudinary references. */
+  static async updateAvatar(userId: string, file: Express.Multer.File): Promise<UserPublicProfile> {
+    const existing = await pool.query(
+      'SELECT avatar_public_id FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId],
+    );
+    if (!existing.rows[0]) throw new Error('User not found.');
+
+    const previousPublicId = existing.rows[0].avatar_public_id as string | null;
+    const asset = await uploadFile(file, {
+      folder: CLOUDINARY_FOLDERS.AVATARS,
+      resourceType: 'image',
+      publicId: userId,
+    });
+
+    const updated = await pool.query(
+      `UPDATE users
+       SET avatar_url = $1, avatar_public_id = $2, avatar_metadata = $3::jsonb, updated_at = NOW()
+       WHERE id = $4 AND deleted_at IS NULL
+       RETURNING id, email, name, role, email_verified_at, status, avatar_url,
+                 bio, company, website, created_at`,
+      [asset.secure_url, asset.public_id, JSON.stringify(asset), userId],
+    );
+    const user = updated.rows[0];
+    if (!user) throw new Error('User not found.');
+
+    if (previousPublicId && previousPublicId !== asset.public_id) {
+      try {
+        await deleteFile(previousPublicId);
+      } catch {
+        // The new avatar is already persisted; a failed cleanup must not undo it.
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'UPDATE', 'users', $1, '{"profile_fields":["avatar"]}'::jsonb)`,
+      [userId],
+    );
+
+    return sanitizeUser(user);
+  }
+
+  /** Remove the avatar reference and clean up its Cloudinary asset. */
+  static async removeAvatar(userId: string): Promise<UserPublicProfile> {
+    const existing = await pool.query(
+      'SELECT avatar_public_id FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId],
+    );
+    const previousPublicId = existing.rows[0]?.avatar_public_id as string | null | undefined;
+    if (previousPublicId === undefined) throw new Error('User not found.');
+
+    const updated = await pool.query(
+      `UPDATE users
+       SET avatar_url = NULL, avatar_public_id = NULL, avatar_metadata = NULL, updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id, email, name, role, email_verified_at, status, avatar_url,
+                 bio, company, website, created_at`,
+      [userId],
+    );
+    const user = updated.rows[0];
+    if (!user) throw new Error('User not found.');
+
+    if (previousPublicId) {
+      try {
+        await deleteFile(previousPublicId);
+      } catch {
+        // The user record has already been safely cleared.
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'UPDATE', 'users', $1, '{"profile_fields":["avatar"]}'::jsonb)`,
+      [userId],
     );
 
     return sanitizeUser(user);

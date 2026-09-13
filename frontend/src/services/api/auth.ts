@@ -95,6 +95,29 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return data as T;
 }
 
+async function uploadAvatarRequest<T>(file: File): Promise<T> {
+  const token = localStorage.getItem('klyra_access_token');
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const body = new FormData();
+  body.append('avatar', file);
+  const res = await fetch(`${BASE_URL}/profile/avatar`, { method: 'POST', headers, body });
+
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    // Non-JSON response
+  }
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed with status ${res.status}`);
+  }
+  return data as T;
+}
+
 export const authApi = {
   // Register
   register: (name: string, email: string, password: string) =>
@@ -176,6 +199,10 @@ export const authApi = {
       method: 'PUT',
       body: JSON.stringify(profile),
     }),
+  uploadAvatar: (file: File) =>
+    uploadAvatarRequest<{ user: UserProfile; message: string }>(file),
+  removeAvatar: () =>
+    request<{ user: UserProfile; message: string }>('/profile/avatar', { method: 'DELETE' }),
 
   // Login history
   loginHistory: () => request<{ history: LoginHistoryItem[] }>('/login-history'),

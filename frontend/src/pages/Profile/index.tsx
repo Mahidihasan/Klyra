@@ -10,9 +10,11 @@ import {
   Save,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
+  Upload,
   UserRound,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '../../context/AuthContext';
 import { authApi, UpdateProfileInput, UserProfile } from '../../services/api/auth';
@@ -96,6 +98,20 @@ export const ProfilePage: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [isAvatarSaving, setIsAvatarSaving] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarSuccess, setAvatarSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) {
+        URL.revokeObjectURL(avatarPreview);
+      }
+    };
+  }, [avatarPreview]);
 
   const loadProfile = useCallback(async () => {
     if (!userId) {
@@ -126,6 +142,66 @@ export const ProfilePage: React.FC = () => {
     setForm((current) => (current ? { ...current, [field]: value } : current));
     setError(null);
     setSuccess(null);
+  };
+
+  const selectAvatar = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setAvatarError('Choose a PNG, JPG, or WebP image.');
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      setAvatarError('Avatar must be 3 MB or smaller.');
+      return;
+    }
+
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+    setAvatarError(null);
+    setAvatarSuccess(null);
+  };
+
+  const uploadAvatar = async () => {
+    if (!avatarFile) {
+      return;
+    }
+    setIsAvatarSaving(true);
+    setAvatarError(null);
+    setAvatarSuccess(null);
+    try {
+      const result = await authApi.uploadAvatar(avatarFile);
+      setProfile(result.user);
+      setAvatarFile(null);
+      setAvatarPreview(null);
+      await refreshProfile();
+      setAvatarSuccess(result.message);
+    } catch (error: unknown) {
+      setAvatarError(getErrorMessage(error, 'Unable to upload your profile picture.'));
+    } finally {
+      setIsAvatarSaving(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    setIsAvatarSaving(true);
+    setAvatarError(null);
+    setAvatarSuccess(null);
+    try {
+      const result = await authApi.removeAvatar();
+      setProfile(result.user);
+      setAvatarFile(null);
+      setAvatarPreview(null);
+      await refreshProfile();
+      setAvatarSuccess(result.message);
+    } catch (error: unknown) {
+      setAvatarError(getErrorMessage(error, 'Unable to remove your profile picture.'));
+    } finally {
+      setIsAvatarSaving(false);
+    }
   };
 
   const saveProfile = async (event: React.FormEvent) => {
@@ -198,6 +274,70 @@ export const ProfilePage: React.FC = () => {
             <p className="profile-company">
               <Building2 size={15} /> {profile.company}
             </p>
+          )}
+        </div>
+      </section>
+
+      <section className="profile-avatar-editor" aria-labelledby="profile-picture-title">
+        <div className="profile-avatar-preview" aria-label="Profile picture preview">
+          {avatarPreview || profile.avatar_url ? (
+            <img src={avatarPreview || profile.avatar_url || ''} alt="Profile preview" />
+          ) : (
+            initials(profile.name)
+          )}
+        </div>
+        <div className="profile-avatar-copy">
+          <h2 id="profile-picture-title">Profile picture</h2>
+          <p>PNG, JPG, or WebP. Maximum file size 3 MB.</p>
+          {avatarFile && <span className="profile-avatar-file">Ready to upload: {avatarFile.name}</span>}
+          {avatarError && (
+            <div className="profile-avatar-message error">
+              <AlertCircle size={15} /> {avatarError}
+            </div>
+          )}
+          {avatarSuccess && (
+            <div className="profile-avatar-message success">
+              <CheckCircle2 size={15} /> {avatarSuccess}
+            </div>
+          )}
+        </div>
+        <div className="profile-avatar-actions">
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={selectAvatar}
+            hidden
+          />
+          <button
+            type="button"
+            className="profile-secondary-btn"
+            onClick={() => avatarInputRef.current?.click()}
+            disabled={isAvatarSaving}
+          >
+            <Upload size={16} /> Choose image
+          </button>
+          {avatarFile && (
+            <button
+              type="button"
+              className="profile-primary-btn"
+              onClick={uploadAvatar}
+              disabled={isAvatarSaving}
+            >
+              {isAvatarSaving ? <Loader2 className="profile-spinner" size={16} /> : <Upload size={16} />}
+              Upload
+            </button>
+          )}
+          {profile.avatar_url && !avatarFile && (
+            <button
+              type="button"
+              className="profile-danger-btn"
+              onClick={removeAvatar}
+              disabled={isAvatarSaving}
+            >
+              {isAvatarSaving ? <Loader2 className="profile-spinner" size={16} /> : <Trash2 size={16} />}
+              Remove
+            </button>
           )}
         </div>
       </section>

@@ -5,6 +5,7 @@ import { OtpError } from './otp.service';
 import { EmailDeliveryError } from './email.service';
 import { authLimiter, resendLimiter } from './auth.rate-limiter';
 import { requireAuth } from './auth.middleware';
+import { avatarUpload } from '../../utils/fileUpload';
 
 const router = Router();
 
@@ -198,6 +199,36 @@ router.put('/profile', requireAuth, async (req: Request, res: Response) => {
   } catch (err: any) {
     const status = err.message === 'User not found.' ? 404 : 400;
     res.status(status).json({ error: err.message || 'Failed to update profile.' });
+  }
+});
+
+router.post('/profile/avatar', requireAuth, (req: Request, res: Response) => {
+  avatarUpload.single('avatar')(req, res, async (err: any) => {
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE'
+        ? 'Avatar must be 3 MB or smaller.'
+        : err.message || 'Unable to upload avatar.';
+      return res.status(400).json({ error: message });
+    }
+    if (!req.file) return res.status(400).json({ error: 'Select an avatar image to upload.' });
+
+    try {
+      const user = await AuthService.updateAvatar(req.user!.sub, req.file);
+      res.json({ user, message: 'Profile picture updated successfully.' });
+    } catch (error: any) {
+      const status = error.message === 'User not found.' ? 404 : 500;
+      res.status(status).json({ error: error.message || 'Unable to upload avatar.' });
+    }
+  });
+});
+
+router.delete('/profile/avatar', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = await AuthService.removeAvatar(req.user!.sub);
+    res.json({ user, message: 'Profile picture removed successfully.' });
+  } catch (error: any) {
+    const status = error.message === 'User not found.' ? 404 : 500;
+    res.status(status).json({ error: error.message || 'Unable to remove avatar.' });
   }
 });
 
