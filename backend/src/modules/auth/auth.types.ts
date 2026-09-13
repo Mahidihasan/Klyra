@@ -50,6 +50,8 @@ export type LoginResult =
 
 /** Theme options exposed in Profile → Preferences. */
 export type ThemePreference = 'light' | 'dark' | 'system';
+export type ApiResponseFormat = 'json' | 'xml';
+export type CodeSnippetPreference = 'curl' | 'javascript-fetch' | 'javascript-axios' | 'python' | 'go';
 
 /** Delivery channel toggles from the existing notification_preferences table. */
 export interface NotificationPreferences {
@@ -58,11 +60,21 @@ export interface NotificationPreferences {
   in_app: boolean;
 }
 
+/** Email notification categories saved alongside the other user preferences. */
+export interface EmailNotificationPreferences {
+  api_downtime_alerts: boolean;
+  monthly_usage_quota_warnings: boolean;
+  product_announcements: boolean;
+}
+
 /** User-editable preferences. Theme and timezone live in users.metadata. */
 export interface UserPreferences {
   theme: ThemePreference;
   timezone: string;
   notifications: NotificationPreferences;
+  api_response_format: ApiResponseFormat;
+  code_snippet_preference: CodeSnippetPreference;
+  email_notifications: EmailNotificationPreferences;
 }
 
 /** Supplemental editable profile fields kept in users.metadata to avoid a schema migration. */
@@ -130,6 +142,9 @@ export interface UpdatePreferencesInput {
   theme?: unknown;
   timezone?: unknown;
   notifications?: unknown;
+  api_response_format?: unknown;
+  code_snippet_preference?: unknown;
+  email_notifications?: unknown;
 }
 
 export interface JwtPayload {

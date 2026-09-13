@@ -25,6 +25,14 @@ import { issueOtp, verifyOtp, OtpError, OTP_ERROR_MESSAGES } from './otp.service
 import { createTotpSetup, decryptTotpSecret, encryptTotpSecret, verifyTotp } from './totp.service';
 
 const BCRYPT_ROUNDS = 12;
+const ACCEPTED_TIMEZONES = new Set([
+  'UTC', 'Africa/Cairo', 'Africa/Johannesburg', 'America/Anchorage', 'America/Argentina/Buenos_Aires',
+  'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Mexico_City', 'America/New_York',
+  'America/Phoenix', 'America/Sao_Paulo', 'America/Toronto', 'Asia/Bangkok', 'Asia/Dhaka', 'Asia/Dubai',
+  'Asia/Hong_Kong', 'Asia/Jakarta', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Seoul',
+  'Asia/Tokyo', 'Australia/Melbourne', 'Australia/Perth', 'Australia/Sydney', 'Europe/Amsterdam',
+  'Europe/Berlin', 'Europe/Istanbul', 'Europe/London', 'Europe/Madrid', 'Europe/Paris', 'Pacific/Auckland',
+]);
 
 export class PasswordChangeError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -70,6 +78,14 @@ function sanitizeUser(user: any): UserPublicProfile {
         email: user.email_enabled ?? true,
         push: user.push_enabled ?? true,
         in_app: user.in_app_enabled ?? true,
+      },
+      api_response_format: storedPreferences.api_response_format === 'xml' ? 'xml' : 'json',
+      code_snippet_preference: ['curl', 'javascript-fetch', 'javascript-axios', 'python', 'go'].includes(storedPreferences.code_snippet_preference as string)
+        ? storedPreferences.code_snippet_preference as UserPreferences['code_snippet_preference'] : 'curl',
+      email_notifications: {
+        api_downtime_alerts: storedPreferences.email_notifications?.api_downtime_alerts ?? true,
+        monthly_usage_quota_warnings: storedPreferences.email_notifications?.monthly_usage_quota_warnings ?? true,
+        product_announcements: storedPreferences.email_notifications?.product_announcements ?? false,
       },
     },
     last_login_at: user.last_login_at,
@@ -209,20 +225,27 @@ export class AuthService {
     const theme = input.theme === undefined ? current.preferences.theme : input.theme;
     const timezone = input.timezone === undefined ? current.preferences.timezone : input.timezone;
     const notifications = input.notifications === undefined ? current.preferences.notifications : input.notifications;
+    const apiResponseFormat = input.api_response_format === undefined ? current.preferences.api_response_format : input.api_response_format;
+    const codeSnippetPreference = input.code_snippet_preference === undefined ? current.preferences.code_snippet_preference : input.code_snippet_preference;
+    const emailNotifications = input.email_notifications === undefined ? current.preferences.email_notifications : input.email_notifications;
 
     if (theme !== 'dark' && theme !== 'light' && theme !== 'system') throw new Error('Theme must be dark, light, or system.');
-    if (typeof timezone !== 'string' || timezone.length < 1 || timezone.length > 100) throw new Error('Timezone must be valid.');
-    try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { throw new Error('Timezone must be valid.'); }
+    if (typeof timezone !== 'string' || !ACCEPTED_TIMEZONES.has(timezone)) throw new Error('Timezone must be selected from the supported timezone list.');
     if (!notifications || typeof notifications !== 'object' || typeof (notifications as any).email !== 'boolean' || typeof (notifications as any).push !== 'boolean' || typeof (notifications as any).in_app !== 'boolean') {
       throw new Error('Notification preferences must include Email, Push, and In-app settings.');
     }
+    if (apiResponseFormat !== 'json' && apiResponseFormat !== 'xml') throw new Error('API response format must be JSON or XML.');
+    if (!['curl', 'javascript-fetch', 'javascript-axios', 'python', 'go'].includes(codeSnippetPreference as string)) throw new Error('Code snippet preference must be a supported language.');
+    if (!emailNotifications || typeof emailNotifications !== 'object' || typeof (emailNotifications as any).api_downtime_alerts !== 'boolean' || typeof (emailNotifications as any).monthly_usage_quota_warnings !== 'boolean' || typeof (emailNotifications as any).product_announcements !== 'boolean') {
+      throw new Error('Email notification preferences must include all supported alert categories.');
+    }
 
-    const metadataPreferences = { theme, timezone };
+    const metadataPreferences = { theme, timezone, api_response_format: apiResponseFormat, code_snippet_preference: codeSnippetPreference, email_notifications: emailNotifications };
     await pool.query('BEGIN');
     try {
       await pool.query(
         `UPDATE users
-         SET metadata = jsonb_set(metadata, '{preferences}',
+         SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{preferences}',
            (COALESCE(metadata -> 'preferences', '{}'::jsonb) - 'language') || $1::jsonb, true),
            updated_at = NOW()
          WHERE id = $2 AND deleted_at IS NULL`,

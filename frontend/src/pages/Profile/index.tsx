@@ -149,7 +149,39 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   theme: 'dark',
   timezone: 'UTC',
   notifications: { email: true, push: true, in_app: true },
+  api_response_format: 'json',
+  code_snippet_preference: 'curl',
+  email_notifications: { api_downtime_alerts: true, monthly_usage_quota_warnings: true, product_announcements: false },
 };
+
+const clonePreferences = (preferences: UserPreferences): UserPreferences => ({
+  ...preferences,
+  notifications: { ...preferences.notifications },
+  email_notifications: { ...preferences.email_notifications },
+});
+
+const preferencesMatch = (left: UserPreferences | null, right: UserPreferences | null): boolean => {
+  if (!left || !right) return left === right;
+  return left.theme === right.theme
+    && left.timezone === right.timezone
+    && left.api_response_format === right.api_response_format
+    && left.code_snippet_preference === right.code_snippet_preference
+    && left.notifications.email === right.notifications.email
+    && left.notifications.push === right.notifications.push
+    && left.notifications.in_app === right.notifications.in_app
+    && left.email_notifications.api_downtime_alerts === right.email_notifications.api_downtime_alerts
+    && left.email_notifications.monthly_usage_quota_warnings === right.email_notifications.monthly_usage_quota_warnings
+    && left.email_notifications.product_announcements === right.email_notifications.product_announcements;
+};
+
+const TIMEZONES = [
+  'UTC', 'Africa/Cairo', 'Africa/Johannesburg', 'America/Anchorage', 'America/Argentina/Buenos_Aires',
+  'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Mexico_City', 'America/New_York',
+  'America/Phoenix', 'America/Sao_Paulo', 'America/Toronto', 'Asia/Bangkok', 'Asia/Dhaka', 'Asia/Dubai',
+  'Asia/Hong_Kong', 'Asia/Jakarta', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Seoul',
+  'Asia/Tokyo', 'Australia/Melbourne', 'Australia/Perth', 'Australia/Sydney', 'Europe/Amsterdam',
+  'Europe/Berlin', 'Europe/Istanbul', 'Europe/London', 'Europe/Madrid', 'Europe/Paris', 'Pacific/Auckland',
+] as const;
 
 function validatePasswordForm(form: PasswordForm): string | null {
   if (!form.currentPassword || !form.newPassword || !form.confirmPassword) {
@@ -189,10 +221,12 @@ export const ProfilePage: React.FC = () => {
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [showPasswords, setShowPasswords] = useState(false);
-  const [preferences, setPreferences] = useState<UserPreferences | null>(user?.preferences || null);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(user?.preferences ? clonePreferences(user.preferences) : null);
+  const [savedPreferences, setSavedPreferences] = useState<UserPreferences | null>(user?.preferences ? clonePreferences(user.preferences) : null);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
   const [preferencesSuccess, setPreferencesSuccess] = useState<string | null>(null);
+  const preferencesSaveRequestedRef = useRef(false);
   const [apiKeys, setApiKeys] = useState<ManagedApiKey[]>([]);
   const [isApiKeysLoading, setIsApiKeysLoading] = useState(false);
   const [apiKeysError, setApiKeysError] = useState<string | null>(null);
@@ -243,7 +277,9 @@ export const ProfilePage: React.FC = () => {
       const currentProfile = await fetchProfile();
       setProfile(currentProfile);
       setForm(toForm(currentProfile));
-      setPreferences(currentProfile.preferences);
+      const loadedPreferences = clonePreferences(currentProfile.preferences);
+      setPreferences(loadedPreferences);
+      setSavedPreferences(loadedPreferences);
     } catch (err: unknown) {
       setProfileLoadError(getErrorMessage(err, 'Unable to load your profile.'));
     } finally {
@@ -422,16 +458,33 @@ export const ProfilePage: React.FC = () => {
     setPreferencesSuccess(null);
   };
 
+  const resetPreferences = () => {
+    const defaults = clonePreferences(DEFAULT_PREFERENCES);
+    setPreferences(defaults);
+    applyTheme(defaults.theme);
+    setPreferencesError(null);
+    setPreferencesSuccess(null);
+  };
+
+  const hasUnsavedPreferenceChanges = !preferencesMatch(preferences, savedPreferences);
+
+  const requestPreferencesSave = () => {
+    preferencesSaveRequestedRef.current = true;
+  };
+
   const savePreferences = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!preferences) return;
+    if (!preferencesSaveRequestedRef.current || !preferences) return;
+    preferencesSaveRequestedRef.current = false;
     setIsSavingPreferences(true);
     setPreferencesError(null);
     setPreferencesSuccess(null);
     try {
       const result = await updateProfilePreferences(preferences as UpdatePreferencesInput);
       setProfile(result.user);
-      setPreferences(result.user.preferences);
+      const saved = clonePreferences(result.user.preferences);
+      setPreferences(saved);
+      setSavedPreferences(saved);
       setPreferencesSuccess(result.message);
     } catch (err: unknown) {
       setPreferencesError(getErrorMessage(err, 'Unable to save preferences.'));
@@ -753,16 +806,19 @@ export const ProfilePage: React.FC = () => {
                 {preferencesError && <div className="profile-message error"><AlertCircle size={17} /> {preferencesError}</div>}
                 {preferencesSuccess && <div className="profile-message success"><CheckCircle2 size={17} /> {preferencesSuccess}</div>}
                 <div className="profile-preference-group">
-                  <div><h3>Theme</h3><p>Applies across Klyra immediately and is saved with your preferences.</p></div>
+                  <div><h3>Theme</h3><p>Applies across Klyra immediately. Save preferences to keep it for future visits.</p></div>
                   <div className="profile-theme-options" role="radiogroup" aria-label="Theme preference">
                     {(['dark', 'light', 'system'] as const).map((theme) => <button key={theme} type="button" className={preferences.theme === theme ? 'active' : ''} onClick={() => updatePreferences({ theme })} disabled={isSavingPreferences} role="radio" aria-checked={preferences.theme === theme}>{theme === 'system' ? <Monitor size={17} /> : theme === 'dark' ? <Moon size={17} /> : <Globe2 size={17} />}<span>{theme[0].toUpperCase() + theme.slice(1)}</span></button>)}
                   </div>
                 </div>
                 <div className="profile-preference-grid">
-                  <div className="profile-field"><label htmlFor="profile-timezone">Timezone</label><select id="profile-timezone" value={preferences.timezone} onChange={(event) => updatePreferences({ timezone: event.target.value })} disabled={isSavingPreferences}><option value="UTC">UTC</option><option value="Asia/Dhaka">Asia/Dhaka</option><option value="America/New_York">America/New_York</option><option value="America/Los_Angeles">America/Los_Angeles</option><option value="Europe/London">Europe/London</option><option value="Europe/Berlin">Europe/Berlin</option><option value="Asia/Tokyo">Asia/Tokyo</option><option value="Australia/Sydney">Australia/Sydney</option></select></div>
+                  <div className="profile-field"><label htmlFor="profile-timezone">Timezone</label><select id="profile-timezone" value={preferences.timezone} onChange={(event) => updatePreferences({ timezone: event.target.value })} disabled={isSavingPreferences}>{TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone.replace('_', ' ')}</option>)}</select></div>
+                  <div className="profile-field"><label htmlFor="profile-api-response-format">Default API response format</label><select id="profile-api-response-format" value={preferences.api_response_format} onChange={(event) => updatePreferences({ api_response_format: event.target.value as UserPreferences['api_response_format'] })} disabled={isSavingPreferences}><option value="json">JSON</option><option value="xml">XML</option></select><small>Used as your preferred format in Klyra; it does not change API endpoint behavior.</small></div>
+                  <div className="profile-field"><label htmlFor="profile-code-snippet">Code snippet preference</label><select id="profile-code-snippet" value={preferences.code_snippet_preference} onChange={(event) => updatePreferences({ code_snippet_preference: event.target.value as UserPreferences['code_snippet_preference'] })} disabled={isSavingPreferences}><option value="curl">cURL</option><option value="javascript-fetch">JavaScript (Fetch)</option><option value="javascript-axios">JavaScript (Axios)</option><option value="python">Python</option><option value="go">Go</option></select><small>Used as your preferred language when snippets are available.</small></div>
                 </div>
-                <div className="profile-preference-group"><div><h3>Notification channels</h3><p>Delivery preferences are saved now; notification delivery may depend on the relevant Klyra service being enabled.</p></div><div className="profile-toggle-list">{([{ key: 'email', label: 'Email', icon: <Mail size={17} /> }, { key: 'push', label: 'Push', icon: <Bell size={17} /> }, { key: 'in_app', label: 'In-app', icon: <Monitor size={17} /> }] as const).map(({ key, label, icon }) => <label key={key} className="profile-toggle"><span>{icon}<span>{label}</span></span><input type="checkbox" checked={preferences.notifications[key]} onChange={(event) => updatePreferences({ notifications: { ...preferences.notifications, [key]: event.target.checked } })} disabled={isSavingPreferences} /><i aria-hidden="true" /></label>)}</div></div>
-                <div className="profile-form-actions"><button type="button" className="profile-secondary-btn" onClick={() => { setPreferences(DEFAULT_PREFERENCES); applyTheme(DEFAULT_PREFERENCES.theme); setPreferencesError(null); setPreferencesSuccess(null); }} disabled={isSavingPreferences}>Reset to defaults</button><button type="submit" className="profile-primary-btn" disabled={isSavingPreferences}>{isSavingPreferences ? <Loader2 className="profile-spinner" size={17} /> : <Save size={17} />}{isSavingPreferences ? 'Saving…' : 'Save preferences'}</button></div>
+                <div className="profile-preference-group"><div><h3>Notification channels</h3><p>Changes are saved when you save preferences; notification delivery may depend on the relevant Klyra service being enabled.</p></div><div className="profile-toggle-list">{([{ key: 'email', label: 'Email', icon: <Mail size={17} /> }, { key: 'push', label: 'Push', icon: <Bell size={17} /> }, { key: 'in_app', label: 'In-app', icon: <Monitor size={17} /> }] as const).map(({ key, label, icon }) => <label key={key} className="profile-toggle"><span>{icon}<span>{label}</span></span><input type="checkbox" checked={preferences.notifications[key]} onChange={(event) => updatePreferences({ notifications: { ...preferences.notifications, [key]: event.target.checked } })} disabled={isSavingPreferences} /><i aria-hidden="true" /></label>)}</div></div>
+                <div className="profile-preference-group"><div><h3>Email notification categories</h3><p>These record which email alerts you want. They do not enable a delivery service on their own.</p></div><div className="profile-toggle-list">{([{ key: 'api_downtime_alerts', label: 'API downtime alerts' }, { key: 'monthly_usage_quota_warnings', label: 'Monthly usage quota warnings' }, { key: 'product_announcements', label: 'Product announcements' }] as const).map(({ key, label }) => <label key={key} className="profile-toggle"><span><Mail size={17} /><span>{label}</span></span><input type="checkbox" checked={preferences.email_notifications[key]} onChange={(event) => updatePreferences({ email_notifications: { ...preferences.email_notifications, [key]: event.target.checked } })} disabled={isSavingPreferences} /><i aria-hidden="true" /></label>)}</div></div>
+                <div className="profile-form-actions"><button type="button" className="profile-secondary-btn" onClick={resetPreferences} disabled={isSavingPreferences}>Reset to defaults</button><button type="submit" className="profile-primary-btn" onClick={requestPreferencesSave} disabled={isSavingPreferences || !hasUnsavedPreferenceChanges}>{isSavingPreferences ? <Loader2 className="profile-spinner" size={17} /> : <Save size={17} />}{isSavingPreferences ? 'Saving…' : hasUnsavedPreferenceChanges ? 'Save Preferences' : 'Preferences saved'}</button></div>
               </form>
             </>
           ) : section === 'accounts' ? (

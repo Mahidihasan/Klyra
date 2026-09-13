@@ -24,11 +24,20 @@ export interface UserProfile {
 }
 
 export type ThemePreference = 'dark' | 'light' | 'system';
+export type ApiResponseFormat = 'json' | 'xml';
+export type CodeSnippetPreference = 'curl' | 'javascript-fetch' | 'javascript-axios' | 'python' | 'go';
 
 export interface UserPreferences {
   theme: ThemePreference;
   timezone: string;
   notifications: { email: boolean; push: boolean; in_app: boolean };
+  api_response_format: ApiResponseFormat;
+  code_snippet_preference: CodeSnippetPreference;
+  email_notifications: {
+    api_downtime_alerts: boolean;
+    monthly_usage_quota_warnings: boolean;
+    product_announcements: boolean;
+  };
 }
 
 export interface UpdatePreferencesInput extends UserPreferences {}
@@ -114,8 +123,12 @@ export interface LoginHistoryItem {
 }
 
 const BASE_URL = '/api/auth';
+export const AUTH_TOKENS_REFRESHED_EVENT = 'klyra:auth-tokens-refreshed';
+export const AUTH_SESSION_EXPIRED_EVENT = 'klyra:auth-session-expired';
 
-class ApiRequestError extends Error {
+let refreshPromise: Promise<AuthTokens> | null = null;
+
+export class ApiRequestError extends Error {
   constructor(
     message: string,
     readonly status: number,
@@ -144,7 +157,41 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+function notifyAuthEvent(type: string, detail?: AuthTokens): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(type, { detail }));
+  }
+}
+
+export function refreshAccessToken(storedRefreshToken?: string): Promise<AuthTokens> {
+  if (refreshPromise) return refreshPromise;
+
+  const refreshToken = storedRefreshToken || localStorage.getItem('klyra_refresh_token');
+  if (!refreshToken) {
+    notifyAuthEvent(AUTH_SESSION_EXPIRED_EVENT);
+    return Promise.reject(new ApiRequestError('Refresh token is unavailable.', 401));
+  }
+
+  refreshPromise = request<AuthTokens>(
+    '/refresh-token',
+    { method: 'POST', body: JSON.stringify({ refreshToken }) },
+    false,
+  ).then((tokens) => {
+    localStorage.setItem('klyra_access_token', tokens.accessToken);
+    localStorage.setItem('klyra_refresh_token', tokens.refreshToken);
+    notifyAuthEvent(AUTH_TOKENS_REFRESHED_EVENT, tokens);
+    return tokens;
+  }).catch((error) => {
+    notifyAuthEvent(AUTH_SESSION_EXPIRED_EVENT);
+    throw error;
+  }).finally(() => {
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
+}
+
+async function request<T>(endpoint: string, options: RequestInit = {}, retryOnUnauthorized = false): Promise<T> {
   const headers = { ...getAuthHeaders(), ...(options.headers as Record<string, string>) };
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     ...options,
@@ -159,13 +206,26 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!res.ok) {
-    throw new ApiRequestError(data?.error || `Request failed with status ${res.status}`, res.status, data?.code);
+    const error = new ApiRequestError(data?.error || `Request failed with status ${res.status}`, res.status, data?.code);
+    if (retryOnUnauthorized && error.status === 401) {
+      try {
+        await refreshAccessToken();
+        return request<T>(endpoint, options, false);
+      } catch {
+        // Keep the original protected-request failure for the caller.
+      }
+    }
+    throw error;
   }
 
   return data as T;
 }
 
-async function uploadAvatarRequest<T>(file: File): Promise<T> {
+function authenticatedRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  return request<T>(endpoint, options, true);
+}
+
+async function uploadAvatarRequest<T>(file: File, retryOnUnauthorized = true): Promise<T> {
   const token = localStorage.getItem('klyra_access_token');
   const headers: Record<string, string> = {};
   if (token) {
@@ -183,7 +243,16 @@ async function uploadAvatarRequest<T>(file: File): Promise<T> {
     // Non-JSON response
   }
   if (!res.ok) {
-    throw new ApiRequestError(data?.error || `Request failed with status ${res.status}`, res.status, data?.code);
+    const error = new ApiRequestError(data?.error || `Request failed with status ${res.status}`, res.status, data?.code);
+    if (retryOnUnauthorized && error.status === 401) {
+      try {
+        await refreshAccessToken();
+        return uploadAvatarRequest<T>(file, false);
+      } catch {
+        // Keep the original protected-request failure for the caller.
+      }
+    }
+    throw error;
   }
   return data as T;
 }
@@ -266,21 +335,17 @@ export const authApi = {
     }),
 
   // Refresh token
-  refreshToken: (refreshToken: string) =>
-    request<AuthTokens>('/refresh-token', {
-      method: 'POST',
-      body: JSON.stringify({ refreshToken }),
-    }),
+  refreshToken: (refreshToken?: string) => refreshAccessToken(refreshToken),
 
   // Current user
-  me: () => request<{ user: UserProfile }>('/me'),
+  me: () => authenticatedRequest<{ user: UserProfile }>('/me'),
 
   // Login history
-  loginHistory: () => request<{ history: LoginHistoryItem[] }>('/login-history'),
+  loginHistory: () => authenticatedRequest<{ history: LoginHistoryItem[] }>('/login-history'),
 
   // Logout
   logout: () =>
-    request<{ success: boolean; message: string }>('/logout', {
+    authenticatedRequest<{ success: boolean; message: string }>('/logout', {
       method: 'POST',
     }),
 
@@ -324,35 +389,35 @@ async function profileRequest<T>(operation: string, action: () => Promise<T>): P
 
 /** Dedicated Profile API surface, sharing Klyra's established auth transport. */
 export const profileApi = {
-  getProfile: () => profileRequest('load your profile', () => request<{ user: UserProfile }>('/profile')),
+  getProfile: () => profileRequest('load your profile', () => authenticatedRequest<{ user: UserProfile }>('/profile')),
   updatePersonalInfo: (profile: UpdateProfileInput) => profileRequest('save your profile', () =>
-    request<{ user: UserProfile; message: string }>('/profile', { method: 'PUT', body: JSON.stringify(profile) })),
+    authenticatedRequest<{ user: UserProfile; message: string }>('/profile', { method: 'PUT', body: JSON.stringify(profile) })),
   uploadAvatar: (file: File) => profileRequest('upload your profile picture', () =>
     uploadAvatarRequest<{ user: UserProfile; message: string }>(file)),
   removeAvatar: () => profileRequest('remove your profile picture', () =>
-    request<{ user: UserProfile; message: string }>('/profile/avatar', { method: 'DELETE' })),
+    authenticatedRequest<{ user: UserProfile; message: string }>('/profile/avatar', { method: 'DELETE' })),
   changePassword: (currentPassword: string, newPassword: string) => profileRequest('change your password', () =>
-    request<{ success: boolean; message: string }>('/change-password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) })),
+    authenticatedRequest<{ success: boolean; message: string }>('/change-password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) })),
   updatePreferences: (preferences: UpdatePreferencesInput) => profileRequest('save your preferences', () =>
-    request<{ user: UserProfile; message: string }>('/profile/preferences', { method: 'PUT', body: JSON.stringify(preferences) })),
+    authenticatedRequest<{ user: UserProfile; message: string }>('/profile/preferences', { method: 'PUT', body: JSON.stringify(preferences) })),
   listApiKeys: () => profileRequest('load your API keys', () =>
-    request<{ apiKeys: ManagedApiKey[] }>('/profile/api-keys')),
+    authenticatedRequest<{ apiKeys: ManagedApiKey[] }>('/profile/api-keys')),
   createApiKey: (name: string) => profileRequest('create your API key', () =>
-    request<{ apiKey: ManagedApiKey; secret: string; message: string }>('/profile/api-keys', {
+    authenticatedRequest<{ apiKey: ManagedApiKey; secret: string; message: string }>('/profile/api-keys', {
       method: 'POST',
       body: JSON.stringify({ name }),
     })),
   revokeApiKey: (keyId: string) => profileRequest('revoke this API key', () =>
-    request<{ apiKey: ManagedApiKey; message: string }>(`/profile/api-keys/${keyId}/revoke`, { method: 'POST' })),
+    authenticatedRequest<{ apiKey: ManagedApiKey; message: string }>(`/profile/api-keys/${keyId}/revoke`, { method: 'POST' })),
   deactivateAccount: (currentPassword: string) => profileRequest('deactivate your account', () =>
-    request<{ success: boolean; message: string }>('/account/deactivate', {
+    authenticatedRequest<{ success: boolean; message: string }>('/account/deactivate', {
       method: 'POST',
       body: JSON.stringify({ currentPassword }),
     })),
-  startTotpSetup: () => profileRequest('start authenticator setup', () => request<{ secret: string; qrCodeDataUrl: string }>('/security/totp/setup', { method: 'POST' })),
-  confirmTotpSetup: (code: string) => profileRequest('confirm authenticator setup', () => request<{ success: boolean; message: string }>('/security/totp/confirm', { method: 'POST', body: JSON.stringify({ code }) })),
-  disableTotp: (currentPassword: string, code: string) => profileRequest('disable authenticator app 2FA', () => request<{ success: boolean; message: string }>('/security/totp/disable', { method: 'POST', body: JSON.stringify({ currentPassword, code }) })),
-  listSecuritySessions: () => profileRequest('load active sessions', () => request<{ sessions: SecuritySession[] }>('/security/sessions')),
-  revokeSecuritySession: (sessionId: string) => profileRequest('revoke this session', () => request<{ revokedCurrent: boolean }>(`/security/sessions/${sessionId}`, { method: 'DELETE' })),
-  revokeOtherSecuritySessions: () => profileRequest('revoke other sessions', () => request<{ revoked: number }>('/security/sessions/revoke-others', { method: 'POST' })),
+  startTotpSetup: () => profileRequest('start authenticator setup', () => authenticatedRequest<{ secret: string; qrCodeDataUrl: string }>('/security/totp/setup', { method: 'POST' })),
+  confirmTotpSetup: (code: string) => profileRequest('confirm authenticator setup', () => authenticatedRequest<{ success: boolean; message: string }>('/security/totp/confirm', { method: 'POST', body: JSON.stringify({ code }) })),
+  disableTotp: (currentPassword: string, code: string) => profileRequest('disable authenticator app 2FA', () => authenticatedRequest<{ success: boolean; message: string }>('/security/totp/disable', { method: 'POST', body: JSON.stringify({ currentPassword, code }) })),
+  listSecuritySessions: () => profileRequest('load active sessions', () => authenticatedRequest<{ sessions: SecuritySession[] }>('/security/sessions')),
+  revokeSecuritySession: (sessionId: string) => profileRequest('revoke this session', () => authenticatedRequest<{ revokedCurrent: boolean }>(`/security/sessions/${sessionId}`, { method: 'DELETE' })),
+  revokeOtherSecuritySessions: () => profileRequest('revoke other sessions', () => authenticatedRequest<{ revoked: number }>('/security/sessions/revoke-others', { method: 'POST' })),
 };

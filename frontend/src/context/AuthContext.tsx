@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi, profileApi, UpdatePreferencesInput, UpdateProfileInput, UserProfile, AuthTokens, LoginResponse } from '../services/api/auth';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { AUTH_SESSION_EXPIRED_EVENT, AUTH_TOKENS_REFRESHED_EVENT, authApi, profileApi, UpdatePreferencesInput, UpdateProfileInput, UserProfile, AuthTokens, LoginResponse } from '../services/api/auth';
 
 export function applyTheme(theme: UserProfile['preferences']['theme']) {
   const resolved = theme === 'system'
@@ -31,12 +31,45 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function accessTokenExpiresIn(accessToken: string | null): number | null {
+  if (!accessToken) return null;
+  try {
+    const encodedPayload = accessToken.split('.')[1];
+    if (!encodedPayload) return null;
+    const payload = JSON.parse(atob(encodedPayload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(encodedPayload.length / 4) * 4, '='))) as { exp?: number };
+    return typeof payload.exp === 'number' ? Math.max(0, payload.exp - Math.floor(Date.now() / 1000)) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(() => {
     return localStorage.getItem('klyra_access_token');
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearRefreshTimer = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleTokenRefresh = useCallback((expiresIn?: number) => {
+    clearRefreshTimer();
+    if (!localStorage.getItem('klyra_refresh_token')) return;
+
+    const tokenLifetime = expiresIn ?? accessTokenExpiresIn(localStorage.getItem('klyra_access_token'));
+    if (tokenLifetime === null) return;
+    const refreshDelay = Math.max(0, tokenLifetime * 1000 - 60_000);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      void authApi.refreshToken().catch(() => undefined);
+    }, refreshDelay);
+  }, [clearRefreshTimer]);
 
   const cacheProfile = useCallback((profile: UserProfile) => {
     setUser(profile);
@@ -69,15 +102,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('klyra_user', JSON.stringify(userProfile));
     setAccessToken(tokens.accessToken);
     setUser(userProfile);
-  }, []);
+    scheduleTokenRefresh(tokens.expiresIn);
+  }, [scheduleTokenRefresh]);
 
   const clearSession = useCallback(() => {
+    clearRefreshTimer();
     localStorage.removeItem('klyra_access_token');
     localStorage.removeItem('klyra_refresh_token');
     localStorage.removeItem('klyra_user');
     setAccessToken(null);
     setUser(null);
-  }, []);
+  }, [clearRefreshTimer]);
+
+  useEffect(() => {
+    const onTokensRefreshed = (event: Event) => {
+      const tokens = (event as CustomEvent<AuthTokens>).detail;
+      if (!tokens) return;
+      setAccessToken(tokens.accessToken);
+      scheduleTokenRefresh(tokens.expiresIn);
+    };
+    const onSessionExpired = () => clearSession();
+
+    window.addEventListener(AUTH_TOKENS_REFRESHED_EVENT, onTokensRefreshed);
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired);
+    return () => {
+      window.removeEventListener(AUTH_TOKENS_REFRESHED_EVENT, onTokensRefreshed);
+      window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired);
+    };
+  }, [clearSession, scheduleTokenRefresh]);
+
+  useEffect(() => () => clearRefreshTimer(), [clearRefreshTimer]);
 
   // Restore session on app load
   useEffect(() => {
@@ -101,28 +155,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Try fetching current user profile
         const { user: profile } = await authApi.me();
         cacheProfile(profile);
-      } catch (err: any) {
-        // Access token might be expired, attempt refresh
-        if (storedRefresh) {
-          try {
-            const newTokens = await authApi.refreshToken(storedRefresh);
-            localStorage.setItem('klyra_access_token', newTokens.accessToken);
-            setAccessToken(newTokens.accessToken);
-            const { user: profile } = await authApi.me();
-            cacheProfile(profile);
-          } catch {
-            clearSession();
-          }
-        } else {
-          clearSession();
-        }
+        scheduleTokenRefresh();
+      } catch {
+        clearSession();
       } finally {
         setIsLoading(false);
       }
     };
 
     initAuth();
-  }, [cacheProfile, clearSession]);
+  }, [cacheProfile, clearSession, scheduleTokenRefresh]);
 
   const login = async (email: string, password: string, rememberMe = false): Promise<LoginResponse> => {
     const res = await authApi.login(email, password, rememberMe);
