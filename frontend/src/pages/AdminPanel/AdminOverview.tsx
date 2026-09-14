@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { RealTimeTrafficWidget, ActiveTasksWidget, GatewayStatsWidget, LiveGatewayFeedWidget, AiInsightsWidget } from './components/DashboardWidgets';
+import { SpotlightCard } from './components/SpotlightCard';
 import { GripHorizontal, CheckCircle, FileText, Settings } from 'lucide-react';
 import './AdminOverview.css';
 
@@ -15,7 +16,7 @@ type WidgetKey = keyof typeof WIDGET_REGISTRY;
 
 export const AdminOverview = () => {
   // Widget order layout
-  const [layout, setLayout] = useState<{ id: WidgetKey, span: 'col-span-12' | 'col-span-8' | 'col-span-4' }>([
+  const [layout, setLayout] = useState<Array<{ id: WidgetKey, span: 'col-span-12' | 'col-span-8' | 'col-span-4' }>>([
     { id: 'insights', span: 'col-span-12' },
     { id: 'traffic', span: 'col-span-8' },
     { id: 'tasks', span: 'col-span-4' },
@@ -77,7 +78,7 @@ export const AdminOverview = () => {
 
       <div className="dashboard-grid">
         {layout.map((item, index) => (
-          <div 
+          <SpotlightCard
             key={item.id}
             className={`dashboard-widget-wrapper ${item.span} spring-in ${draggedIdx === index ? 'is-dragging' : ''}`}
             style={{ animationDelay: `${index * 0.1}s` }}
@@ -87,11 +88,11 @@ export const AdminOverview = () => {
             onDrop={(e) => handleDrop(e, index)}
             onDragEnd={() => setDraggedIdx(null)}
           >
-            <div className="drag-handle">
+            <div className="drag-handle" title="Drag to reorder">
               <GripHorizontal size={16} />
             </div>
             {WIDGET_REGISTRY[item.id]}
-          </div>
+          </SpotlightCard>
         ))}
       </div>
       <div className="quick-action-dock">

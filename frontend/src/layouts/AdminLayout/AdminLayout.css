@@ -1,102 +1,67 @@
 /* AdminLayout.css */
 
+/* ------------------------------------------------------------------
+   Aurora Mesh Background
+   ------------------------------------------------------------------ */
+.aurora-bg {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  overflow: hidden;
+  background-color: var(--bg-app);
+}
+
+.aurora-blob {
+  position: absolute;
+  filter: blur(100px);
+  opacity: 0.4;
+  border-radius: 50%;
+  animation: aurora-move 20s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.aurora-1 {
+  top: -10%; left: -10%;
+  width: 50vw; height: 50vw;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.25), transparent 70%);
+  animation-delay: 0s;
+}
+
+.aurora-2 {
+  bottom: -20%; right: -10%;
+  width: 60vw; height: 60vw;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.2), transparent 70%);
+  animation-delay: -5s;
+}
+
+.aurora-3 {
+  top: 40%; left: 40%;
+  width: 40vw; height: 40vw;
+  background: radial-gradient(circle, rgba(217, 70, 239, 0.15), transparent 70%);
+  animation-delay: -10s;
+}
+
+@keyframes aurora-move {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(5%, 10%) scale(1.1); }
+  100% { transform: translate(-10%, -5%) scale(0.9); }
+}
+
 .admin-noise {
-  opacity: 0.05 !important;
+  opacity: 0.03 !important; /* Extremely subtle physical matte texture */
+  z-index: 1 !important;
 }
 
 .admin-layout-wrapper {
+  position: relative;
+  z-index: 10;
   display: flex;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  background-color: var(--bg-app);
-  background-image: radial-gradient(circle at center 0%, rgba(139, 92, 246, 0.08) 0%, transparent 50%);
   color: var(--text-primary);
   font-family: var(--font-sans);
-}
-
-/* ------------------------------------------------------------------
-   Admin Sidebar
-   ------------------------------------------------------------------ */
-.admin-sidebar {
-  width: 280px;
-  background-color: transparent;
-  border-right: 1px solid rgba(255, 255, 255, 0.03); /* Soft asymmetrical divider */
-  display: flex;
-  flex-direction: column;
-  padding: 24px 0 0;
-  backdrop-filter: blur(16px);
-  z-index: 50;
-}
-
-.admin-sidebar-header {
-  padding: 0 24px 32px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.admin-brand {
-  font-size: 20px;
-  font-weight: 700;
-  background: linear-gradient(135deg, #a78bfa, #f472b6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -0.02em;
-}
-
-.admin-badge {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.admin-nav {
-  flex: 1;
-  padding: 0 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow-y: auto;
-}
-
-.admin-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-weight: 500;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid transparent;
-}
-
-.admin-nav-item:hover {
-  background-color: rgba(255, 255, 255, 0.03);
-  color: var(--text-primary);
-}
-
-.admin-nav-item.active {
-  background-color: rgba(255, 255, 255, 0.05);
-  color: #fff;
-  font-weight: 600;
-}
-
-.admin-nav-item.active svg {
-  color: #a78bfa;
-}
-
-.admin-sidebar-footer {
-  padding: 24px;
 }
 
 /* ------------------------------------------------------------------
@@ -111,73 +76,18 @@
 }
 
 /* ------------------------------------------------------------------
-   Admin Header
-   ------------------------------------------------------------------ */
-.admin-header {
-  height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 40px;
-  background-color: transparent;
-  z-index: 40;
-}
-
-.admin-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.admin-profile-btn {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: var(--radius-md);
-  transition: background 0.2s;
-}
-.admin-profile-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-.admin-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  color: white;
-  font-size: 14px;
-  border: 2px solid rgba(255,255,255,0.1);
-}
-
-/* ------------------------------------------------------------------
    Admin Page Content Wrapper
    ------------------------------------------------------------------ */
 .admin-page-content {
   flex: 1;
-  padding: 0 40px 40px;
+  padding: 0 40px 40px 140px; /* 140px left padding for floating sidebar */
   overflow-y: auto;
   position: relative;
 }
 
 /* Decorative Background element specific to Admin */
 .admin-page-content::before {
-  content: '';
-  position: absolute;
-  top: -200px;
-  right: -200px;
-  width: 800px;
-  height: 800px;
-  background: radial-gradient(circle at center, rgba(139, 92, 246, 0.05), transparent 70%);
-  pointer-events: none;
-  z-index: 0;
+  /* Removed to favor the new Aurora Background */
 }
 
 .admin-page-content > * {

@@ -23,24 +23,51 @@
 
 .dashboard-widget-wrapper {
   position: relative;
-  border-radius: 20px;
-  background: rgba(20, 21, 36, 0.4);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  box-shadow: 
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
-    0 4px 24px -8px rgba(0, 0, 0, 0.5);
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+  /* styles moved to .spotlight-card */
 }
 
-.dashboard-widget-wrapper:hover {
-  border-color: rgba(255, 255, 255, 0.1);
+.dashboard-widget-wrapper.is-dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
+}
+
+/* ------------------------------------------------------------------
+   Spotlight Card / Glassmorphism 2.0
+   ------------------------------------------------------------------ */
+.spotlight-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.02); /* bg-white/5 approx */
+  backdrop-filter: blur(24px); /* intense blur */
+  border: 1px solid transparent;
+  /* Multi-layered physical borders using box-shadow inset */
   box-shadow: 
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 8px 32px -8px rgba(0, 0, 0, 0.6);
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.5),
+    0 8px 32px -8px rgba(0, 0, 0, 0.5);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+}
+
+.spotlight-card:hover {
   transform: translateY(-2px);
+  box-shadow: 
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.8),
+    0 12px 40px -8px rgba(0, 0, 0, 0.7);
+}
+
+.spotlight-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.3s ease;
+}
+
+.spotlight-card > * {
+  position: relative;
+  z-index: 1; /* keep content above spotlight */
 }
 
 .dashboard-widget-wrapper.is-dragging {
@@ -205,6 +232,7 @@
    Terminal Feed Widget
    ------------------------------------------------------------------ */
 .terminal-feed-card {
+  /* Terminal uses its own styling on top of the spotlight card */
   background: rgba(8, 9, 14, 0.85) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   box-shadow: inset 0 2px 20px rgba(0,0,0,0.9), 0 4px 24px -8px rgba(0,0,0,0.8) !important;
