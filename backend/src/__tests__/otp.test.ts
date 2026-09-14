@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-export {};
 // Node's built-in test runner. These tests cover the pure (non-DB) OTP and
 // email logic. The database pool module is constructed on import, so a
 // placeholder URL is provided before requiring it — no DB is actually used.

@@ -70,7 +70,7 @@ async function issueToken(userId: number): Promise<string> {
   return token;
 }
 
-export async function userFromToken(token: string): Promise<KlyraUser | null> {
+async function userFromToken(token: string): Promise<KlyraUser | null> {
   if (token.startsWith('kly_')) {
     const result = await pool.query(
       `SELECT u.id, u.username, u.email, u.display_name, u.avatar_color
@@ -86,21 +86,6 @@ export async function userFromToken(token: string): Promise<KlyraUser | null> {
   // so a single login works across the whole platform.
   const payload = verifyJwt(token);
   if (!payload || !payload.email) return null;
-
-  // Core-account JWTs must honor account deactivation and session revocation
-  // before the repository bridge provisions or resolves a kr_users identity.
-  const account = await pool.query(
-    `SELECT u.id, s.id AS session_id, s.revoked_at, s.expires_at
-     FROM users u
-     LEFT JOIN user_sessions s ON s.id = $2::uuid AND s.user_id = u.id
-     WHERE u.id = $1 AND u.status = 'ACTIVE' AND u.is_active = TRUE AND u.deleted_at IS NULL`,
-    [payload.sub, payload.sessionId || null],
-  );
-  const accountRow = account.rows[0];
-  if (!accountRow) return null;
-  if (payload.sessionId && (!accountRow.session_id || accountRow.revoked_at || new Date(accountRow.expires_at) < new Date())) {
-    return null;
-  }
 
   await ensureReposSchema();
   const username = payload.email;

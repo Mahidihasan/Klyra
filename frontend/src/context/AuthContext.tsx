@@ -1,13 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { AUTH_SESSION_EXPIRED_EVENT, AUTH_TOKENS_REFRESHED_EVENT, authApi, profileApi, UpdatePreferencesInput, UpdateProfileInput, UserProfile, AuthTokens, LoginResponse } from '../services/api/auth';
-
-export function applyTheme(theme: UserProfile['preferences']['theme']) {
-  const resolved = theme === 'system'
-    ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
-    : theme;
-  document.documentElement.dataset.theme = resolved;
-  document.documentElement.style.colorScheme = resolved;
-}
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { authApi, UserProfile, AuthTokens, LoginResponse } from '../services/api/auth';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -15,37 +7,13 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<LoginResponse>;
-<<<<<<< HEAD
   verify2FA: (tempToken: string, code: string) => Promise<UserProfile>;
-=======
-  verify2FA: (tempToken: string, code: string) => Promise<{ challengeType?: 'totp' }>;
-  verifyTotp: (tempToken: string, code: string) => Promise<void>;
->>>>>>> origin/nazmul-profile-v2
   logout: () => Promise<void>;
-  loadProfile: () => Promise<UserProfile>;
   refreshProfile: () => Promise<void>;
-  updatePersonalInfo: (profile: UpdateProfileInput) => Promise<{ user: UserProfile; message: string }>;
-  uploadProfileAvatar: (file: File) => Promise<{ user: UserProfile; message: string }>;
-  removeProfileAvatar: () => Promise<{ user: UserProfile; message: string }>;
-  changeProfilePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
-  updateProfilePreferences: (preferences: UpdatePreferencesInput) => Promise<{ user: UserProfile; message: string }>;
-  deactivateAccount: (currentPassword: string) => Promise<{ success: boolean; message: string }>;
   openDemoInboxTab: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-function accessTokenExpiresIn(accessToken: string | null): number | null {
-  if (!accessToken) return null;
-  try {
-    const encodedPayload = accessToken.split('.')[1];
-    if (!encodedPayload) return null;
-    const payload = JSON.parse(atob(encodedPayload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(encodedPayload.length / 4) * 4, '='))) as { exp?: number };
-    return typeof payload.exp === 'number' ? Math.max(0, payload.exp - Math.floor(Date.now() / 1000)) : null;
-  } catch {
-    return null;
-  }
-}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -53,42 +21,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return localStorage.getItem('klyra_access_token');
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearRefreshTimer = useCallback(() => {
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleTokenRefresh = useCallback((expiresIn?: number) => {
-    clearRefreshTimer();
-    if (!localStorage.getItem('klyra_refresh_token')) return;
-
-    const tokenLifetime = expiresIn ?? accessTokenExpiresIn(localStorage.getItem('klyra_access_token'));
-    if (tokenLifetime === null) return;
-    const refreshDelay = Math.max(0, tokenLifetime * 1000 - 60_000);
-    refreshTimerRef.current = setTimeout(() => {
-      refreshTimerRef.current = null;
-      void authApi.refreshToken().catch(() => undefined);
-    }, refreshDelay);
-  }, [clearRefreshTimer]);
-
-  const cacheProfile = useCallback((profile: UserProfile) => {
-    setUser(profile);
-    localStorage.setItem('klyra_user', JSON.stringify(profile));
-  }, []);
-
-  useEffect(() => {
-    if (!user?.preferences) return;
-    applyTheme(user.preferences.theme);
-    if (user.preferences.theme !== 'system') return;
-    const query = window.matchMedia('(prefers-color-scheme: light)');
-    const onChange = () => applyTheme('system');
-    query.addEventListener('change', onChange);
-    return () => query.removeEventListener('change', onChange);
-  }, [user?.preferences?.theme]);
 
   // Helper to open Demo Inbox in a new browser tab
   const openDemoInboxTab = useCallback(() => {
@@ -106,36 +38,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('klyra_user', JSON.stringify(userProfile));
     setAccessToken(tokens.accessToken);
     setUser(userProfile);
-    scheduleTokenRefresh(tokens.expiresIn);
-  }, [scheduleTokenRefresh]);
+  }, []);
 
   const clearSession = useCallback(() => {
-    clearRefreshTimer();
     localStorage.removeItem('klyra_access_token');
     localStorage.removeItem('klyra_refresh_token');
     localStorage.removeItem('klyra_user');
     setAccessToken(null);
     setUser(null);
-  }, [clearRefreshTimer]);
-
-  useEffect(() => {
-    const onTokensRefreshed = (event: Event) => {
-      const tokens = (event as CustomEvent<AuthTokens>).detail;
-      if (!tokens) return;
-      setAccessToken(tokens.accessToken);
-      scheduleTokenRefresh(tokens.expiresIn);
-    };
-    const onSessionExpired = () => clearSession();
-
-    window.addEventListener(AUTH_TOKENS_REFRESHED_EVENT, onTokensRefreshed);
-    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired);
-    return () => {
-      window.removeEventListener(AUTH_TOKENS_REFRESHED_EVENT, onTokensRefreshed);
-      window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired);
-    };
-  }, [clearSession, scheduleTokenRefresh]);
-
-  useEffect(() => () => clearRefreshTimer(), [clearRefreshTimer]);
+  }, []);
 
   // Restore session on app load
   useEffect(() => {
@@ -158,39 +69,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         // Try fetching current user profile
         const { user: profile } = await authApi.me();
-        cacheProfile(profile);
-        scheduleTokenRefresh();
-      } catch {
-        clearSession();
+        setUser(profile);
+        localStorage.setItem('klyra_user', JSON.stringify(profile));
+      } catch (err: any) {
+        // Access token might be expired, attempt refresh
+        if (storedRefresh) {
+          try {
+            const newTokens = await authApi.refreshToken(storedRefresh);
+            localStorage.setItem('klyra_access_token', newTokens.accessToken);
+            setAccessToken(newTokens.accessToken);
+            const { user: profile } = await authApi.me();
+            setUser(profile);
+            localStorage.setItem('klyra_user', JSON.stringify(profile));
+          } catch {
+            clearSession();
+          }
+        } else {
+          clearSession();
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     initAuth();
-  }, [cacheProfile, clearSession, scheduleTokenRefresh]);
+  }, [clearSession]);
 
   const login = async (email: string, password: string, rememberMe = false): Promise<LoginResponse> => {
     const res = await authApi.login(email, password, rememberMe);
-    if (!res.requires2FA) {
+    if (!res.requires2FA && res.tokens && res.user) {
       saveSession(res.tokens, res.user);
     }
     return res;
   };
 
-<<<<<<< HEAD
   const verify2FA = async (tempToken: string, code: string): Promise<UserProfile> => {
     const res = await authApi.verify2FA(tempToken, code);
     saveSession(res.tokens, res.user);
     return res.user;
-=======
-  const verify2FA = async (tempToken: string, code: string): Promise<{ challengeType?: 'totp' }> => {
-    const res = await authApi.verify2FA(tempToken, code);
-    if (!res.requires2FA) saveSession(res.tokens, res.user);
-    return res.requires2FA ? { challengeType: res.challengeType } : {};
->>>>>>> origin/nazmul-profile-v2
   };
-  const verifyTotp = async (tempToken: string, code: string): Promise<void> => { const res = await authApi.verifyTotp(tempToken, code); saveSession(res.tokens, res.user); };
 
   const logout = async (): Promise<void> => {
     try {
@@ -202,57 +119,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const refreshProfile = useCallback(async (): Promise<void> => {
+  const refreshProfile = async (): Promise<void> => {
     try {
       const { user: profile } = await authApi.me();
-      cacheProfile(profile);
+      setUser(profile);
+      localStorage.setItem('klyra_user', JSON.stringify(profile));
     } catch {
       // Keep existing profile
     }
-  }, [cacheProfile]);
-
-  const loadProfile = useCallback(async (): Promise<UserProfile> => {
-    const { user: profile } = await profileApi.getProfile();
-    cacheProfile(profile);
-    return profile;
-  }, [cacheProfile]);
-
-  const updatePersonalInfo = useCallback(async (profile: UpdateProfileInput) => {
-    const result = await profileApi.updatePersonalInfo(profile);
-    cacheProfile(result.user);
-    return result;
-  }, [cacheProfile]);
-
-  const uploadProfileAvatar = useCallback(async (file: File) => {
-    const result = await profileApi.uploadAvatar(file);
-    cacheProfile(result.user);
-    return result;
-  }, [cacheProfile]);
-
-  const removeProfileAvatar = useCallback(async () => {
-    const result = await profileApi.removeAvatar();
-    cacheProfile(result.user);
-    return result;
-  }, [cacheProfile]);
-
-  const changeProfilePassword = useCallback(async (currentPassword: string, newPassword: string) => {
-    const result = await profileApi.changePassword(currentPassword, newPassword);
-    await refreshProfile();
-    return result;
-  }, [refreshProfile]);
-
-  const updateProfilePreferences = useCallback(async (preferences: UpdatePreferencesInput) => {
-    const result = await profileApi.updatePreferences(preferences);
-    cacheProfile(result.user);
-    return result;
-  }, [cacheProfile]);
-
-  const deactivateAccount = useCallback(async (currentPassword: string) => {
-    const result = await profileApi.deactivateAccount(currentPassword);
-    // Do not clear state unless the server completed the account transaction.
-    clearSession();
-    return result;
-  }, [clearSession]);
+  };
 
   return (
     <AuthContext.Provider
@@ -263,16 +138,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         login,
         verify2FA,
-        verifyTotp,
         logout,
-        loadProfile,
         refreshProfile,
-        updatePersonalInfo,
-        uploadProfileAvatar,
-        removeProfileAvatar,
-        changeProfilePassword,
-        updateProfilePreferences,
-        deactivateAccount,
         openDemoInboxTab,
       }}
     >

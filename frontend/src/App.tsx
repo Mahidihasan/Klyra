@@ -14,7 +14,6 @@ import { ApiBuilder } from './pages/ApiBuilder/index';
 import { ApiBuildPage } from './pages/ApiBuild';
 import { BillingPage } from './pages/Billing/index';
 import { RepositoriesPage } from './pages/Repositories/index';
-<<<<<<< HEAD
 import { AdminOverviewPage } from './pages/AdminOverview/index';
 import { AdminUsersPage } from './pages/AdminUsers/index';
 import { AdminApisPage } from './pages/AdminApis/index';
@@ -24,9 +23,6 @@ import { AdminSubscriptionsPage } from './pages/AdminSubscriptions/index';
 import { AdminUsagePage } from './pages/AdminUsage/index';
 import { AdminActivityPage } from './pages/AdminActivity/index';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
-=======
-import { ProfilePage } from './pages/Profile';
->>>>>>> origin/nazmul-profile-v2
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -244,11 +240,6 @@ function AppContent() {
     setCollections((prev) => [newCol, ...prev]);
   };
 
-  const handleOpenProfile = () => {
-    setIsMobileSidebarOpen(false);
-    setActiveTab('profile');
-  };
-
   // 1. Check if user opened Demo Inbox (dedicated window or view param)
   const isDemoInboxRoute =
     typeof window !== 'undefined' &&
@@ -350,7 +341,6 @@ function AppContent() {
             setSearchQuery={setSearchQuery}
             onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
             onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
-            onOpenProfile={handleOpenProfile}
             onOpenLogin={() => {
               setAuthModalMode('login');
               setShowAuthModal(true);
@@ -548,10 +538,6 @@ function AppContent() {
                       </div>
                     </section>
                   </div>
-                </main>
-              ) : activeTab === 'profile' ? (
-                <main className="content-page-wrapper">
-                  <ProfilePage />
                 </main>
               ) : activeTab === 'billing' ? (
                 <main className="content-page-wrapper">

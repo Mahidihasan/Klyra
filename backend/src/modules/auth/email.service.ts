@@ -294,14 +294,13 @@ export async function sendViaBrevo(payload: BrevoSendPayload): Promise<void> {
   }
 }
 
-export type OtpEmailKind = 'EMAIL_VERIFICATION' | 'PASSWORD_RESET' | 'ACCOUNT_REACTIVATION';
+export type OtpEmailKind = 'EMAIL_VERIFICATION' | 'PASSWORD_RESET';
 
 /** Build subject + HTML + plain-text body for OTP transactional emails. */
 export function buildOtpEmail(kind: OtpEmailKind, otp: string): { subject: string; html: string; text: string } {
   const isVerification = kind === 'EMAIL_VERIFICATION';
-  const isReactivation = kind === 'ACCOUNT_REACTIVATION';
-  const subject = isVerification ? 'Verify your Klyra account' : isReactivation ? 'Reactivate your Klyra account' : 'Reset your Klyra password';
-  const intro = isVerification ? 'Welcome to Klyra!' : isReactivation ? 'We received a request to reactivate your Klyra account.' : 'We received a request to reset your Klyra password.';
+  const subject = isVerification ? 'Verify your Klyra account' : 'Reset your Klyra password';
+  const intro = isVerification ? 'Welcome to Klyra!' : 'We received a request to reset your Klyra password.';
 
   const text = [
     'Hi,',
@@ -315,8 +314,6 @@ export function buildOtpEmail(kind: OtpEmailKind, otp: string): { subject: strin
     '',
     isVerification
       ? 'If you did not create a Klyra account, you can safely ignore this email.'
-      : isReactivation
-        ? 'If you did not request account reactivation, you can safely ignore this email.'
       : 'If you did not request a password reset, you can safely ignore this email.',
     '',
     '— Klyra Team',
@@ -324,8 +321,6 @@ export function buildOtpEmail(kind: OtpEmailKind, otp: string): { subject: strin
 
   const ignoreNote = isVerification
     ? 'If you did not create a Klyra account, you can safely ignore this email.'
-    : isReactivation
-      ? 'If you did not request account reactivation, you can safely ignore this email.'
     : 'If you did not request a password reset, you can safely ignore this email.';
 
   const html = `<!DOCTYPE html>
@@ -352,14 +347,13 @@ export function buildOtpEmail(kind: OtpEmailKind, otp: string): { subject: strin
 
 function pushDemoOtpEmail(to: string, kind: OtpEmailKind, otp: string): void {
   const isVerification = kind === 'EMAIL_VERIFICATION';
-  const isReactivation = kind === 'ACCOUNT_REACTIVATION';
   const built = buildOtpEmail(kind, otp);
   demoEmails.unshift({
     id: generateRandomToken(8),
     to,
     from: 'security@klyra.io',
     subject: built.subject,
-    category: isVerification ? 'VERIFY_EMAIL' : isReactivation ? 'REACTIVATE_ACCOUNT' : 'RESET_PASSWORD',
+    category: isVerification ? 'VERIFY_EMAIL' : 'RESET_PASSWORD',
     previewText: `Your Klyra verification code is ${otp}. It expires in 10 minutes.`,
     htmlContent: built.html,
     code: otp,
@@ -393,16 +387,6 @@ export class OtpEmailService {
       return;
     }
     pushDemoOtpEmail(email, 'PASSWORD_RESET', otp);
-  }
-
-  /** Send an ownership-verification OTP before restoring an inactive account. */
-  static async sendAccountReactivationOTP(email: string, otp: string): Promise<void> {
-    if (getEmailProvider() === 'brevo') {
-      const built = buildOtpEmail('ACCOUNT_REACTIVATION', otp);
-      await sendViaBrevo({ to: email, subject: built.subject, htmlContent: built.html, textContent: built.text });
-      return;
-    }
-    pushDemoOtpEmail(email, 'ACCOUNT_REACTIVATION', otp);
   }
 }
 

@@ -1,7 +1,5 @@
 /* API Marketplace - Global CSS Design System */
 :root {
-  color-scheme: dark;
-  --bg-primary: #0b0c12;
   --bg-app: #0b0c12;
   --bg-sidebar: #0e0f18;
   --bg-topbar: #0f101b;
@@ -48,29 +46,6 @@
 
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-}
-
-:root[data-theme='light'] {
-  color-scheme: light;
-  --bg-primary: #f6f7fb;
-  --bg-app: #f6f7fb;
-  --bg-sidebar: #ffffff;
-  --bg-topbar: #ffffff;
-  --bg-card: #ffffff;
-  --bg-card-hover: #f1f3f9;
-  --bg-card-active: #e8ebf5;
-  --bg-input: #ffffff;
-  --bg-modal: #ffffff;
-  --bg-pill: #eef0f7;
-  --border-subtle: rgba(15, 23, 42, .09);
-  --border-card: #dce1ed;
-  --border-glow: rgba(124, 58, 237, .2);
-  --text-primary: #172033;
-  --text-secondary: #526078;
-  --text-muted: #71809a;
-  --text-accent: #6d28d9;
-  --shadow-sm: 0 2px 8px rgba(15, 23, 42, .08);
-  --shadow-md: 0 4px 20px rgba(15, 23, 42, .12);
 }
 
 * {

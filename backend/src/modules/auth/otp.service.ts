@@ -7,13 +7,11 @@ import { pool } from '../../services/database.service';
  * protection. OTPs are never stored in plaintext and never returned by APIs.
  */
 
-export type OtpPurpose = 'EMAIL_VERIFICATION' | 'PASSWORD_RESET' | 'ACCOUNT_REACTIVATION';
+export type OtpPurpose = 'EMAIL_VERIFICATION' | 'PASSWORD_RESET';
 
 /** DB `type` column values on email_verifications. */
-function purposeToType(purpose: OtpPurpose): 'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'REACTIVATE_ACCOUNT' {
-  if (purpose === 'EMAIL_VERIFICATION') return 'VERIFY_EMAIL';
-  if (purpose === 'PASSWORD_RESET') return 'RESET_PASSWORD';
-  return 'REACTIVATE_ACCOUNT';
+function purposeToType(purpose: OtpPurpose): 'VERIFY_EMAIL' | 'RESET_PASSWORD' {
+  return purpose === 'EMAIL_VERIFICATION' ? 'VERIFY_EMAIL' : 'RESET_PASSWORD';
 }
 
 export const OTP_TTL_MINUTES = 10;

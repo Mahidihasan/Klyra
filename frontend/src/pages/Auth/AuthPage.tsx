@@ -28,9 +28,7 @@ export type AuthMode =
   | '2fa'
   | 'forgot-password'
   | 'forgot-otp'
-  | 'reset-password'
-  | 'reactivate-account'
-  | 'reactivate-otp';
+  | 'reset-password';
 
 interface AuthPageProps {
   initialMode?: AuthMode;
@@ -51,7 +49,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   isModal = false,
   onClose,
 }) => {
-  const { login, verify2FA, verifyTotp } = useAuth();
+  const { login, verify2FA } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [token, setToken] = useState<string>(initialToken || '');
@@ -67,7 +65,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   // 2FA state
   const [twoFactorTempToken, setTwoFactorTempToken] = useState('');
   const [maskedEmail, setMaskedEmail] = useState('');
-  const [loginChallengeType, setLoginChallengeType] = useState<'email' | 'totp' | null>(null);
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -125,7 +122,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         // Do not close during active multi-step flows
-        if (['verify-pending', '2fa', 'forgot-password', 'reset-password', 'reactivate-account', 'reactivate-otp'].includes(mode)) {
+        if (['verify-pending', '2fa', 'forgot-password', 'reset-password'].includes(mode)) {
           return;
         }
         handleModalClose();
@@ -290,7 +287,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
   // Auto-focus OTP entry when entering an OTP mode
   useEffect(() => {
-    if (mode === 'verify-email' || mode === 'forgot-otp' || mode === 'reactivate-otp') {
+    if (mode === 'verify-email' || mode === 'forgot-otp') {
       setOtpDigits(['', '', '', '', '', '']);
       const t = setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
       return () => clearTimeout(t);
@@ -384,12 +381,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       const res: LoginResponse = await login(email, password, rememberMe);
       setPassword('');
 
-      if (res.requires2FA) {
+      if (res.requires2FA && res.tempToken) {
         setTwoFactorTempToken(res.tempToken);
-        setLoginChallengeType(res.challengeType);
-        setMaskedEmail(res.challengeType === 'email' ? res.maskedEmail : '');
+        setMaskedEmail(res.maskedEmail || email);
         setMode('2fa');
-        if (res.challengeType === 'email') setResendCooldown(60);
+        setResendCooldown(60);
         setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
       } else {
         // Direct login succeeded
@@ -407,12 +403,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setResendCooldown(60);
         setError(err.message || 'Please verify your email address before logging in.');
         setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
-        return;
-      }
-
-      if (err.code === 'ACCOUNT_INACTIVE') {
-        setMode('reactivate-account');
-        setError('This account is inactive. Verify your email to reactivate it.');
         return;
       }
 
@@ -444,19 +434,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-<<<<<<< HEAD
       const verifiedUser = await verify2FA(twoFactorTempToken, code);
       if (onLoginSuccess) onLoginSuccess(verifiedUser);
-=======
-      if (loginChallengeType === 'totp') {
-        await verifyTotp(twoFactorTempToken, code);
-        if (onLoginSuccess) onLoginSuccess();
-      } else {
-        const result = await verify2FA(twoFactorTempToken, code);
-        if (result.challengeType === 'totp') { setLoginChallengeType('totp'); setOtpDigits(['', '', '', '', '', '']); }
-        else if (onLoginSuccess) onLoginSuccess();
-      }
->>>>>>> origin/nazmul-profile-v2
     } catch (err: any) {
       setError(err.message || 'Verification failed. Please check the code.');
     } finally {
@@ -477,7 +456,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setOtpDigits(nextDigits);
         const nextFocus = Math.min(cleanVal.length, 5);
         otpInputRefs.current[nextFocus]?.focus();
-<<<<<<< HEAD
         if (mode === '2fa' && cleanVal.length === 6) {
           setTimeout(() => {
             // Auto-submit 2FA if 6 digits provided
@@ -488,10 +466,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               .catch((e) => setError(e.message));
           }, 200);
         }
-=======
-        // Deliberately require the submit action so all 2FA outcomes pass
-        // through AuthContext and persist the issued session consistently.
->>>>>>> origin/nazmul-profile-v2
       }
       return;
     }
@@ -629,56 +603,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
       setError(err.message || 'Failed to resend verification code.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRequestReactivation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await authApi.requestAccountReactivation(email);
-      setSuccessMessage(res.message);
-      setResendCooldown(60);
-      setMode('reactivate-otp');
-    } catch (err: any) {
-      setError(err.message || 'Unable to request a reactivation code.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleConfirmReactivation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await authApi.confirmAccountReactivation(email, otpDigits.join(''));
-      setSuccessMessage(res.message);
-      setOtpDigits(['', '', '', '', '', '']);
-      setMode('login');
-    } catch (err: any) {
-      setError(err.message || 'Unable to reactivate this account.');
-      setOtpDigits(['', '', '', '', '', '']);
-      otpInputRefs.current[0]?.focus();
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleResendReactivationOtp = async () => {
-    if (resendCooldown > 0) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await authApi.requestAccountReactivation(email);
-      setSuccessMessage(res.message);
-      setResendCooldown(60);
-      setTimeout(() => setSuccessMessage(null), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Unable to request a reactivation code.');
     } finally {
       setIsLoading(false);
     }
@@ -1092,13 +1016,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         {mode === '2fa' && (
           <form className="auth-form animate-fade-in" onSubmit={handleVerify2FA}>
             <div className="security-badge-row">
-              {loginChallengeType === 'email' && <span className="badge-new-device">NEW DEVICE DETECTED</span>}
+              <span className="badge-new-device">NEW DEVICE DETECTED</span>
             </div>
 
             <div className="form-title-group">
               <h2 className="form-title">Two-Factor Authentication</h2>
               <p className="form-subtitle">
-                {loginChallengeType === 'totp' ? 'Enter the 6-digit code from your authenticator app' : <>A 6-digit security code has been sent to <strong style={{ color: '#f8fafc' }}>{maskedEmail}</strong>. Enter the code below to complete sign in.</>}
+                A 6-digit security code has been sent to{' '}
+                <strong style={{ color: '#f8fafc' }}>{maskedEmail}</strong>. Enter the code below to
+                complete sign in.
               </p>
             </div>
 
@@ -1138,14 +1064,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             </button>
 
             <div className="two-factor-actions">
-              {loginChallengeType === 'email' && <button
+              <button
                 type="button"
                 className="secondary-btn-inline"
                 onClick={handleResend2FA}
                 disabled={isLoading || resendCooldown > 0}
               >
                 {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Security Code'}
-              </button>}
+              </button>
               <button
                 type="button"
                 className="secondary-btn-inline"
@@ -1299,84 +1225,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 }}
               >
                 Back
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ================= VIEW: ACCOUNT REACTIVATION ================= */}
-        {mode === 'reactivate-account' && (
-          <form className="auth-form animate-fade-in" onSubmit={handleRequestReactivation}>
-            <div className="form-title-group">
-              <h2 className="form-title">Reactivate your account</h2>
-              <p className="form-subtitle">
-                Confirm access to your account email and we’ll send a one-time reactivation code.
-              </p>
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Account Email</label>
-              <div className="input-field-wrapper">
-                <Mail size={16} className="field-icon" />
-                <input
-                  type="email"
-                  className="auth-input"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={isLoading}
-                />
-              </div>
-            </div>
-
-            <button type="submit" className="auth-submit-btn" disabled={isLoading}>
-              {isLoading ? <><RefreshCw size={16} className="spin-icon" /><span>Sending Code...</span></> : <><span>Send Reactivation Code</span><ArrowRight size={16} /></>}
-            </button>
-
-            <button type="button" className="text-action-link" onClick={() => { setError(null); setSuccessMessage(null); setMode('login'); }}>
-              Back to Sign In
-            </button>
-          </form>
-        )}
-
-        {mode === 'reactivate-otp' && (
-          <form className="auth-form animate-fade-in" onSubmit={handleConfirmReactivation}>
-            <div className="form-title-group">
-              <h2 className="form-title">Enter reactivation code</h2>
-              <p className="form-subtitle">
-                Enter the 6-digit code sent to <strong style={{ color: '#f8fafc' }}>{email}</strong>. Existing sessions and API keys remain revoked for your security.
-              </p>
-            </div>
-
-            <div className="otp-boxes-row">
-              {otpDigits.map((digit, idx) => (
-                <input
-                  key={idx}
-                  ref={(el) => (otpInputRefs.current[idx] = el)}
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={1}
-                  className="otp-digit-input"
-                  value={digit}
-                  onChange={(e) => handleOtpChange(idx, e.target.value)}
-                  onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                  autoFocus={idx === 0}
-                />
-              ))}
-            </div>
-
-            <button type="submit" className="auth-submit-btn" disabled={isLoading || otpDigits.join('').length !== 6}>
-              {isLoading ? <><RefreshCw size={16} className="spin-icon" /><span>Reactivating...</span></> : <><KeyRound size={16} /><span>Reactivate Account</span></>}
-            </button>
-
-            <div className="two-factor-actions">
-              <button type="button" className="secondary-btn-inline" onClick={handleResendReactivationOtp} disabled={isLoading || resendCooldown > 0}>
-                {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Code'}
-              </button>
-              <button type="button" className="secondary-btn-inline" onClick={() => { setError(null); setSuccessMessage(null); setMode('login'); }}>
-                Back to Sign In
               </button>
             </div>
           </form>
