@@ -12,6 +12,7 @@ import { authOptional } from './modules/repos/auth.service';
 import { gitHttpHandler } from './modules/repos/git.http';
 import reposRouter from './modules/repos/repos.routes';
 import apiBuildRouter from './modules/api-build/api-build.routes';
+import apiKeysRouter from './modules/api-keys/api-keys.routes';
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.get('/api/health', (_req, res) => {
 
 // Authentication and Demo Email routes
 app.use('/api/auth', authRouter);
+app.use('/api/auth/profile/api-keys', apiKeysRouter);
 
 // Playground routes
 app.use('/api/playground', playgroundRouter);
