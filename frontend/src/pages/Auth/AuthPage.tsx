@@ -444,10 +444,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-<<<<<<< HEAD
-      const verifiedUser = await verify2FA(twoFactorTempToken, code);
-      if (onLoginSuccess) onLoginSuccess(verifiedUser);
-=======
       if (loginChallengeType === 'totp') {
         await verifyTotp(twoFactorTempToken, code);
         if (onLoginSuccess) onLoginSuccess();
@@ -456,7 +452,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         if (result.challengeType === 'totp') { setLoginChallengeType('totp'); setOtpDigits(['', '', '', '', '', '']); }
         else if (onLoginSuccess) onLoginSuccess();
       }
->>>>>>> origin/nazmul-profile-v2
     } catch (err: any) {
       setError(err.message || 'Verification failed. Please check the code.');
     } finally {
@@ -477,21 +472,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         setOtpDigits(nextDigits);
         const nextFocus = Math.min(cleanVal.length, 5);
         otpInputRefs.current[nextFocus]?.focus();
-<<<<<<< HEAD
-        if (mode === '2fa' && cleanVal.length === 6) {
-          setTimeout(() => {
-            // Auto-submit 2FA if 6 digits provided
-            verify2FA(twoFactorTempToken, cleanVal)
-              .then((verifiedUser) => {
-                if (onLoginSuccess) onLoginSuccess(verifiedUser);
-              })
-              .catch((e) => setError(e.message));
-          }, 200);
-        }
-=======
         // Deliberately require the submit action so all 2FA outcomes pass
         // through AuthContext and persist the issued session consistently.
->>>>>>> origin/nazmul-profile-v2
       }
       return;
     }

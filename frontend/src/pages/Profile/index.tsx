@@ -1,51 +1,88 @@
 import {
-  BadgeCheck,
-  Building2,
-  CheckCircle2,
   AlertCircle,
+  AlignLeft,
+  AtSign,
+  BadgeCheck,
   Bell,
+  Briefcase,
+  Building2,
   CalendarDays,
+  Camera,
+  CheckCircle2,
   Chrome,
   Clock3,
   Copy,
   Eye,
   EyeOff,
-  Globe2,
   Github,
+  Globe2,
   Info,
   KeyRound,
-  Lock,
   Loader2,
+  Lock,
+  LogOut,
   Mail,
   Monitor,
   Moon,
+  Pencil,
+  Plus,
   Save,
+  Settings,
   ShieldCheck,
+  ShieldOff,
+  Smartphone,
   SlidersHorizontal,
+  Sun,
   Trash2,
-  Upload,
   UserRound,
   X,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { applyTheme, useAuth } from '../../context/AuthContext';
 import { OtpInput } from '../../components/OtpInput';
-import { ManagedApiKey, profileApi, SecuritySession, UpdatePreferencesInput, UpdateProfileInput, UserPreferences, UserProfile } from '../../services/api/auth';
+import { applyTheme, useAuth } from '../../context/AuthContext';
+import {
+  ApiResponseFormat,
+  CodeSnippetPreference,
+  ManagedApiKey,
+  ProfileApiError,
+  profileApi,
+  SecuritySession,
+  ThemePreference,
+  UpdatePreferencesInput,
+  UpdateProfileInput,
+  UserPreferences,
+  UserProfile,
+} from '../../services/api/auth';
+import { apiBuildService } from '../../services/apiBuild';
+import type { ProviderProject } from '../../types/apibuild';
+
+import { EditableRow } from './EditableRow';
+import {
+  ActivityEntry,
+  buildAchievements,
+  Contribution,
+  ContributionGraph,
+  ContributionsFeed,
+  ProjectsList,
+  StickerGrid,
+} from './overview';
 import './styles.css';
 
+type PageTab = 'overview' | 'projects' | 'settings';
 type ProfileSection = 'general' | 'security' | 'preferences' | 'accounts' | 'connections';
+type FieldKey = 'name' | 'handle' | 'jobTitle' | 'company' | 'website' | 'githubUrl' | 'bio';
 
 const SECTIONS: Array<{ id: ProfileSection; label: string; icon: React.ReactNode }> = [
-  { id: 'general', label: 'General & Personal Info', icon: <UserRound size={17} /> },
-  { id: 'security', label: 'Security & Password', icon: <ShieldCheck size={17} /> },
+  { id: 'general', label: 'General & Personal Info', icon: <UserRound size={16} /> },
+  { id: 'security', label: 'Security & Access', icon: <ShieldCheck size={16} /> },
   {
     id: 'preferences',
     label: 'Preferences & Notifications',
-    icon: <SlidersHorizontal size={17} />,
+    icon: <SlidersHorizontal size={16} />,
   },
-  { id: 'accounts', label: 'Account Information', icon: <KeyRound size={17} /> },
-  { id: 'connections', label: 'Connected Accounts & API Keys', icon: <KeyRound size={17} /> },
+  { id: 'connections', label: 'API Keys & Connections', icon: <KeyRound size={16} /> },
+  { id: 'accounts', label: 'Account Information', icon: <Info size={16} /> },
 ];
 
 interface ProfileForm {
@@ -57,6 +94,92 @@ interface ProfileForm {
   bio: string;
   website: string;
   githubUrl: string;
+}
+
+interface PasswordForm {
+  current: string;
+  next: string;
+  confirm: string;
+}
+
+const EMPTY_FORM: ProfileForm = {
+  firstName: '',
+  lastName: '',
+  handle: '',
+  company: '',
+  jobTitle: '',
+  bio: '',
+  website: '',
+  githubUrl: '',
+};
+
+const DEFAULT_NOTIFICATIONS = { email: true, push: true, in_app: true };
+const DEFAULT_EMAIL_NOTIFICATIONS = {
+  api_downtime_alerts: true,
+  monthly_usage_quota_warnings: true,
+  product_announcements: false,
+};
+const DEFAULT_PREFERENCES: UserPreferences = {
+  theme: 'dark',
+  timezone:
+    typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' : 'UTC',
+  notifications: { ...DEFAULT_NOTIFICATIONS },
+  api_response_format: 'json',
+  code_snippet_preference: 'curl',
+  email_notifications: { ...DEFAULT_EMAIL_NOTIFICATIONS },
+};
+
+const TIMEZONE_FALLBACK = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Berlin',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+];
+
+function supportedTimezones(): string[] {
+  try {
+    const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+    const zones = intl.supportedValuesOf?.('timeZone');
+    if (Array.isArray(zones) && zones.length > 0) {
+      return zones;
+    }
+  } catch {
+    /* fall through to the static list */
+  }
+  return TIMEZONE_FALLBACK;
+}
+
+function normalizePreferences(value: unknown): UserPreferences {
+  const source = (value ?? {}) as Partial<UserPreferences>;
+  const isTheme = (v: unknown): v is ThemePreference =>
+    v === 'dark' || v === 'light' || v === 'system';
+  const isFormat = (v: unknown): v is ApiResponseFormat => v === 'json' || v === 'xml';
+  const isSnippet = (v: unknown): v is CodeSnippetPreference =>
+    v === 'curl' ||
+    v === 'javascript-fetch' ||
+    v === 'javascript-axios' ||
+    v === 'python' ||
+    v === 'go';
+  return {
+    theme: isTheme(source.theme) ? source.theme : DEFAULT_PREFERENCES.theme,
+    timezone:
+      typeof source.timezone === 'string' && source.timezone
+        ? source.timezone
+        : DEFAULT_PREFERENCES.timezone,
+    notifications: { ...DEFAULT_NOTIFICATIONS, ...(source.notifications ?? {}) },
+    api_response_format: isFormat(source.api_response_format) ? source.api_response_format : 'json',
+    code_snippet_preference: isSnippet(source.code_snippet_preference)
+      ? source.code_snippet_preference
+      : 'curl',
+    email_notifications: { ...DEFAULT_EMAIL_NOTIFICATIONS, ...(source.email_notifications ?? {}) },
+  };
 }
 
 const toForm = (profile: UserProfile): ProfileForm => ({
@@ -82,1100 +205,2194 @@ function initials(name: string): string {
   );
 }
 
-function validate(form: ProfileForm): string | null {
-  if (!form.firstName.trim() || form.firstName.trim().length > 50 || !form.lastName.trim() || form.lastName.trim().length > 50) {
-    return 'First and last names are required and must be 50 characters or fewer.';
+function validateField(field: FieldKey, form: ProfileForm): string | null {
+  if (field === 'name') {
+    if (
+      !form.firstName.trim() ||
+      form.firstName.trim().length > 50 ||
+      !form.lastName.trim() ||
+      form.lastName.trim().length > 50
+    ) {
+      return 'First and last names are required and must be 50 characters or fewer.';
+    }
+    if (`${form.firstName.trim()} ${form.lastName.trim()}`.length > 100) {
+      return 'First and last name together must be 100 characters or fewer.';
+    }
+    return null;
   }
-  if (`${form.firstName.trim()} ${form.lastName.trim()}`.length > 100) {
-    return 'First and last name together must be 100 characters or fewer.';
+  if (field === 'handle') {
+    return /^[a-z0-9][a-z0-9_-]{2,29}$/i.test(form.handle.trim())
+      ? null
+      : 'Username must be 3–30 characters and use only letters, numbers, underscores, or hyphens.';
   }
-  if (!/^[a-z0-9][a-z0-9_-]{2,29}$/i.test(form.handle.trim())) {
-    return 'Username must be 3–30 characters and use only letters, numbers, underscores, or hyphens.';
+  if (field === 'jobTitle') {
+    return form.jobTitle.trim() && form.jobTitle.trim().length <= 100
+      ? null
+      : 'Job title is required and must be 100 characters or fewer.';
   }
-  if (form.company.trim().length > 255) {
-    return 'Organization must be 255 characters or fewer.';
+  if (field === 'company') {
+    return form.company.trim().length <= 255
+      ? null
+      : 'Organization must be 255 characters or fewer.';
   }
-  if (!form.jobTitle.trim() || form.jobTitle.trim().length > 100) {
-    return 'Job title is required and must be 100 characters or fewer.';
+  if (field === 'bio') {
+    return form.bio.trim().length <= 250 ? null : 'Bio must be 250 characters or fewer.';
   }
-  if (form.bio.trim().length > 250) {
-    return 'Bio must be 250 characters or fewer.';
+  if (field === 'website') {
+    const value = form.website.trim();
+    if (!value) {
+      return null;
+    }
+    try {
+      if (new URL(value).protocol !== 'https:') {
+        throw new Error();
+      }
+      return null;
+    } catch {
+      return 'Website must be a valid HTTPS URL.';
+    }
   }
   const github = form.githubUrl.trim();
   try {
     const parsed = new URL(github);
-    if (parsed.protocol !== 'https:' || !['github.com', 'www.github.com'].includes(parsed.hostname.toLowerCase()) || parsed.pathname.split('/').filter(Boolean).length !== 1) throw new Error();
-  } catch {
-    return 'GitHub profile must be an https://github.com/username URL.';
-  }
-  const website = form.website.trim();
-  if (website) {
-    try {
-      const parsed = new URL(website);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return 'Website must use http:// or https://.';
-      }
-    } catch {
-      return 'Website must be a valid URL.';
+    if (
+      parsed.protocol !== 'https:' ||
+      !['github.com', 'www.github.com'].includes(parsed.hostname.toLowerCase()) ||
+      parsed.pathname.split('/').filter(Boolean).length !== 1
+    ) {
+      throw new Error();
     }
+    return null;
+  } catch {
+    return 'GitHub profile must be a https://github.com/<username> URL.';
   }
-  return null;
 }
 
-function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function formatDate(value: string | null): string {
-  return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Not available';
-}
-
-function roleDescription(role: string): string {
-  return role.toLowerCase() === 'admin' ? 'Administrator — full platform access' : 'User — standard account access';
-}
-
-interface PasswordForm {
-  currentPassword: string;
-  newPassword: string;
-  confirmPassword: string;
-}
-
-const EMPTY_PASSWORD_FORM: PasswordForm = {
-  currentPassword: '',
-  newPassword: '',
-  confirmPassword: '',
-};
-
-const DEFAULT_PREFERENCES: UserPreferences = {
-  theme: 'dark',
-  timezone: 'UTC',
-  notifications: { email: true, push: true, in_app: true },
-  api_response_format: 'json',
-  code_snippet_preference: 'curl',
-  email_notifications: { api_downtime_alerts: true, monthly_usage_quota_warnings: true, product_announcements: false },
-};
-
-const clonePreferences = (preferences: UserPreferences): UserPreferences => ({
-  ...preferences,
-  notifications: { ...preferences.notifications },
-  email_notifications: { ...preferences.email_notifications },
-});
-
-const preferencesMatch = (left: UserPreferences | null, right: UserPreferences | null): boolean => {
-  if (!left || !right) return left === right;
-  return left.theme === right.theme
-    && left.timezone === right.timezone
-    && left.api_response_format === right.api_response_format
-    && left.code_snippet_preference === right.code_snippet_preference
-    && left.notifications.email === right.notifications.email
-    && left.notifications.push === right.notifications.push
-    && left.notifications.in_app === right.notifications.in_app
-    && left.email_notifications.api_downtime_alerts === right.email_notifications.api_downtime_alerts
-    && left.email_notifications.monthly_usage_quota_warnings === right.email_notifications.monthly_usage_quota_warnings
-    && left.email_notifications.product_announcements === right.email_notifications.product_announcements;
-};
-
-const TIMEZONES = [
-  'UTC', 'Africa/Cairo', 'Africa/Johannesburg', 'America/Anchorage', 'America/Argentina/Buenos_Aires',
-  'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Mexico_City', 'America/New_York',
-  'America/Phoenix', 'America/Sao_Paulo', 'America/Toronto', 'Asia/Bangkok', 'Asia/Dhaka', 'Asia/Dubai',
-  'Asia/Hong_Kong', 'Asia/Jakarta', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Seoul',
-  'Asia/Tokyo', 'Australia/Melbourne', 'Australia/Perth', 'Australia/Sydney', 'Europe/Amsterdam',
-  'Europe/Berlin', 'Europe/Istanbul', 'Europe/London', 'Europe/Madrid', 'Europe/Paris', 'Pacific/Auckland',
-] as const;
-
-function validatePasswordForm(form: PasswordForm): string | null {
-  if (!form.currentPassword || !form.newPassword || !form.confirmPassword) {
-    return 'Enter your current password and confirm your new password.';
+function validatePassword(form: PasswordForm): string | null {
+  if (!form.current) {
+    return 'Enter your current password.';
   }
-  if (form.newPassword.length < 8 || form.newPassword.length > 256) {
-    return 'New password must be between 8 and 256 characters.';
+  if (form.next.length < 10) {
+    return 'New password must be at least 10 characters long.';
   }
-  if (form.currentPassword === form.newPassword) {
-    return 'New password must be different from your current password.';
+  if (!/[A-Z]/.test(form.next) || !/[a-z]/.test(form.next) || !/[0-9]/.test(form.next)) {
+    return 'New password must mix uppercase, lowercase, and numeric characters.';
   }
-  if (form.newPassword !== form.confirmPassword) {
+  if (form.next !== form.confirm) {
     return 'New password and confirmation do not match.';
   }
   return null;
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof ProfileApiError) {
+    return error.backendMessage || error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return 'Something went wrong. Please try again.';
+}
+
+function formatDate(value: string | null): string {
+  if (!value) {
+    return '—';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) {
+    return '—';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+    date,
+  );
+}
+
+function roleDescription(role: string): string {
+  if (role === 'ADMIN') {
+    return 'Admin — full platform control';
+  }
+  if (role === 'MODERATOR') {
+    return 'Moderator — content and API review';
+  }
+  return 'Member — build and publish APIs';
+}
+
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+function githubHandle(url: string): string {
+  try {
+    const parts = new URL(url).pathname.split('/').filter(Boolean);
+    return parts.length > 0 ? `@${parts[0]}` : safeHost(url);
+  } catch {
+    return url;
+  }
+}
+
 export const ProfilePage: React.FC = () => {
-  const { user, isLoading: isAuthLoading, loadProfile: fetchProfile, updatePersonalInfo, uploadProfileAvatar, removeProfileAvatar, changeProfilePassword, updateProfilePreferences, deactivateAccount } = useAuth();
-  const userId = user?.id;
-  const [profile, setProfile] = useState<UserProfile | null>(user);
-  const [form, setForm] = useState<ProfileForm | null>(user ? toForm(user) : null);
+  const {
+    user: profile,
+    isLoading: isAuthLoading,
+    updatePersonalInfo,
+    uploadProfileAvatar,
+    removeProfileAvatar: removeAvatarRemote,
+    changeProfilePassword,
+    updateProfilePreferences,
+    refreshProfile,
+    deactivateAccount,
+  } = useAuth();
+
+  const [tab, setTab] = useState<PageTab>('overview');
   const [section, setSection] = useState<ProfileSection>('general');
-  const [isLoading, setIsLoading] = useState(Boolean(user));
-  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+
+  /* Identity — per-field inline editing via the pencil affordances. */
+  const [form, setForm] = useState<ProfileForm>(() => (profile ? toForm(profile) : EMPTY_FORM));
+  const [editingField, setEditingField] = useState<FieldKey | null>(null);
+  const [editDraft, setEditDraft] = useState<ProfileForm>(() =>
+    profile ? toForm(profile) : EMPTY_FORM,
+  );
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+
+  /* Avatar */
   const [isAvatarSaving, setIsAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [avatarSuccess, setAvatarSuccess] = useState<string | null>(null);
-  const [passwordForm, setPasswordForm] = useState<PasswordForm>(EMPTY_PASSWORD_FORM);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /* Password */
+  const [passwordForm, setPasswordForm] = useState<PasswordForm>({
+    current: '',
+    next: '',
+    confirm: '',
+  });
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isPasswordSaving, setIsPasswordSaving] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
-  const [showPasswords, setShowPasswords] = useState(false);
-  const [preferences, setPreferences] = useState<UserPreferences | null>(user?.preferences ? clonePreferences(user.preferences) : null);
-  const [savedPreferences, setSavedPreferences] = useState<UserPreferences | null>(user?.preferences ? clonePreferences(user.preferences) : null);
+
+  /* Preferences */
+  const [preferences, setPreferences] = useState<UserPreferences>(() =>
+    normalizePreferences(profile?.preferences),
+  );
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
-  const [preferencesSuccess, setPreferencesSuccess] = useState<string | null>(null);
-  const preferencesSaveRequestedRef = useRef(false);
+
+  /* Account deactivation */
+  const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const [deactivatePassword, setDeactivatePassword] = useState('');
+  const [isDeactivating, setIsDeactivating] = useState(false);
+  const [deactivationError, setDeactivationError] = useState<string | null>(null);
+
+  /* API keys */
   const [apiKeys, setApiKeys] = useState<ManagedApiKey[]>([]);
-  const [isApiKeysLoading, setIsApiKeysLoading] = useState(false);
-  const [apiKeysError, setApiKeysError] = useState<string | null>(null);
-  const [apiKeysSuccess, setApiKeysSuccess] = useState<string | null>(null);
-  const [isCreateKeyOpen, setIsCreateKeyOpen] = useState(false);
+  const [isLoadingKeys, setIsLoadingKeys] = useState(false);
+  const [keysError, setKeysError] = useState<string | null>(null);
   const [newKeyName, setNewKeyName] = useState('');
   const [isCreatingKey, setIsCreatingKey] = useState(false);
+  const [createKeyError, setCreateKeyError] = useState<string | null>(null);
   const [oneTimeSecret, setOneTimeSecret] = useState<string | null>(null);
-  const [isSecretCopied, setIsSecretCopied] = useState(false);
-  const [keyPendingRevocation, setKeyPendingRevocation] = useState<ManagedApiKey | null>(null);
-  const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
-  const [deactivationStep, setDeactivationStep] = useState<'idle' | 'warning' | 'confirm'>('idle');
-  const [deactivationPassword, setDeactivationPassword] = useState('');
-  const [deactivationPhrase, setDeactivationPhrase] = useState('');
-  const [deactivationError, setDeactivationError] = useState<string | null>(null);
-  const [deactivationSuccess, setDeactivationSuccess] = useState<string | null>(null);
-  const [isDeactivating, setIsDeactivating] = useState(false);
+  const [copiedSecret, setCopiedSecret] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<ManagedApiKey | null>(null);
+  const [isRevokingKey, setIsRevokingKey] = useState(false);
+
+  /* Security sessions */
   const [sessions, setSessions] = useState<SecuritySession[]>([]);
+  const [isLoadingSecurity, setIsLoadingSecurity] = useState(false);
   const [securityError, setSecurityError] = useState<string | null>(null);
-  const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
-  const [isSecurityBusy, setIsSecurityBusy] = useState(false);
-  const [totpSetup, setTotpSetup] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
+  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
+
+  /* Two-factor (TOTP) */
+  const [totpOpen, setTotpOpen] = useState(false);
+  const [totpSecret, setTotpSecret] = useState('');
+  const [totpUri, setTotpUri] = useState('');
   const [totpCode, setTotpCode] = useState('');
-  const [disablePassword, setDisablePassword] = useState('');
-  const [disableCode, setDisableCode] = useState('');
-  const [showDisableTotp, setShowDisableTotp] = useState(false);
-  const [showDisablePassword, setShowDisablePassword] = useState(false);
+  const [isTotpBusy, setIsTotpBusy] = useState(false);
+  const [totpError, setTotpError] = useState<string | null>(null);
+  const [totpDisableOpen, setTotpDisableOpen] = useState(false);
+  const [totpDisablePassword, setTotpDisablePassword] = useState('');
+  const [isDisablingTotp, setIsDisablingTotp] = useState(false);
+
+  /* Projects & contributions */
+  const [projects, setProjects] = useState<ProviderProject[]>([]);
+  const [activityCounts, setActivityCounts] = useState<Map<string, number>>(new Map());
+  const [contributions, setContributions] = useState<Contribution[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
 
   useEffect(() => {
-    return () => {
-      if (avatarPreview) {
-        URL.revokeObjectURL(avatarPreview);
-      }
-    };
-  }, [avatarPreview]);
+    if (profile && editingField === null) {
+      setForm(toForm(profile));
+    }
+  }, [profile, editingField]);
 
-  const loadProfile = useCallback(async () => {
-    if (!userId) {
-      setProfile(null);
-      setForm(null);
-      setIsLoading(false);
+  useEffect(() => {
+    if (profile?.preferences) {
+      setPreferences(normalizePreferences(profile.preferences));
+    }
+  }, [profile?.preferences]);
+
+  useEffect(() => {
+    applyTheme(preferences.theme);
+  }, [preferences.theme]);
+
+  useEffect(() => {
+    if (!success) {
       return;
     }
-
-    setIsLoading(true);
-    setProfileLoadError(null);
-    setError(null);
-    try {
-      const currentProfile = await fetchProfile();
-      setProfile(currentProfile);
-      setForm(toForm(currentProfile));
-      const loadedPreferences = clonePreferences(currentProfile.preferences);
-      setPreferences(loadedPreferences);
-      setSavedPreferences(loadedPreferences);
-    } catch (err: unknown) {
-      setProfileLoadError(getErrorMessage(err, 'Unable to load your profile.'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fetchProfile, userId]);
+    const timer = setTimeout(() => setSuccess(null), 4200);
+    return () => clearTimeout(timer);
+  }, [success]);
 
   useEffect(() => {
-    void loadProfile();
-  }, [loadProfile]);
+    if (!avatarSuccess) {
+      return;
+    }
+    const timer = setTimeout(() => setAvatarSuccess(null), 4200);
+    return () => clearTimeout(timer);
+  }, [avatarSuccess]);
 
-  const loadApiKeys = useCallback(async () => {
-    setIsApiKeysLoading(true);
-    setApiKeysError(null);
+  useEffect(() => {
+    if (section !== 'connections') {
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingKeys(true);
+    setKeysError(null);
+    profileApi
+      .listApiKeys()
+      .then(({ apiKeys: keys }) => {
+        if (!cancelled) {
+          setApiKeys(keys);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setKeysError(getErrorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingKeys(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section]);
+
+  useEffect(() => {
+    if (section !== 'security') {
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingSecurity(true);
+    setSecurityError(null);
+    profileApi
+      .listSecuritySessions()
+      .then(({ sessions: list }) => {
+        if (!cancelled) {
+          setSessions(list);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSecurityError(getErrorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingSecurity(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section]);
+
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsError(null);
     try {
-      const result = await profileApi.listApiKeys();
-      setApiKeys(result.apiKeys);
-    } catch (err: unknown) {
-      setApiKeysError(getErrorMessage(err, 'Unable to load API keys.'));
+      const list = await apiBuildService.list();
+      setProjects(list);
+      const results = await Promise.allSettled(
+        list.slice(0, 12).map(async (project) => ({
+          project,
+          activity: await apiBuildService.listActivity<ActivityEntry>(project.id),
+        })),
+      );
+      const counts = new Map<string, number>();
+      const feed: Contribution[] = [];
+      for (const result of results) {
+        if (result.status !== 'fulfilled') {
+          continue;
+        }
+        const { project, activity } = result.value;
+        counts.set(project.id, activity.length);
+        for (const entry of activity) {
+          feed.push({ ...entry, projectId: project.id, projectName: project.name });
+        }
+      }
+      feed.sort((a, b) => (new Date(b.at).getTime() || 0) - (new Date(a.at).getTime() || 0));
+      setActivityCounts(counts);
+      setContributions(feed);
+    } catch (error) {
+      setProjectsError(getErrorMessage(error));
     } finally {
-      setIsApiKeysLoading(false);
+      setProjectsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (section === 'connections') void loadApiKeys();
-  }, [loadApiKeys, section]);
+    void loadProjects();
+  }, [loadProjects]);
 
-  const loadSecurity = useCallback(async () => {
-    try { setSessions((await profileApi.listSecuritySessions()).sessions); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to load active sessions.')); }
-  }, []);
-  useEffect(() => { if (section === 'security') void loadSecurity(); }, [section, loadSecurity]);
-  const startTotp = async () => { setIsSecurityBusy(true); setSecurityError(null); try { setTotpSetup(await profileApi.startTotpSetup()); setTotpCode(''); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to start setup.')); } finally { setIsSecurityBusy(false); } };
-  const confirmTotp = async () => { setIsSecurityBusy(true); setSecurityError(null); try { const result = await profileApi.confirmTotpSetup(totpCode); setSecuritySuccess(result.message); setTotpSetup(null); await loadProfile(); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to confirm setup.')); } finally { setIsSecurityBusy(false); } };
-  const disableTotp = async () => { setIsSecurityBusy(true); setSecurityError(null); try { const result = await profileApi.disableTotp(disablePassword, disableCode); setProfile((current) => current ? { ...current, two_factor_enabled: false } : current); setSecuritySuccess(result.message); setShowDisableTotp(false); setDisablePassword(''); setDisableCode(''); try { await loadProfile(); } catch { /* The disable succeeded; retain the confirmed local state if the profile refresh is temporarily unavailable. */ } } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to disable authenticator app 2FA.')); } finally { setIsSecurityBusy(false); } };
-  const revokeSession = async (session: SecuritySession) => { if (!window.confirm(`Revoke ${session.is_current ? 'your current' : 'this'} session?`)) return; setIsSecurityBusy(true); try { const result = await profileApi.revokeSecuritySession(session.id); if (result.revokedCurrent) { window.location.assign('/login'); return; } await loadSecurity(); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to revoke session.')); } finally { setIsSecurityBusy(false); } };
-  const revokeOthers = async () => { if (!window.confirm('Revoke every other signed-in session?')) return; setIsSecurityBusy(true); try { const result = await profileApi.revokeOtherSecuritySessions(); setSecuritySuccess(`${result.revoked} other session(s) revoked.`); await loadSecurity(); } catch (err) { setSecurityError(getErrorMessage(err, 'Unable to revoke sessions.')); } finally { setIsSecurityBusy(false); } };
+  const achievements = useMemo(() => {
+    if (!profile) {
+      return [];
+    }
+    return buildAchievements({
+      emailVerified: !!profile.email_verified_at,
+      twoFactorEnabled: !!profile.two_factor_enabled,
+      projects: projects.length,
+      published: projects.filter(
+        (project) =>
+          project.published || project.status === 'published' || project.status === 'healthy',
+      ).length,
+      consumers: projects.reduce((total, project) => total + project.consumers, 0),
+      contributions: contributions.length,
+      avgSuccessRate: projects.length
+        ? projects.reduce((total, project) => total + (project.successRate || 0), 0) /
+          projects.length
+        : 0,
+      memberSince: profile.created_at ? new Date(profile.created_at) : new Date(),
+      completeness: [
+        !!profile.avatar_url,
+        !!profile.bio,
+        !!profile.company,
+        !!profile.website,
+        !!profile.github_url,
+      ].filter(Boolean).length,
+    });
+  }, [profile, projects, contributions]);
 
-  const updateField = (field: keyof ProfileForm, value: string) => {
-    setForm((current) => (current ? { ...current, [field]: value } : current));
-    setError(null);
+  const beginEdit = (field: FieldKey) => {
+    setEditDraft({ ...form });
+    setEditingField(field);
+    setFieldError(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingField(null);
+    setEditDraft({ ...form });
+    setFieldError(null);
+  };
+
+  const patchDraft = (patch: Partial<ProfileForm>) => {
+    setEditDraft((current) => ({ ...current, ...patch }));
+    setFieldError(null);
+  };
+
+  const saveField = async (field: FieldKey) => {
+    const error = validateField(field, editDraft);
+    if (error) {
+      setFieldError(error);
+      return;
+    }
+    setIsSaving(true);
+    setFieldError(null);
     setSuccess(null);
+    try {
+      const payload: UpdateProfileInput = {
+        name: `${editDraft.firstName.trim()} ${editDraft.lastName.trim()}`,
+        company: editDraft.company.trim() || null,
+        bio: editDraft.bio.trim() || null,
+        website: editDraft.website.trim() || null,
+        first_name: editDraft.firstName.trim(),
+        last_name: editDraft.lastName.trim(),
+        handle: editDraft.handle.trim(),
+        job_title: editDraft.jobTitle.trim(),
+        github_url: editDraft.githubUrl.trim(),
+      };
+      const result = await updatePersonalInfo(payload);
+      setForm(toForm(result.user));
+      setEditingField(null);
+      setSuccess(result.message || 'Profile updated.');
+    } catch (saveError) {
+      setFieldError(getErrorMessage(saveError));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const selectAvatar = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const file = event.target.files?.[0] ?? null;
     event.target.value = '';
+    setAvatarError(null);
+    setAvatarSuccess(null);
     if (!file) {
       return;
     }
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      setAvatarError('Choose a PNG, JPG, or WebP image.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setAvatarError('Avatar must be a JPG, PNG, or WebP image.');
       return;
     }
     if (file.size > 3 * 1024 * 1024) {
       setAvatarError('Avatar must be 3 MB or smaller.');
       return;
     }
-
-    setAvatarFile(file);
-    setAvatarPreview(URL.createObjectURL(file));
-    setAvatarError(null);
-    setAvatarSuccess(null);
-  };
-
-  const uploadAvatar = async () => {
-    if (!avatarFile) {
-      return;
-    }
-    setIsAvatarSaving(true);
-    setAvatarError(null);
-    setAvatarSuccess(null);
-    try {
-      const result = await uploadProfileAvatar(avatarFile);
-      setProfile(result.user);
-      setAvatarFile(null);
-      setAvatarPreview(null);
-      setAvatarSuccess(result.message);
-    } catch (error: unknown) {
-      setAvatarError(getErrorMessage(error, 'Unable to upload your profile picture.'));
-    } finally {
-      setIsAvatarSaving(false);
-    }
+    void (async () => {
+      setIsAvatarSaving(true);
+      try {
+        const result = await uploadProfileAvatar(file);
+        setAvatarSuccess(result.message || 'Profile photo updated.');
+      } catch (uploadError) {
+        setAvatarError(getErrorMessage(uploadError));
+      } finally {
+        setIsAvatarSaving(false);
+      }
+    })();
   };
 
   const removeAvatar = async () => {
+    if (!window.confirm('Remove your profile photo?')) {
+      return;
+    }
     setIsAvatarSaving(true);
     setAvatarError(null);
     setAvatarSuccess(null);
     try {
-      const result = await removeProfileAvatar();
-      setProfile(result.user);
-      setAvatarFile(null);
-      setAvatarPreview(null);
-      setAvatarSuccess(result.message);
-    } catch (error: unknown) {
-      setAvatarError(getErrorMessage(error, 'Unable to remove your profile picture.'));
+      const result = await removeAvatarRemote();
+      setAvatarSuccess(result.message || 'Profile photo removed.');
+    } catch (error) {
+      setAvatarError(getErrorMessage(error));
     } finally {
       setIsAvatarSaving(false);
     }
   };
 
-  const saveProfile = async (event: React.FormEvent) => {
+  const submitPassword = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!form) {
+    const error = validatePassword(passwordForm);
+    if (error) {
+      setPasswordError(error);
       return;
     }
-
-    const validationError = validate(form);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    const payload: UpdateProfileInput = {
-      name: `${form.firstName.trim()} ${form.lastName.trim()}`,
-      first_name: form.firstName.trim(),
-      last_name: form.lastName.trim(),
-      handle: form.handle.trim().toLowerCase(),
-      company: form.company.trim() || null,
-      job_title: form.jobTitle.trim(),
-      bio: form.bio.trim() || null,
-      website: form.website.trim() || null,
-      github_url: form.githubUrl.trim(),
-    };
-
-    setIsSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const result = await updatePersonalInfo(payload);
-      setProfile(result.user);
-      setForm(toForm(result.user));
-      setSuccess(result.message);
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Unable to save your profile.'));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const updatePasswordField = (field: keyof PasswordForm, value: string) => {
-    setPasswordForm((current) => ({ ...current, [field]: value }));
-    setPasswordError(null);
-    setPasswordSuccess(null);
-  };
-
-  const changePassword = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const validationError = validatePasswordForm(passwordForm);
-    if (validationError) {
-      setPasswordError(validationError);
-      return;
-    }
-
-    setIsChangingPassword(true);
+    setIsPasswordSaving(true);
     setPasswordError(null);
     setPasswordSuccess(null);
     try {
-      const result = await changeProfilePassword(passwordForm.currentPassword, passwordForm.newPassword);
-      setPasswordForm(EMPTY_PASSWORD_FORM);
-      setPasswordSuccess(result.message);
-    } catch (err: unknown) {
-      setPasswordError(getErrorMessage(err, 'Unable to change your password.'));
+      const result = await changeProfilePassword(passwordForm.current, passwordForm.next);
+      setPasswordSuccess(result.message || 'Password changed successfully.');
+      setPasswordForm({ current: '', next: '', confirm: '' });
+    } catch (changeError) {
+      setPasswordError(getErrorMessage(changeError));
     } finally {
-      setIsChangingPassword(false);
+      setIsPasswordSaving(false);
     }
   };
 
-  const updatePreferences = (changes: Partial<UserPreferences>) => {
-    setPreferences((current) => current ? { ...current, ...changes } : current);
-    if (changes.theme) {
-      applyTheme(changes.theme);
-    }
-    setPreferencesError(null);
-    setPreferencesSuccess(null);
-  };
+  const updatePreferences = (patch: Partial<UserPreferences>) =>
+    setPreferences((current) => ({ ...current, ...patch }));
+
+  const hasUnsavedPreferenceChanges = useMemo(
+    () =>
+      profile
+        ? JSON.stringify(preferences) !== JSON.stringify(normalizePreferences(profile.preferences))
+        : false,
+    [preferences, profile],
+  );
 
   const resetPreferences = () => {
-    const defaults = clonePreferences(DEFAULT_PREFERENCES);
-    setPreferences(defaults);
-    applyTheme(defaults.theme);
+    setPreferences(normalizePreferences(profile?.preferences));
     setPreferencesError(null);
-    setPreferencesSuccess(null);
   };
 
-  const hasUnsavedPreferenceChanges = !preferencesMatch(preferences, savedPreferences);
-
-  const requestPreferencesSave = () => {
-    preferencesSaveRequestedRef.current = true;
-  };
-
-  const savePreferences = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!preferencesSaveRequestedRef.current || !preferences) return;
-    preferencesSaveRequestedRef.current = false;
+  const savePreferences = async () => {
     setIsSavingPreferences(true);
     setPreferencesError(null);
-    setPreferencesSuccess(null);
     try {
-      const result = await updateProfilePreferences(preferences as UpdatePreferencesInput);
-      setProfile(result.user);
-      const saved = clonePreferences(result.user.preferences);
-      setPreferences(saved);
-      setSavedPreferences(saved);
-      setPreferencesSuccess(result.message);
-    } catch (err: unknown) {
-      setPreferencesError(getErrorMessage(err, 'Unable to save preferences.'));
+      const payload: UpdatePreferencesInput = JSON.parse(
+        JSON.stringify(preferences),
+      ) as UpdatePreferencesInput;
+      await updateProfilePreferences(payload);
+    } catch (error) {
+      setPreferencesError(getErrorMessage(error));
     } finally {
       setIsSavingPreferences(false);
     }
   };
 
-  const createApiKey = async (event: React.FormEvent) => {
+  const confirmDeactivation = async (event: React.FormEvent) => {
     event.preventDefault();
-    const name = newKeyName.trim();
-    if (!name || name.length > 100) {
-      setApiKeysError('API key name must be between 1 and 100 characters.');
+    if (!deactivatePassword) {
+      setDeactivationError('Enter your password to confirm.');
       return;
     }
-
-    setIsCreatingKey(true);
-    setApiKeysError(null);
-    setApiKeysSuccess(null);
+    setIsDeactivating(true);
+    setDeactivationError(null);
     try {
-      const result = await profileApi.createApiKey(name);
+      await deactivateAccount(deactivatePassword);
+    } catch (error) {
+      setDeactivationError(getErrorMessage(error));
+      setIsDeactivating(false);
+    }
+  };
+
+  const submitCreateKey = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newKeyName.trim()) {
+      setCreateKeyError('Give this key a memorable name.');
+      return;
+    }
+    setIsCreatingKey(true);
+    setCreateKeyError(null);
+    try {
+      const result = await profileApi.createApiKey(newKeyName.trim());
       setApiKeys((current) => [result.apiKey, ...current]);
-      setNewKeyName('');
-      setIsCreateKeyOpen(false);
       setOneTimeSecret(result.secret);
-      setIsSecretCopied(false);
-      setApiKeysSuccess(result.message);
-    } catch (err: unknown) {
-      setApiKeysError(getErrorMessage(err, 'Unable to create API key.'));
+      setCopiedSecret(false);
+      setNewKeyName('');
+    } catch (error) {
+      setCreateKeyError(getErrorMessage(error));
     } finally {
       setIsCreatingKey(false);
     }
   };
 
-  const revokeApiKey = async () => {
-    const key = keyPendingRevocation;
-    if (!key) return;
-    setRevokingKeyId(key.id);
-    setApiKeysError(null);
-    setApiKeysSuccess(null);
+  const confirmRevokeKey = async () => {
+    if (!revokeTarget) {
+      return;
+    }
+    setIsRevokingKey(true);
     try {
-      const result = await profileApi.revokeApiKey(key.id);
-      setApiKeys((current) => current.map((item) => item.id === key.id ? result.apiKey : item));
-      setApiKeysSuccess(result.message);
-      setKeyPendingRevocation(null);
-    } catch (err: unknown) {
-      setApiKeysError(getErrorMessage(err, 'Unable to revoke API key.'));
+      const result = await profileApi.revokeApiKey(revokeTarget.id);
+      setApiKeys((current) =>
+        current.map((key) => (key.id === revokeTarget.id ? result.apiKey : key)),
+      );
+      setRevokeTarget(null);
+    } catch (error) {
+      setKeysError(getErrorMessage(error));
+      setRevokeTarget(null);
     } finally {
-      setRevokingKeyId(null);
+      setIsRevokingKey(false);
+    }
+  };
+
+  const revokeSession = async (sessionId: string) => {
+    setRevokingSessionId(sessionId);
+    setSecurityError(null);
+    try {
+      const result = await profileApi.revokeSecuritySession(sessionId);
+      if (result.revokedCurrent) {
+        return; // Session revoked; the app will sign out on the next request.
+      }
+      setSessions((current) => current.filter((session) => session.id !== sessionId));
+    } catch (error) {
+      setSecurityError(getErrorMessage(error));
+    } finally {
+      setRevokingSessionId(null);
+    }
+  };
+
+  const revokeOtherSessions = async () => {
+    setIsLoadingSecurity(true);
+    setSecurityError(null);
+    try {
+      await profileApi.revokeOtherSecuritySessions();
+      const { sessions: list } = await profileApi.listSecuritySessions();
+      setSessions(list);
+    } catch (error) {
+      setSecurityError(getErrorMessage(error));
+    } finally {
+      setIsLoadingSecurity(false);
+    }
+  };
+
+  const startTotpSetup = async () => {
+    setIsTotpBusy(true);
+    setTotpError(null);
+    try {
+      const result = await profileApi.startTotpSetup();
+      setTotpSecret(result.secret);
+      setTotpUri(result.qrCodeDataUrl);
+      setTotpCode('');
+      setTotpOpen(true);
+    } catch (error) {
+      setTotpError(getErrorMessage(error));
+    } finally {
+      setIsTotpBusy(false);
+    }
+  };
+
+  const confirmTotpSetup = async (code?: string) => {
+    const value = (code ?? totpCode).trim();
+    if (value.length !== 6) {
+      setTotpError('Enter the 6-digit code from your authenticator app.');
+      return;
+    }
+    setIsTotpBusy(true);
+    setTotpError(null);
+    try {
+      await profileApi.confirmTotpSetup(value);
+      setTotpOpen(false);
+      setTotpSecret('');
+      setTotpUri('');
+      setTotpCode('');
+      await refreshProfile();
+    } catch (error) {
+      setTotpError(getErrorMessage(error));
+    } finally {
+      setIsTotpBusy(false);
+    }
+  };
+
+  const disableTwoFactor = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!totpDisablePassword || totpCode.trim().length !== 6) {
+      setTotpError('Enter your password and the current 6-digit code to disable 2FA.');
+      return;
+    }
+    setIsDisablingTotp(true);
+    setTotpError(null);
+    try {
+      await profileApi.disableTotp(totpDisablePassword, totpCode.trim());
+      setTotpDisableOpen(false);
+      setTotpDisablePassword('');
+      setTotpCode('');
+      await refreshProfile();
+    } catch (error) {
+      setTotpError(getErrorMessage(error));
+    } finally {
+      setIsDisablingTotp(false);
     }
   };
 
   const copyOneTimeSecret = async () => {
-    if (!oneTimeSecret) return;
+    if (!oneTimeSecret) {
+      return;
+    }
     try {
       await navigator.clipboard.writeText(oneTimeSecret);
-      setIsSecretCopied(true);
+      setCopiedSecret(true);
+      setTimeout(() => setCopiedSecret(false), 2400);
     } catch {
-      setApiKeysError('Unable to copy the API key. Please copy it manually before closing this dialog.');
+      /* clipboard unavailable */
     }
   };
 
-  const closeDeactivation = () => {
-    if (isDeactivating) return;
-    setDeactivationStep('idle');
-    setDeactivationPassword('');
-    setDeactivationPhrase('');
-    setDeactivationError(null);
-  };
-
-  const deactivate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!deactivationPassword || deactivationPhrase !== 'DEACTIVATE') return;
-    setIsDeactivating(true);
-    setDeactivationError(null);
-    try {
-      const result = await deactivateAccount(deactivationPassword);
-      setDeactivationSuccess(result.message);
-      setDeactivationPassword('');
-    } catch (err: unknown) {
-      setDeactivationError(getErrorMessage(err, 'Unable to deactivate your account.'));
-    } finally {
-      setIsDeactivating(false);
-    }
-  };
-
-  if (isAuthLoading || isLoading) {
-    return (
-      <div className="profile-state" role="status">
-        <Loader2 className="profile-spinner" size={22} /> Loading your profile…
-      </div>
-    );
-  }
-
-  if (profileLoadError) {
-    return (
-      <div className="profile-state profile-error-state" role="alert">
-        <AlertCircle size={22} />
-        <div><strong>Unable to load your profile</strong><p>{profileLoadError}</p></div>
-        <button type="button" className="profile-secondary-btn" onClick={() => void loadProfile()} disabled={isLoading}>Retry</button>
-      </div>
-    );
-  }
-
-  if (!profile || !form) {
+  if (isAuthLoading && !profile) {
     return (
       <div className="profile-state">
-        <AlertCircle size={22} /> Sign in to view your profile.
+        <Loader2 className="profile-spinner" size={20} /> Loading your profile…
       </div>
     );
   }
 
-  const activeSection = SECTIONS.find((item) => item.id === section)!;
+  if (!profile) {
+    return (
+      <div className="profile-state">
+        <Lock size={18} /> Sign in to view and manage your profile.
+      </div>
+    );
+  }
+
+  const earnedCount = achievements.filter((achievement) => achievement.earned).length;
 
   return (
     <div className="profile-page">
-      <section className="profile-hero">
-        <div className="profile-hero-glow" />
-        <div className="profile-avatar" aria-label={`${profile.name}'s avatar`}>
-          {profile.avatar_url ? <img src={profile.avatar_url} alt="" /> : initials(profile.name)}
-        </div>
-        <div className="profile-hero-content">
-          <div className="profile-title-row">
-            <h1>{profile.name}</h1>
-            {profile.email_verified_at && <BadgeCheck size={18} aria-label="Email verified" />}
+      <header className="profile-header">
+        <div className="profile-header-top">
+          <div className="profile-avatar-wrap">
+            <div className="profile-avatar-xl">
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt={`${profile.name} avatar`} />
+              ) : (
+                <span>{initials(profile.name)}</span>
+              )}
+              {isAvatarSaving && (
+                <span className="profile-avatar-busy">
+                  <Loader2 className="profile-spinner" size={18} />
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              className="profile-avatar-fab"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isAvatarSaving}
+              aria-label="Change profile photo"
+              title="Change profile photo"
+            >
+              <Camera size={14} />
+            </button>
+            {profile.avatar_url && (
+              <button
+                type="button"
+                className="profile-avatar-fab remove"
+                onClick={() => void removeAvatar()}
+                disabled={isAvatarSaving}
+                aria-label="Remove profile photo"
+                title="Remove profile photo"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              hidden
+              onChange={selectAvatar}
+            />
           </div>
-          <p className="profile-role">{profile.role}</p>
-          {profile.company && (
-            <p className="profile-company">
-              <Building2 size={15} /> {profile.company}
-            </p>
-          )}
-        </div>
-      </section>
 
-      <section className="profile-avatar-editor" aria-labelledby="profile-picture-title">
-        <div className="profile-avatar-preview" aria-label="Profile picture preview">
-          {avatarPreview || profile.avatar_url ? (
-            <img src={avatarPreview || profile.avatar_url || ''} alt="Profile preview" />
-          ) : (
-            initials(profile.name)
-          )}
-        </div>
-        <div className="profile-avatar-copy">
-          <h2 id="profile-picture-title">Profile picture</h2>
-          <p>PNG, JPG, or WebP. Maximum file size 3 MB.</p>
-          {avatarFile && <span className="profile-avatar-file">Ready to upload: {avatarFile.name}</span>}
-          {avatarError && (
-            <div className="profile-avatar-message error">
-              <AlertCircle size={15} /> {avatarError}
+          <div className="profile-identity">
+            <div className="profile-name-line">
+              <h1>{profile.name}</h1>
+              {profile.email_verified_at ? (
+                <span className="profile-verified" title="Email verified">
+                  <BadgeCheck size={17} />
+                </span>
+              ) : null}
+              <span className="profile-role-chip">
+                {profile.role === 'ADMIN'
+                  ? 'Admin'
+                  : profile.role === 'MODERATOR'
+                  ? 'Moderator'
+                  : 'Member'}
+              </span>
             </div>
-          )}
-          {avatarSuccess && (
-            <div className="profile-avatar-message success">
-              <CheckCircle2 size={15} /> {avatarSuccess}
+            <p className="profile-handle-line">
+              {profile.handle ? <span>@{profile.handle}</span> : null}
+              {profile.handle && profile.job_title ? <span className="feed-dot">·</span> : null}
+              {profile.job_title ? <span>{profile.job_title}</span> : null}
+            </p>
+            <p className="profile-bio-line">
+              {profile.bio || 'No bio yet — add one from Edit profile.'}
+            </p>
+            <div className="profile-meta-row">
+              {profile.company ? (
+                <span className="profile-meta-chip">
+                  <Building2 size={13} /> {profile.company}
+                </span>
+              ) : null}
+              {profile.website ? (
+                <a
+                  className="profile-meta-chip link"
+                  href={profile.website}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Globe2 size={13} /> {safeHost(profile.website)}
+                </a>
+              ) : null}
+              {profile.github_url ? (
+                <a
+                  className="profile-meta-chip link"
+                  href={profile.github_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Github size={13} /> {githubHandle(profile.github_url)}
+                </a>
+              ) : null}
+              <span className="profile-meta-chip">
+                <CalendarDays size={13} /> Joined {formatDate(profile.created_at)}
+              </span>
             </div>
-          )}
-        </div>
-        <div className="profile-avatar-actions">
-          <input
-            ref={avatarInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={selectAvatar}
-            hidden
-          />
-          <button
-            type="button"
-            className="profile-secondary-btn"
-            onClick={() => avatarInputRef.current?.click()}
-            disabled={isAvatarSaving}
-          >
-            <Upload size={16} /> Choose image
-          </button>
-          {avatarFile && (
+          </div>
+
+          <div className="profile-header-actions">
             <button
               type="button"
               className="profile-primary-btn"
-              onClick={uploadAvatar}
-              disabled={isAvatarSaving}
-            >
-              {isAvatarSaving ? <Loader2 className="profile-spinner" size={16} /> : <Upload size={16} />}
-              Upload
-            </button>
-          )}
-          {profile.avatar_url && !avatarFile && (
-            <button
-              type="button"
-              className="profile-danger-btn"
-              onClick={removeAvatar}
-              disabled={isAvatarSaving}
-            >
-              {isAvatarSaving ? <Loader2 className="profile-spinner" size={16} /> : <Trash2 size={16} />}
-              Remove
-            </button>
-          )}
-        </div>
-      </section>
-
-      <div className="profile-layout">
-        <nav className="profile-nav" aria-label="Profile settings">
-          {SECTIONS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={section === item.id ? 'active' : ''}
               onClick={() => {
-                setSection(item.id);
-                setError(null);
-                setSuccess(null);
+                setTab('settings');
+                setSection('general');
               }}
             >
-              {item.icon}
-              <span>{item.label}</span>
+              <Pencil size={15} /> Edit profile
             </button>
-          ))}
-        </nav>
+            <button
+              type="button"
+              className="profile-icon-btn"
+              onClick={() => setTab('settings')}
+              aria-label="Profile settings"
+              title="Profile settings"
+            >
+              <Settings size={16} />
+            </button>
+          </div>
+        </div>
 
-        <section className="profile-panel" aria-labelledby="profile-section-title">
-          {section === 'connections' ? (
-            <>
-              <header className="profile-panel-header profile-keys-header">
-                <div>
-                  <p className="profile-eyebrow">CREDENTIALS</p>
-                  <h2 id="profile-section-title">Connected Accounts &amp; API Keys</h2>
-                  <p>Manage developer credentials and available account integrations.</p>
+        {(avatarError || avatarSuccess) && (
+          <p className={`profile-avatar-status ${avatarError ? 'error' : 'success'}`}>
+            {avatarError ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}{' '}
+            {avatarError || avatarSuccess}
+          </p>
+        )}
+
+        <div className="profile-stats">
+          <div className="profile-stat">
+            <strong>{projectsLoading && projects.length === 0 ? '—' : projects.length}</strong>
+            <span>Projects</span>
+          </div>
+          <div className="profile-stat">
+            <strong>
+              {projectsLoading && contributions.length === 0 ? '—' : contributions.length}
+            </strong>
+            <span>Contributions</span>
+          </div>
+          <div className="profile-stat">
+            <strong>
+              {earnedCount}
+              <em>/{achievements.length}</em>
+            </strong>
+            <span>Pro stickers</span>
+          </div>
+          <div className="profile-stat">
+            <strong className={profile.two_factor_enabled ? 'ok' : 'warn'}>
+              {profile.two_factor_enabled ? 'On' : 'Off'}
+            </strong>
+            <span>Two-factor</span>
+          </div>
+        </div>
+      </header>
+
+      <nav className="profile-tabs" role="tablist" aria-label="Profile sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'overview'}
+          className={tab === 'overview' ? 'active' : ''}
+          onClick={() => setTab('overview')}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'projects'}
+          className={tab === 'projects' ? 'active' : ''}
+          onClick={() => setTab('projects')}
+        >
+          Projects
+          {projects.length > 0 ? (
+            <span className="profile-tab-count">{projects.length}</span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'settings'}
+          className={tab === 'settings' ? 'active' : ''}
+          onClick={() => setTab('settings')}
+        >
+          Settings
+        </button>
+      </nav>
+
+      {tab === 'overview' ? (
+        <div className="profile-overview">
+          <section className="profile-card">
+            <header className="profile-card-head">
+              <div>
+                <p className="profile-eyebrow">ACHIEVEMENTS</p>
+                <h2>Pro stickers</h2>
+                <p className="profile-card-sub">Milestones earned across your Klyra workspace.</p>
+              </div>
+              <span className="profile-card-badge">{earnedCount} earned</span>
+            </header>
+            <StickerGrid achievements={achievements} />
+          </section>
+
+          <section className="profile-card">
+            <header className="profile-card-head">
+              <div>
+                <p className="profile-eyebrow">ACTIVITY</p>
+                <h2>Contribution activity</h2>
+                <p className="profile-card-sub">
+                  Deploys, versions and publishes across your projects.
+                </p>
+              </div>
+            </header>
+            <ContributionGraph contributions={contributions} loading={projectsLoading} />
+          </section>
+
+          <section className="profile-card">
+            <header className="profile-card-head">
+              <div>
+                <p className="profile-eyebrow">HISTORY</p>
+                <h2>Contributions</h2>
+                <p className="profile-card-sub">
+                  Latest commits and events from your API projects.
+                </p>
+              </div>
+            </header>
+            <ContributionsFeed contributions={contributions} loading={projectsLoading} />
+          </section>
+        </div>
+      ) : tab === 'projects' ? (
+        <section className="profile-card">
+          <header className="profile-card-head">
+            <div>
+              <p className="profile-eyebrow">PORTFOLIO</p>
+              <h2>Your projects</h2>
+              <p className="profile-card-sub">
+                API projects you own with their contribution counts.
+              </p>
+            </div>
+            <span className="profile-card-badge">{projects.length} total</span>
+          </header>
+          <ProjectsList
+            projects={projects}
+            activityCounts={activityCounts}
+            loading={projectsLoading}
+            error={projectsError}
+            onRetry={() => void loadProjects()}
+          />
+        </section>
+      ) : (
+        <div className="settings-layout">
+          <nav className="profile-nav" aria-label="Settings sections">
+            {SECTIONS.map(({ id, label, icon }) => (
+              <button
+                key={id}
+                type="button"
+                className={section === id ? 'active' : ''}
+                onClick={() => setSection(id)}
+                aria-current={section === id ? 'true' : undefined}
+              >
+                {icon}
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="profile-panel">
+            {section === 'general' ? (
+              <>
+                <header className="profile-panel-header">
+                  <div>
+                    <p className="profile-eyebrow">PROFILE</p>
+                    <h2 id="profile-section-title">General & Personal Info</h2>
+                    <p>
+                      Click the edit icon on any row to update it — each change saves individually.
+                    </p>
+                  </div>
+                </header>
+                {success ? (
+                  <div className="profile-message success">
+                    <CheckCircle2 size={16} /> {success}
+                  </div>
+                ) : null}
+                <div className="profile-rows">
+                  <EditableRow
+                    icon={<UserRound size={16} />}
+                    label="Full name"
+                    editing={editingField === 'name'}
+                    busy={isSaving}
+                    error={editingField === 'name' ? fieldError : null}
+                    onEdit={() => beginEdit('name')}
+                    onCancel={cancelEdit}
+                    onSave={() => void saveField('name')}
+                    value={
+                      <span>
+                        {profile.first_name} {profile.last_name}
+                      </span>
+                    }
+                  >
+                    <div className="profile-field-pair">
+                      <input
+                        className="profile-input"
+                        value={editDraft.firstName}
+                        onChange={(event) => patchDraft({ firstName: event.target.value })}
+                        placeholder="First name"
+                        maxLength={50}
+                        autoFocus
+                      />
+                      <input
+                        className="profile-input"
+                        value={editDraft.lastName}
+                        onChange={(event) => patchDraft({ lastName: event.target.value })}
+                        placeholder="Last name"
+                        maxLength={50}
+                      />
+                    </div>
+                  </EditableRow>
+
+                  <EditableRow
+                    icon={<AtSign size={16} />}
+                    label="Username"
+                    hint="how teammates find you"
+                    editing={editingField === 'handle'}
+                    busy={isSaving}
+                    error={editingField === 'handle' ? fieldError : null}
+                    onEdit={() => beginEdit('handle')}
+                    onCancel={cancelEdit}
+                    onSave={() => void saveField('handle')}
+                    value={
+                      profile.handle ? (
+                        <span>@{profile.handle}</span>
+                      ) : (
+                        <span className="profile-value-empty">Not set</span>
+                      )
+                    }
+                  >
+                    <input
+                      className="profile-input"
+                      value={editDraft.handle}
+                      onChange={(event) => patchDraft({ handle: event.target.value })}
+                      placeholder="e.g. ada_lovelace"
+                      maxLength={30}
+                      autoFocus
+                    />
+                  </EditableRow>
+
+                  <EditableRow
+                    icon={<Briefcase size={16} />}
+                    label="Job title"
+                    editing={editingField === 'jobTitle'}
+                    busy={isSaving}
+                    error={editingField === 'jobTitle' ? fieldError : null}
+                    onEdit={() => beginEdit('jobTitle')}
+                    onCancel={cancelEdit}
+                    onSave={() => void saveField('jobTitle')}
+                    value={
+                      profile.job_title ? (
+                        <span>{profile.job_title}</span>
+                      ) : (
+                        <span className="profile-value-empty">Not set</span>
+                      )
+                    }
+                  >
+                    <input
+                      className="profile-input"
+                      value={editDraft.jobTitle}
+                      onChange={(event) => patchDraft({ jobTitle: event.target.value })}
+                      placeholder="e.g. Platform Engineer"
+                      maxLength={100}
+                      autoFocus
+                    />
+                  </EditableRow>
+
+                  <EditableRow
+                    icon={<Building2 size={16} />}
+                    label="Organization"
+                    editing={editingField === 'company'}
+                    busy={isSaving}
+                    error={editingField === 'company' ? fieldError : null}
+                    onEdit={() => beginEdit('company')}
+                    onCancel={cancelEdit}
+                    onSave={() => void saveField('company')}
+                    value={
+                      profile.company ? (
+                        <span>{profile.company}</span>
+                      ) : (
+                        <span className="profile-value-empty">Not set</span>
+                      )
+                    }
+                  >
+                    <input
+                      className="profile-input"
+                      value={editDraft.company}
+                      onChange={(event) => patchDraft({ company: event.target.value })}
+                      placeholder="Where do you work?"
+                      maxLength={255}
+                      autoFocus
+                    />
+                  </EditableRow>
+
+                  <EditableRow
+                    icon={<Globe2 size={16} />}
+                    label="Website"
+                    hint="https only"
+                    editing={editingField === 'website'}
+                    busy={isSaving}
+                    error={editingField === 'website' ? fieldError : null}
+                    onEdit={() => beginEdit('website')}
+                    onCancel={cancelEdit}
+                    onSave={() => void saveField('website')}
+                    value={
+                      profile.website ? (
+                        <a href={profile.website} target="_blank" rel="noreferrer">
+                          {safeHost(profile.website)}
+                        </a>
+                      ) : (
+                        <span className="profile-value-empty">Not set</span>
+                      )
+                    }
+                  >
+                    <input
+                      className="profile-input"
+                      value={editDraft.website}
+                      onChange={(event) => patchDraft({ website: event.target.value })}
+                      placeholder="https://yoursite.dev"
+                      autoFocus
+                    />
+                  </EditableRow>
+
+                  <EditableRow
+                    icon={<Github size={16} />}
+                    label="GitHub"
+                    editing={editingField === 'githubUrl'}
+                    busy={isSaving}
+                    error={editingField === 'githubUrl' ? fieldError : null}
+                    onEdit={() => beginEdit('githubUrl')}
+                    onCancel={cancelEdit}
+                    onSave={() => void saveField('githubUrl')}
+                    value={
+                      profile.github_url ? (
+                        <a href={profile.github_url} target="_blank" rel="noreferrer">
+                          {profile.github_url.replace(/^https?:\/\/(www\.)?github\.com\//i, '@')}
+                        </a>
+                      ) : (
+                        <span className="profile-value-empty">Not set</span>
+                      )
+                    }
+                  >
+                    <input
+                      className="profile-input"
+                      value={editDraft.githubUrl}
+                      onChange={(event) => patchDraft({ githubUrl: event.target.value })}
+                      placeholder="https://github.com/username"
+                      autoFocus
+                    />
+                  </EditableRow>
+
+                  <EditableRow
+                    icon={<AlignLeft size={16} />}
+                    label="Bio"
+                    hint={`${editDraft.bio.length}/250`}
+                    editing={editingField === 'bio'}
+                    busy={isSaving}
+                    error={editingField === 'bio' ? fieldError : null}
+                    onEdit={() => beginEdit('bio')}
+                    onCancel={cancelEdit}
+                    onSave={() => void saveField('bio')}
+                    value={
+                      profile.bio ? (
+                        <span>{profile.bio}</span>
+                      ) : (
+                        <span className="profile-value-empty">Not set</span>
+                      )
+                    }
+                  >
+                    <textarea
+                      className="profile-input profile-textarea"
+                      value={editDraft.bio}
+                      onChange={(event) => patchDraft({ bio: event.target.value })}
+                      placeholder="Tell the marketplace what you build."
+                      maxLength={250}
+                      rows={3}
+                      autoFocus
+                    />
+                  </EditableRow>
+
+                  <EditableRow
+                    icon={<Mail size={16} />}
+                    label="Email"
+                    readOnly
+                    readOnlyNote="Contact support to change the email on your account."
+                    editing={false}
+                    onEdit={() => undefined}
+                    onCancel={() => undefined}
+                    onSave={() => undefined}
+                    value={
+                      <span>
+                        {profile.email}
+                        {profile.email_verified_at ? (
+                          <em className="profile-value-note">verified</em>
+                        ) : (
+                          <em className="profile-value-note pending">unverified</em>
+                        )}
+                      </span>
+                    }
+                  />
                 </div>
-                <button type="button" className="profile-primary-btn" onClick={() => { setIsCreateKeyOpen(true); setApiKeysError(null); }} disabled={isApiKeysLoading || isCreatingKey}>
-                  <KeyRound size={17} /> Create API key
-                </button>
-              </header>
+              </>
+            ) : section === 'security' ? (
+              <>
+                <header className="profile-panel-header">
+                  <div>
+                    <p className="profile-eyebrow">SECURITY</p>
+                    <h2 id="profile-section-title">Security & Access</h2>
+                    <p>Password, two-factor authentication and active sessions.</p>
+                  </div>
+                </header>
+                {securityError ? (
+                  <div className="profile-message error">
+                    <AlertCircle size={16} /> {securityError}
+                  </div>
+                ) : null}
+                {passwordSuccess ? (
+                  <div className="profile-message success">
+                    <CheckCircle2 size={16} /> {passwordSuccess}
+                  </div>
+                ) : null}
 
-              {apiKeysError && <div className="profile-message error" role="alert"><AlertCircle size={17} /> {apiKeysError}</div>}
-              {apiKeysSuccess && <div className="profile-message success"><CheckCircle2 size={17} /> {apiKeysSuccess}</div>}
-
-              <div className="profile-keys-section">
-                <div className="profile-section-heading">
-                  <div><h3>API Keys</h3><p>Secrets are shown only once, when a key is created.</p></div>
-                </div>
-                {isApiKeysLoading ? (
-                  <div className="profile-inline-state" role="status"><Loader2 className="profile-spinner" size={18} /> Loading API keys…</div>
-                ) : apiKeys.length === 0 ? (
-                  <div className="profile-empty-state"><KeyRound size={22} /><strong>No API keys yet</strong><span>Create a key when you need a developer credential.</span></div>
-                ) : (
-                  <div className="profile-api-key-list">
-                    {apiKeys.map((key) => (
-                      <div key={key.id} className="profile-api-key-row">
-                        <div className="profile-api-key-main">
-                          <strong>{key.name}</strong>
-                          <code>{key.keyPrefix}••••••••</code>
-                          <span>Created {formatDate(key.createdAt)}</span>
-                          {key.revokedAt && <span>Revoked {formatDate(key.revokedAt)}</span>}
-                        </div>
-                        <div className="profile-api-key-actions">
-                          <span className={`profile-key-status ${key.status.toLowerCase()}`}>{key.status}</span>
-                          {key.status === 'ACTIVE' && (
-                            <button type="button" className="profile-danger-btn" onClick={() => setKeyPendingRevocation(key)} disabled={revokingKeyId === key.id}>
-                              <Trash2 size={15} /> Revoke
-                            </button>
-                          )}
-                        </div>
+                <div className="profile-security-grid">
+                  <section
+                    className="profile-security-card"
+                    aria-labelledby="security-password-title"
+                  >
+                    <header className="profile-security-head">
+                      <div className="profile-security-icon">
+                        <Lock size={18} />
                       </div>
-                    ))}
+                      <h3 id="security-password-title">Password</h3>
+                    </header>
+                    <form className="profile-form" onSubmit={(event) => void submitPassword(event)}>
+                      <label className="profile-field">
+                        <span>Current password</span>
+                        <span className="profile-input-wrap">
+                          <input
+                            className="profile-input"
+                            type={showCurrentPassword ? 'text' : 'password'}
+                            value={passwordForm.current}
+                            onChange={(event) =>
+                              setPasswordForm((current) => ({
+                                ...current,
+                                current: event.target.value,
+                              }))
+                            }
+                            placeholder="Current password"
+                            autoComplete="current-password"
+                          />
+                          <button
+                            type="button"
+                            className="profile-input-toggle"
+                            onClick={() => setShowCurrentPassword((current) => !current)}
+                            aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
+                          >
+                            {showCurrentPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        </span>
+                      </label>
+                      <label className="profile-field">
+                        <span>New password</span>
+                        <span className="profile-input-wrap">
+                          <input
+                            className="profile-input"
+                            type={showNewPassword ? 'text' : 'password'}
+                            value={passwordForm.next}
+                            onChange={(event) =>
+                              setPasswordForm((current) => ({
+                                ...current,
+                                next: event.target.value,
+                              }))
+                            }
+                            placeholder="At least 10 characters"
+                            autoComplete="new-password"
+                          />
+                          <button
+                            type="button"
+                            className="profile-input-toggle"
+                            onClick={() => setShowNewPassword((current) => !current)}
+                            aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                          >
+                            {showNewPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        </span>
+                      </label>
+                      <label className="profile-field">
+                        <span>Confirm new password</span>
+                        <input
+                          className="profile-input"
+                          type={showNewPassword ? 'text' : 'password'}
+                          value={passwordForm.confirm}
+                          onChange={(event) =>
+                            setPasswordForm((current) => ({
+                              ...current,
+                              confirm: event.target.value,
+                            }))
+                          }
+                          placeholder="Re-enter the new password"
+                          autoComplete="new-password"
+                        />
+                      </label>
+                      {passwordError ? (
+                        <p className="profile-form-error">
+                          <AlertCircle size={14} /> {passwordError}
+                        </p>
+                      ) : null}
+                      <div className="profile-form-actions">
+                        <button
+                          type="submit"
+                          className="profile-primary-btn"
+                          disabled={isPasswordSaving}
+                        >
+                          {isPasswordSaving ? (
+                            <Loader2 className="profile-spinner" size={16} />
+                          ) : (
+                            <Save size={16} />
+                          )}
+                          {isPasswordSaving ? 'Saving…' : 'Update password'}
+                        </button>
+                      </div>
+                    </form>
+                  </section>
+
+                  <section className="profile-security-card" aria-labelledby="security-2fa-title">
+                    <header className="profile-security-head">
+                      <div className="profile-security-icon">
+                        <Smartphone size={18} />
+                      </div>
+                      <h3 id="security-2fa-title">Two-factor authentication</h3>
+                    </header>
+                    <p className="profile-security-desc">
+                      Protects your account with a one-time code from an authenticator app on top of
+                      your password.
+                    </p>
+                    <div className="profile-2fa-status">
+                      <span className={profile.two_factor_enabled ? 'on' : 'off'}>
+                        {profile.two_factor_enabled ? (
+                          <ShieldCheck size={16} />
+                        ) : (
+                          <ShieldOff size={16} />
+                        )}
+                        {profile.two_factor_enabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                    {profile.two_factor_enabled ? (
+                      <div className="profile-2fa-actions">
+                        <button
+                          type="button"
+                          className="profile-secondary-btn"
+                          onClick={() => setTotpDisableOpen((current) => !current)}
+                          disabled={isDisablingTotp}
+                        >
+                          {isDisablingTotp ? (
+                            <Loader2 className="profile-spinner" size={15} />
+                          ) : (
+                            <ShieldOff size={15} />
+                          )}
+                          Disable 2FA
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="profile-primary-btn"
+                        onClick={() => void startTotpSetup()}
+                        disabled={isTotpBusy}
+                      >
+                        {isTotpBusy ? (
+                          <Loader2 className="profile-spinner" size={15} />
+                        ) : (
+                          <Smartphone size={15} />
+                        )}
+                        Enable 2FA
+                      </button>
+                    )}
+                    {totpDisableOpen && (
+                      <form
+                        className="profile-inline-form"
+                        onSubmit={(event) => void disableTwoFactor(event)}
+                      >
+                        <input
+                          className="profile-input"
+                          type="password"
+                          value={totpDisablePassword}
+                          onChange={(event) => setTotpDisablePassword(event.target.value)}
+                          placeholder="Current password"
+                          autoComplete="current-password"
+                        />
+                        <input
+                          className="profile-input"
+                          value={totpCode}
+                          onChange={(event) =>
+                            setTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+                          }
+                          placeholder="6-digit code"
+                          inputMode="numeric"
+                        />
+                        {totpError ? (
+                          <p className="profile-form-error">
+                            <AlertCircle size={14} /> {totpError}
+                          </p>
+                        ) : null}
+                        <div className="profile-form-actions">
+                          <button
+                            type="button"
+                            className="profile-secondary-btn"
+                            onClick={() => {
+                              setTotpDisableOpen(false);
+                              setTotpDisablePassword('');
+                              setTotpCode('');
+                              setTotpError(null);
+                            }}
+                            disabled={isDisablingTotp}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="profile-danger-btn"
+                            disabled={isDisablingTotp}
+                          >
+                            {isDisablingTotp ? (
+                              <Loader2 className="profile-spinner" size={15} />
+                            ) : (
+                              <ShieldOff size={15} />
+                            )}
+                            Confirm disable
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </section>
+
+                  <section
+                    className="profile-security-card sessions"
+                    aria-labelledby="security-sessions-title"
+                  >
+                    <header className="profile-security-head">
+                      <div className="profile-security-icon">
+                        <Monitor size={18} />
+                      </div>
+                      <h3 id="security-sessions-title">Active sessions</h3>
+                      <button
+                        type="button"
+                        className="profile-secondary-btn"
+                        onClick={() => void revokeOtherSessions()}
+                        disabled={isLoadingSecurity}
+                      >
+                        {isLoadingSecurity ? (
+                          <Loader2 className="profile-spinner" size={14} />
+                        ) : (
+                          <LogOut size={14} />
+                        )}
+                        Sign out others
+                      </button>
+                    </header>
+                    {isLoadingSecurity && sessions.length === 0 ? (
+                      <div className="profile-security-loading">
+                        <Loader2 className="profile-spinner" size={16} /> Loading sessions…
+                      </div>
+                    ) : sessions.length === 0 ? (
+                      <p className="profile-security-empty">No active sessions found.</p>
+                    ) : (
+                      <div className="session-list">
+                        {sessions.map((session) => (
+                          <div key={session.id} className="session-row">
+                            <span
+                              className={`session-badge${session.is_current ? ' is-current' : ''}`}
+                            >
+                              {session.is_current ? <Chrome size={16} /> : <Monitor size={16} />}
+                            </span>
+                            <div className="session-copy">
+                              <p className="session-name">
+                                {session.device || session.browser || 'Device'}
+                                {session.is_current ? (
+                                  <em className="profile-value-note">this device</em>
+                                ) : null}
+                              </p>
+                              <p className="session-meta">
+                                {[session.browser, session.os, session.ip]
+                                  .filter(Boolean)
+                                  .join(' · ') || 'Unknown client'}
+                                <span className="feed-dot">·</span>
+                                Last active {formatDateTime(session.last_active_at)}
+                              </p>
+                            </div>
+                            {!session.is_current && (
+                              <button
+                                type="button"
+                                className="profile-secondary-btn compact"
+                                onClick={() => void revokeSession(session.id)}
+                                disabled={revokingSessionId === session.id}
+                              >
+                                {revokingSessionId === session.id ? (
+                                  <Loader2 className="profile-spinner" size={14} />
+                                ) : (
+                                  <X size={14} />
+                                )}
+                                Revoke
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </>
+            ) : section === 'preferences' ? (
+              <form className="profile-preferences" onSubmit={(event) => event.preventDefault()}>
+                <header className="profile-panel-header">
+                  <div>
+                    <p className="profile-eyebrow">PREFERENCES</p>
+                    <h2 id="profile-section-title">Preferences & Notifications</h2>
+                    <p>Personalize how Klyra looks and communicates with you.</p>
                   </div>
-                )}
-              </div>
-
-              <div className="profile-keys-section">
-                <div className="profile-section-heading"><div><h3>Connected Accounts</h3><p>Third-party account linking requires OAuth configuration.</p></div></div>
-                <div className="profile-connected-grid">
-                  <div className="profile-connected-card"><Github size={22} /><div><h4>GitHub</h4><p>OAuth not configured</p></div><span>Unavailable</span></div>
-                  <div className="profile-connected-card"><Chrome size={22} /><div><h4>Google</h4><p>OAuth not configured</p></div><span>Unavailable</span></div>
-                </div>
-              </div>
-
-              {isCreateKeyOpen && (
-                <div className="profile-modal-backdrop" role="presentation">
-                  <form className="profile-key-modal" onSubmit={createApiKey} aria-labelledby="create-api-key-title">
-                    <button type="button" className="profile-modal-close" onClick={() => { setIsCreateKeyOpen(false); setNewKeyName(''); }} disabled={isCreatingKey} aria-label="Close"><X size={18} /></button>
-                    <h3 id="create-api-key-title">Create API key</h3>
-                    <p>Name this key so you can identify it later. The secret will be shown only once.</p>
-                    <div className="profile-field"><label htmlFor="new-api-key-name">Key name</label><input id="new-api-key-name" value={newKeyName} onChange={(event) => setNewKeyName(event.target.value)} maxLength={100} placeholder="e.g. Local development" autoFocus disabled={isCreatingKey} /></div>
-                    <div className="profile-modal-actions"><button type="button" className="profile-secondary-btn" onClick={() => { setIsCreateKeyOpen(false); setNewKeyName(''); }} disabled={isCreatingKey}>Cancel</button><button type="submit" className="profile-primary-btn" disabled={isCreatingKey}>{isCreatingKey ? <Loader2 className="profile-spinner" size={16} /> : <KeyRound size={16} />}{isCreatingKey ? 'Creating…' : 'Create key'}</button></div>
-                  </form>
-                </div>
-              )}
-
-              {oneTimeSecret && (
-                <div className="profile-modal-backdrop" role="presentation">
-                  <div className="profile-key-modal profile-secret-modal" role="dialog" aria-modal="true" aria-labelledby="api-key-secret-title">
-                    <button type="button" className="profile-modal-close" onClick={() => setOneTimeSecret(null)} aria-label="Close"><X size={18} /></button>
-                    <CheckCircle2 className="profile-secret-icon" size={25} />
-                    <h3 id="api-key-secret-title">Copy your API key now</h3>
-                    <p>This is the only time Klyra will show the complete secret. Store it securely before closing this dialog.</p>
-                    <code className="profile-secret-value">{oneTimeSecret}</code>
-                    <button type="button" className="profile-secondary-btn" onClick={() => void copyOneTimeSecret()}><Copy size={16} />{isSecretCopied ? 'Copied' : 'Copy key'}</button>
-                    <button type="button" className="profile-primary-btn" onClick={() => setOneTimeSecret(null)}>I stored this key</button>
+                </header>
+                {preferencesError ? (
+                  <div className="profile-message error">
+                    <AlertCircle size={16} /> {preferencesError}
                   </div>
-                </div>
-              )}
+                ) : null}
 
-              {keyPendingRevocation && (
-                <div className="profile-modal-backdrop" role="presentation">
-                  <div className="profile-key-modal" role="dialog" aria-modal="true" aria-labelledby="revoke-api-key-title">
-                    <button type="button" className="profile-modal-close" onClick={() => setKeyPendingRevocation(null)} disabled={Boolean(revokingKeyId)} aria-label="Close"><X size={18} /></button>
-                    <h3 id="revoke-api-key-title">Revoke API key?</h3>
-                    <p><strong>{keyPendingRevocation.name}</strong> will stop working immediately. This action cannot be undone.</p>
-                    <div className="profile-modal-actions"><button type="button" className="profile-secondary-btn" onClick={() => setKeyPendingRevocation(null)} disabled={Boolean(revokingKeyId)}>Cancel</button><button type="button" className="profile-danger-btn" onClick={() => void revokeApiKey()} disabled={Boolean(revokingKeyId)}>{revokingKeyId ? <Loader2 className="profile-spinner" size={16} /> : <Trash2 size={16} />}{revokingKeyId ? 'Revoking…' : 'Revoke key'}</button></div>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : section === 'preferences' && preferences ? (
-            <>
-              <header className="profile-panel-header">
-                <div><p className="profile-eyebrow">PREFERENCES</p><h2 id="profile-section-title">Preferences & Notifications</h2><p>Choose how Klyra looks and how it can contact you.</p></div>
-              </header>
-              <form className="profile-preferences-form" onSubmit={savePreferences} noValidate>
-                {preferencesError && <div className="profile-message error"><AlertCircle size={17} /> {preferencesError}</div>}
-                {preferencesSuccess && <div className="profile-message success"><CheckCircle2 size={17} /> {preferencesSuccess}</div>}
                 <div className="profile-preference-group">
-                  <div><h3>Theme</h3><p>Applies across Klyra immediately. Save preferences to keep it for future visits.</p></div>
-                  <div className="profile-theme-options" role="radiogroup" aria-label="Theme preference">
-                    {(['dark', 'light', 'system'] as const).map((theme) => <button key={theme} type="button" className={preferences.theme === theme ? 'active' : ''} onClick={() => updatePreferences({ theme })} disabled={isSavingPreferences} role="radio" aria-checked={preferences.theme === theme}>{theme === 'system' ? <Monitor size={17} /> : theme === 'dark' ? <Moon size={17} /> : <Globe2 size={17} />}<span>{theme[0].toUpperCase() + theme.slice(1)}</span></button>)}
+                  <div>
+                    <h3>Appearance</h3>
+                    <p>Choose the interface theme.</p>
                   </div>
-                </div>
-                <div className="profile-preference-grid">
-                  <div className="profile-field"><label htmlFor="profile-timezone">Timezone</label><select id="profile-timezone" value={preferences.timezone} onChange={(event) => updatePreferences({ timezone: event.target.value })} disabled={isSavingPreferences}>{TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone.replace('_', ' ')}</option>)}</select></div>
-                  <div className="profile-field"><label htmlFor="profile-api-response-format">Default API response format</label><select id="profile-api-response-format" value={preferences.api_response_format} onChange={(event) => updatePreferences({ api_response_format: event.target.value as UserPreferences['api_response_format'] })} disabled={isSavingPreferences}><option value="json">JSON</option><option value="xml">XML</option></select><small>Used as your preferred format in Klyra; it does not change API endpoint behavior.</small></div>
-                  <div className="profile-field"><label htmlFor="profile-code-snippet">Code snippet preference</label><select id="profile-code-snippet" value={preferences.code_snippet_preference} onChange={(event) => updatePreferences({ code_snippet_preference: event.target.value as UserPreferences['code_snippet_preference'] })} disabled={isSavingPreferences}><option value="curl">cURL</option><option value="javascript-fetch">JavaScript (Fetch)</option><option value="javascript-axios">JavaScript (Axios)</option><option value="python">Python</option><option value="go">Go</option></select><small>Used as your preferred language when snippets are available.</small></div>
-                </div>
-                <div className="profile-preference-group"><div><h3>Notification channels</h3><p>Changes are saved when you save preferences; notification delivery may depend on the relevant Klyra service being enabled.</p></div><div className="profile-toggle-list">{([{ key: 'email', label: 'Email', icon: <Mail size={17} /> }, { key: 'push', label: 'Push', icon: <Bell size={17} /> }, { key: 'in_app', label: 'In-app', icon: <Monitor size={17} /> }] as const).map(({ key, label, icon }) => <label key={key} className="profile-toggle"><span>{icon}<span>{label}</span></span><input type="checkbox" checked={preferences.notifications[key]} onChange={(event) => updatePreferences({ notifications: { ...preferences.notifications, [key]: event.target.checked } })} disabled={isSavingPreferences} /><i aria-hidden="true" /></label>)}</div></div>
-                <div className="profile-preference-group"><div><h3>Email notification categories</h3><p>These record which email alerts you want. They do not enable a delivery service on their own.</p></div><div className="profile-toggle-list">{([{ key: 'api_downtime_alerts', label: 'API downtime alerts' }, { key: 'monthly_usage_quota_warnings', label: 'Monthly usage quota warnings' }, { key: 'product_announcements', label: 'Product announcements' }] as const).map(({ key, label }) => <label key={key} className="profile-toggle"><span><Mail size={17} /><span>{label}</span></span><input type="checkbox" checked={preferences.email_notifications[key]} onChange={(event) => updatePreferences({ email_notifications: { ...preferences.email_notifications, [key]: event.target.checked } })} disabled={isSavingPreferences} /><i aria-hidden="true" /></label>)}</div></div>
-                <div className="profile-form-actions"><button type="button" className="profile-secondary-btn" onClick={resetPreferences} disabled={isSavingPreferences}>Reset to defaults</button><button type="submit" className="profile-primary-btn" onClick={requestPreferencesSave} disabled={isSavingPreferences || !hasUnsavedPreferenceChanges}>{isSavingPreferences ? <Loader2 className="profile-spinner" size={17} /> : <Save size={17} />}{isSavingPreferences ? 'Saving…' : hasUnsavedPreferenceChanges ? 'Save Preferences' : 'Preferences saved'}</button></div>
-              </form>
-            </>
-          ) : section === 'accounts' ? (
-            <>
-              <header className="profile-panel-header"><div><p className="profile-eyebrow">ACCOUNT</p><h2 id="profile-section-title">Account Information</h2><p>Read-only account metadata and lifecycle availability.</p></div></header>
-              <div className="profile-account-grid">
-                <div className="profile-account-item"><CalendarDays size={18} /><div><span>Account created</span><strong>{formatDate(profile.created_at)}</strong></div></div>
-                <div className="profile-account-item"><ShieldCheck size={18} /><div><span>Role & permissions</span><strong>{roleDescription(profile.role)}</strong></div></div>
-                <div className="profile-account-item"><KeyRound size={18} /><div><span>Account ID</span><code>{profile.id}</code></div></div>
-                <div className="profile-account-item"><Clock3 size={18} /><div><span>Last login</span><strong>{formatDate(profile.last_login_at)}{profile.last_login_ip ? ` · ${profile.last_login_ip}` : ''}</strong></div></div>
-              </div>
-              {deactivationSuccess && <div className="profile-message success profile-account-message"><CheckCircle2 size={17} /> {deactivationSuccess}</div>}
-              <section className="profile-danger-zone" aria-labelledby="deactivate-account-title">
-                <div><h3 id="deactivate-account-title">Deactivate account</h3><p>Your account will be disabled and you will be signed out. Active sessions and API keys will be revoked. Your existing account and data records will be retained.</p></div>
-                <button type="button" className="profile-danger-btn" onClick={() => { setDeactivationStep('warning'); setDeactivationError(null); }}>Deactivate account</button>
-              </section>
-              <aside className="profile-unavailable"><Info size={18} /><div><h3>Permanent account deletion is currently unavailable.</h3><p>The platform needs additional data-retention, billing, repository, and external-service handling before permanent deletion can be safely supported.</p></div></aside>
-
-              {deactivationStep === 'warning' && (
-                <div className="profile-modal-backdrop" role="presentation">
-                  <div className="profile-key-modal" role="dialog" aria-modal="true" aria-labelledby="deactivation-warning-title">
-                    <button type="button" className="profile-modal-close" onClick={closeDeactivation} aria-label="Close"><X size={18} /></button>
-                    <h3 id="deactivation-warning-title">Deactivate your account?</h3>
-                    <p>This disables access immediately, signs you out everywhere, and revokes active API keys. Your account and data are retained; this is not permanent deletion.</p>
-                    <div className="profile-modal-actions"><button type="button" className="profile-secondary-btn" onClick={closeDeactivation}>Cancel</button><button type="button" className="profile-danger-btn" onClick={() => setDeactivationStep('confirm')}>Continue</button></div>
-                  </div>
-                </div>
-              )}
-
-              {deactivationStep === 'confirm' && (
-                <div className="profile-modal-backdrop" role="presentation">
-                  <form className="profile-key-modal" onSubmit={deactivate} aria-labelledby="deactivation-confirm-title">
-                    <button type="button" className="profile-modal-close" onClick={closeDeactivation} disabled={isDeactivating} aria-label="Close"><X size={18} /></button>
-                    <h3 id="deactivation-confirm-title">Confirm account deactivation</h3>
-                    <p>Enter your current password and type <strong>DEACTIVATE</strong> to confirm. This action signs you out after it succeeds.</p>
-                    {deactivationError && <div className="profile-message error profile-modal-message" role="alert"><AlertCircle size={17} /> {deactivationError}</div>}
-                    <div className="profile-field"><label htmlFor="deactivation-password">Current password</label><input id="deactivation-password" type="password" value={deactivationPassword} onChange={(event) => { setDeactivationPassword(event.target.value); setDeactivationError(null); }} autoComplete="current-password" disabled={isDeactivating} /></div>
-                    <div className="profile-field profile-confirmation-field"><label htmlFor="deactivation-phrase">Type DEACTIVATE to confirm</label><input id="deactivation-phrase" value={deactivationPhrase} onChange={(event) => { setDeactivationPhrase(event.target.value); setDeactivationError(null); }} autoComplete="off" disabled={isDeactivating} /></div>
-                    <div className="profile-modal-actions"><button type="button" className="profile-secondary-btn" onClick={closeDeactivation} disabled={isDeactivating}>Cancel</button><button type="submit" className="profile-danger-btn" disabled={isDeactivating || !deactivationPassword || deactivationPhrase !== 'DEACTIVATE'}>{isDeactivating ? <Loader2 className="profile-spinner" size={16} /> : <Trash2 size={16} />}{isDeactivating ? 'Deactivating…' : 'Deactivate account'}</button></div>
-                  </form>
-                </div>
-              )}
-            </>
-          ) : section === 'security' ? (
-            <>
-              <header className="profile-panel-header">
-                <div>
-                  <p className="profile-eyebrow">SECURITY</p>
-                  <h2 id="profile-section-title">Security & Password</h2>
-                  <p>Use a strong password to keep your Klyra account secure.</p>
-                </div>
-              </header>
-
-              <div className="profile-security-grid">
-                <form className="profile-security-card" onSubmit={changePassword} noValidate>
-                  <div className="profile-security-card-heading">
-                    <div className="profile-section-icon"><Lock size={18} /></div>
-                    <div>
-                      <h3>Change password</h3>
-                      <p>Changing your password signs out other devices.</p>
-                    </div>
-                  </div>
-
-                  {passwordError && (
-                    <div className="profile-message error">
-                      <AlertCircle size={17} /> {passwordError}
-                    </div>
-                  )}
-                  {passwordSuccess && (
-                    <div className="profile-message success">
-                      <CheckCircle2 size={17} /> {passwordSuccess}
-                    </div>
-                  )}
-
-                  <div className="profile-field">
-                    <label htmlFor="profile-current-password">Current password</label>
-                    <div className="profile-password-input">
-                      <input
-                        id="profile-current-password"
-                        type={showPasswords ? 'text' : 'password'}
-                        value={passwordForm.currentPassword}
-                        onChange={(event) => updatePasswordField('currentPassword', event.target.value)}
-                        autoComplete="current-password"
-                        disabled={isChangingPassword}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="profile-field">
-                    <label htmlFor="profile-new-password">New password</label>
-                    <div className="profile-password-input">
-                      <input
-                        id="profile-new-password"
-                        type={showPasswords ? 'text' : 'password'}
-                        value={passwordForm.newPassword}
-                        onChange={(event) => updatePasswordField('newPassword', event.target.value)}
-                        autoComplete="new-password"
-                        minLength={8}
-                        maxLength={256}
-                        disabled={isChangingPassword}
-                      />
-                      <button
-                        type="button"
-                        className="profile-password-toggle"
-                        onClick={() => setShowPasswords((current) => !current)}
-                        aria-label={showPasswords ? 'Hide passwords' : 'Show passwords'}
-                        disabled={isChangingPassword}
-                      >
-                        {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                    <small>Use 8 to 256 characters.</small>
-                  </div>
-
-                  <div className="profile-field">
-                    <label htmlFor="profile-confirm-password">Confirm new password</label>
-                    <div className="profile-password-input">
-                      <input
-                        id="profile-confirm-password"
-                        type={showPasswords ? 'text' : 'password'}
-                        value={passwordForm.confirmPassword}
-                        onChange={(event) => updatePasswordField('confirmPassword', event.target.value)}
-                        autoComplete="new-password"
-                        minLength={8}
-                        maxLength={256}
-                        disabled={isChangingPassword}
-                      />
-                      <button
-                        type="button"
-                        className="profile-password-toggle"
-                        onClick={() => setShowPasswords((current) => !current)}
-                        aria-label={showPasswords ? 'Hide passwords' : 'Show passwords'}
-                        disabled={isChangingPassword}
-                      >
-                        {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="profile-form-actions">
-                    <button type="submit" className="profile-primary-btn" disabled={isChangingPassword}>
-                      {isChangingPassword ? <Loader2 className="profile-spinner" size={17} /> : <Lock size={17} />}
-                      {isChangingPassword ? 'Updating…' : 'Update password'}
+                  <div className="profile-segmented" role="group" aria-label="Theme">
+                    <button
+                      type="button"
+                      className={preferences.theme === 'dark' ? 'active' : ''}
+                      onClick={() => updatePreferences({ theme: 'dark' })}
+                    >
+                      <Moon size={15} /> Dark
+                    </button>
+                    <button
+                      type="button"
+                      className={preferences.theme === 'light' ? 'active' : ''}
+                      onClick={() => updatePreferences({ theme: 'light' })}
+                    >
+                      <Sun size={15} /> Light
+                    </button>
+                    <button
+                      type="button"
+                      className={preferences.theme === 'system' ? 'active' : ''}
+                      onClick={() => updatePreferences({ theme: 'system' })}
+                    >
+                      <Monitor size={15} /> System
                     </button>
                   </div>
-                </form>
+                </div>
 
-                <aside className="profile-security-card profile-security-placeholder" aria-labelledby="profile-two-factor-title">
-                  <div className="profile-security-card-heading">
-                    <div className="profile-section-icon"><ShieldCheck size={18} /></div>
-                    <div>
-                      <h3 id="profile-two-factor-title">Two-factor authentication</h3>
-                      <p>Protect every sign-in with your authenticator app.</p>
-                    </div>
+                <div className="profile-preference-group">
+                  <div>
+                    <h3>Timezone</h3>
+                    <p>Used for scheduled reports and analytics windows.</p>
                   </div>
-                  <p className="profile-security-note">Status: <strong>{profile.two_factor_enabled ? 'Enabled' : 'Disabled'}</strong></p>
-                  <button type="button" className={profile.two_factor_enabled ? 'profile-danger-btn' : 'profile-primary-btn'} onClick={() => profile.two_factor_enabled ? setShowDisableTotp(true) : void startTotp()} disabled={isSecurityBusy}>
-                    {isSecurityBusy ? <Loader2 className="profile-spinner" size={16} /> : <ShieldCheck size={16} />}
-                    {profile.two_factor_enabled ? 'Disable 2FA' : 'Configure 2FA'}
-                  </button>
-                </aside>
-              </div>
-              <section className="profile-security-card" style={{ marginTop: 20 }}>
-                <div className="profile-security-card-heading"><div className="profile-section-icon"><Monitor size={18} /></div><div><h3>Active sessions</h3><p>Review devices signed in to your account. Location is unavailable because Klyra does not infer it from IP addresses.</p></div></div>
-                {securityError && <div className="profile-message error"><AlertCircle size={17} /> {securityError}</div>}
-                {securitySuccess && <div className="profile-message success"><CheckCircle2 size={17} /> {securitySuccess}</div>}
-                <div className="profile-form-actions"><button type="button" className="profile-danger-btn" onClick={() => void revokeOthers()} disabled={isSecurityBusy}>Revoke all other sessions</button></div>
-                {sessions.map((session) => <div key={session.id} className="profile-security-note" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 0', borderTop: '1px solid var(--kly-border)' }}>
-                  <span><strong>{session.device} · {session.os} · {session.browser}</strong>{session.is_current ? ' (Current session)' : ''}<br />IP: {session.ip || 'Unavailable'} · Location: Unavailable · Last active: {formatDate(session.last_active_at)}</span>
-                  {!session.revoked_at && <button type="button" className="profile-secondary-btn" onClick={() => void revokeSession(session)} disabled={isSecurityBusy}>Revoke</button>}
-                </div>)}
-              </section>
-              {totpSetup && <div className="profile-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="totp-setup-title"><div className="profile-modal profile-totp-modal"><h3 id="totp-setup-title">Set up authenticator app</h3><p>Scan this QR code, or enter the manual key. This is shown only during setup.</p>{securityError && <div className="profile-message error" role="alert"><AlertCircle size={17} /> {securityError}</div>}<img src={totpSetup.qrCodeDataUrl} alt="Authenticator setup QR code" /><p><code>{totpSetup.secret}</code></p><div className="profile-field"><label>Verification code</label><OtpInput label="Authenticator verification code" value={totpCode} onChange={(code) => { setTotpCode(code); setSecurityError(null); }} disabled={isSecurityBusy} invalid={Boolean(securityError)} /><small>Enter the current six-digit code from your authenticator app.</small></div><div className="profile-form-actions"><button type="button" className="profile-secondary-btn" onClick={() => setTotpSetup(null)} disabled={isSecurityBusy}>Cancel</button><button type="button" className="profile-primary-btn" onClick={() => void confirmTotp()} disabled={isSecurityBusy || totpCode.length !== 6}>Verify and enable</button></div></div></div>}
-              {showDisableTotp && <div className="profile-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="disable-totp-title"><div className="profile-modal profile-totp-modal"><h3 id="disable-totp-title">Disable authenticator app 2FA</h3><p>Enter your current password and a current authenticator code.</p>{securityError && <div className="profile-message error" role="alert"><AlertCircle size={17} /> {securityError}</div>}<div className="profile-field"><label htmlFor="disable-totp-password">Current password</label><div className="profile-password-input"><input id="disable-totp-password" type={showDisablePassword ? 'text' : 'password'} autoComplete="current-password" value={disablePassword} onChange={(e) => { setDisablePassword(e.target.value); setSecurityError(null); }} disabled={isSecurityBusy} /><button type="button" className="profile-password-toggle" onClick={() => setShowDisablePassword((current) => !current)} aria-label={showDisablePassword ? 'Hide current password' : 'Show current password'} disabled={isSecurityBusy}>{showDisablePassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div><div className="profile-field"><label>Authenticator code</label><OtpInput label="Current authenticator code" value={disableCode} onChange={(code) => { setDisableCode(code); setSecurityError(null); }} disabled={isSecurityBusy} invalid={Boolean(securityError)} /><small>Enter the current six-digit code from your authenticator app.</small></div><div className="profile-form-actions"><button type="button" className="profile-secondary-btn" onClick={() => setShowDisableTotp(false)} disabled={isSecurityBusy}>Cancel</button><button type="button" className="profile-danger-btn" onClick={() => void disableTotp()} disabled={isSecurityBusy || !disablePassword || disableCode.length !== 6}>Disable 2FA</button></div></div></div>}
-            </>
-          ) : section !== 'general' ? (
-            <div className="profile-coming-soon">
-              <div className="profile-section-icon">{activeSection.icon}</div>
-              <h2 id="profile-section-title">{activeSection.label}</h2>
-              <p>This section is planned for a later Profile module.</p>
-            </div>
-          ) : (
-            <>
-              <header className="profile-panel-header">
-                <div>
-                  <p className="profile-eyebrow">PROFILE</p>
-                  <h2 id="profile-section-title">General & Personal Info</h2>
-                  <p>Manage the information shown for your Klyra account.</p>
-                </div>
-              </header>
-
-              {error && (
-                <div className="profile-message error">
-                  <AlertCircle size={17} /> {error}
-                </div>
-              )}
-              {success && (
-                <div className="profile-message success">
-                  <CheckCircle2 size={17} /> {success}
-                </div>
-              )}
-
-              <form className="profile-form" onSubmit={saveProfile} noValidate>
-                <div className="profile-field">
-                  <label htmlFor="profile-first-name">First name</label>
-                  <input
-                    id="profile-first-name"
-                    value={form.firstName}
-                    onChange={(event) => updateField('firstName', event.target.value)}
-                    maxLength={50}
-                    autoComplete="given-name"
-                    required
-                    disabled={isSaving}
-                  />
+                  <select
+                    className="profile-input profile-select"
+                    value={preferences.timezone}
+                    onChange={(event) => updatePreferences({ timezone: event.target.value })}
+                    disabled={isSavingPreferences}
+                  >
+                    {supportedTimezones().map((zone) => (
+                      <option key={zone} value={zone}>
+                        {zone.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <div className="profile-field">
-                  <label htmlFor="profile-last-name">Last name</label>
-                  <input
-                    id="profile-last-name"
-                    value={form.lastName}
-                    onChange={(event) => updateField('lastName', event.target.value)}
-                    maxLength={50}
-                    autoComplete="family-name"
-                    required
-                    disabled={isSaving}
-                  />
-                </div>
-
-                <div className="profile-field">
-                  <label htmlFor="profile-handle">Public username / developer handle</label>
-                  <div className="profile-input-icon profile-handle-input">
-                    <span aria-hidden="true">@</span>
-                    <input
-                      id="profile-handle"
-                      value={form.handle}
-                      onChange={(event) => updateField('handle', event.target.value.replace(/^@/, ''))}
-                      maxLength={30}
-                      autoComplete="username"
-                      placeholder="klyra_dev"
-                      required
-                      disabled={isSaving}
-                    />
+                <div className="profile-preference-group">
+                  <div>
+                    <h3>API defaults</h3>
+                    <p>Preferred response format and code snippet language in the playground.</p>
                   </div>
-                  <small>3–30 letters, numbers, underscores, or hyphens. Availability is not checked here.</small>
-                </div>
-
-                <div className="profile-field">
-                  <label htmlFor="profile-job-title">Job title / role</label>
-                  <input
-                    id="profile-job-title"
-                    value={form.jobTitle}
-                    onChange={(event) => updateField('jobTitle', event.target.value)}
-                    maxLength={100}
-                    autoComplete="organization-title"
-                    required
-                    disabled={isSaving}
-                  />
-                </div>
-
-                <div className="profile-field full">
-                  <label htmlFor="profile-email">Email</label>
-                  <div className="profile-readonly-input">
-                    <Mail size={16} />
-                    <input id="profile-email" value={profile.email} readOnly aria-readonly="true" disabled={isSaving} />
-                  </div>
-                  <small>Email changes are not part of this module.</small>
-                </div>
-
-                <div className="profile-field">
-                  <label htmlFor="profile-company">Organization / company</label>
-                  <input
-                    id="profile-company"
-                    value={form.company}
-                    onChange={(event) => updateField('company', event.target.value)}
-                    maxLength={255}
-                    autoComplete="organization"
-                    disabled={isSaving}
-                  />
-                </div>
-
-                <div className="profile-field">
-                  <label htmlFor="profile-github">GitHub profile URL</label>
-                  <div className="profile-input-icon">
-                    <Github size={16} />
-                    <input
-                      id="profile-github"
-                      type="url"
-                      value={form.githubUrl}
-                      onChange={(event) => updateField('githubUrl', event.target.value)}
-                      maxLength={500}
-                      placeholder="https://github.com/username"
-                      autoComplete="url"
-                      required
-                      disabled={isSaving}
-                    />
+                  <div className="profile-select-pair">
+                    <select
+                      className="profile-input profile-select"
+                      value={preferences.api_response_format}
+                      onChange={(event) =>
+                        updatePreferences({
+                          api_response_format: event.target.value as ApiResponseFormat,
+                        })
+                      }
+                      disabled={isSavingPreferences}
+                      aria-label="Default response format"
+                    >
+                      <option value="json">JSON</option>
+                      <option value="xml">XML</option>
+                    </select>
+                    <select
+                      className="profile-input profile-select"
+                      value={preferences.code_snippet_preference}
+                      onChange={(event) =>
+                        updatePreferences({
+                          code_snippet_preference: event.target.value as CodeSnippetPreference,
+                        })
+                      }
+                      disabled={isSavingPreferences}
+                      aria-label="Default code snippet language"
+                    >
+                      <option value="curl">cURL</option>
+                      <option value="javascript-fetch">JavaScript · fetch</option>
+                      <option value="javascript-axios">JavaScript · axios</option>
+                      <option value="python">Python</option>
+                      <option value="go">Go</option>
+                    </select>
                   </div>
                 </div>
 
-                <div className="profile-field">
-                  <label htmlFor="profile-website">Website</label>
-                  <div className="profile-input-icon">
-                    <Globe2 size={16} />
-                    <input
-                      id="profile-website"
-                      type="url"
-                      value={form.website}
-                      onChange={(event) => updateField('website', event.target.value)}
-                      maxLength={500}
-                      placeholder="https://example.com"
-                      autoComplete="url"
-                      disabled={isSaving}
-                    />
+                <div className="profile-preference-group">
+                  <div>
+                    <h3>Notification delivery</h3>
+                    <p>
+                      Changes save when you save preferences; delivery may depend on the relevant
+                      Klyra service being enabled.
+                    </p>
+                  </div>
+                  <div className="profile-toggle-list">
+                    {(
+                      [
+                        { key: 'email', label: 'Email', Icon: Mail },
+                        { key: 'push', label: 'Push', Icon: Bell },
+                        { key: 'in_app', label: 'In-app', Icon: Monitor },
+                      ] as const
+                    ).map(({ key, label, Icon }) => (
+                      <label key={key} className="profile-toggle">
+                        <span>
+                          <Icon size={16} />
+                          <span>{label}</span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={preferences.notifications[key]}
+                          onChange={(event) =>
+                            updatePreferences({
+                              notifications: {
+                                ...preferences.notifications,
+                                [key]: event.target.checked,
+                              },
+                            })
+                          }
+                          disabled={isSavingPreferences}
+                        />
+                        <i aria-hidden="true" />
+                      </label>
+                    ))}
                   </div>
                 </div>
 
-                <div className="profile-field full">
-                  <div className="profile-label-row">
-                    <label htmlFor="profile-bio">Bio</label>
-                    <span>{form.bio.length}/250</span>
+                <div className="profile-preference-group">
+                  <div>
+                    <h3>Email notification categories</h3>
+                    <p>Which email alerts you want to receive.</p>
                   </div>
-                  <textarea
-                    id="profile-bio"
-                    value={form.bio}
-                    onChange={(event) => updateField('bio', event.target.value)}
-                    maxLength={250}
-                    rows={4}
-                    placeholder="Tell the Klyra community a little about yourself."
-                    disabled={isSaving}
-                  />
+                  <div className="profile-toggle-list">
+                    {(
+                      [
+                        { key: 'api_downtime_alerts', label: 'API downtime alerts' },
+                        {
+                          key: 'monthly_usage_quota_warnings',
+                          label: 'Monthly usage quota warnings',
+                        },
+                        { key: 'product_announcements', label: 'Product announcements' },
+                      ] as const
+                    ).map(({ key, label }) => (
+                      <label key={key} className="profile-toggle">
+                        <span>
+                          <Mail size={16} />
+                          <span>{label}</span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={preferences.email_notifications[key]}
+                          onChange={(event) =>
+                            updatePreferences({
+                              email_notifications: {
+                                ...preferences.email_notifications,
+                                [key]: event.target.checked,
+                              },
+                            })
+                          }
+                          disabled={isSavingPreferences}
+                        />
+                        <i aria-hidden="true" />
+                      </label>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="profile-form-actions">
                   <button
                     type="button"
                     className="profile-secondary-btn"
-                    onClick={() => setForm(toForm(profile))}
-                    disabled={isSaving}
+                    onClick={resetPreferences}
+                    disabled={isSavingPreferences}
                   >
-                    Reset
+                    Reset to defaults
                   </button>
-                  <button type="submit" className="profile-primary-btn" disabled={isSaving}>
-                    {isSaving ? (
-                      <Loader2 className="profile-spinner" size={17} />
+                  <button
+                    type="submit"
+                    className="profile-primary-btn"
+                    onClick={() => void savePreferences()}
+                    disabled={isSavingPreferences || !hasUnsavedPreferenceChanges}
+                  >
+                    {isSavingPreferences ? (
+                      <Loader2 className="profile-spinner" size={16} />
                     ) : (
-                      <Save size={17} />
+                      <Save size={16} />
                     )}
-                    {isSaving ? 'Saving…' : 'Save changes'}
+                    {isSavingPreferences
+                      ? 'Saving…'
+                      : hasUnsavedPreferenceChanges
+                      ? 'Save Preferences'
+                      : 'Preferences saved'}
                   </button>
                 </div>
               </form>
-            </>
-          )}
-        </section>
-      </div>
+            ) : section === 'connections' ? (
+              <>
+                <header className="profile-panel-header">
+                  <div>
+                    <p className="profile-eyebrow">CONNECTIONS</p>
+                    <h2 id="profile-section-title">API Keys & Connections</h2>
+                    <p>
+                      Personal access tokens for the Klyra API and connected third-party accounts.
+                    </p>
+                  </div>
+                </header>
+                {keysError ? (
+                  <div className="profile-message error">
+                    <AlertCircle size={16} /> {keysError}
+                  </div>
+                ) : null}
+
+                <section className="profile-keys" aria-labelledby="api-keys-title">
+                  <div className="profile-keys-head">
+                    <div>
+                      <h3 id="api-keys-title">
+                        <KeyRound size={16} /> API keys
+                      </h3>
+                      <p>Keys grant access to your Klyra account via the platform API.</p>
+                    </div>
+                  </div>
+                  <form
+                    className="profile-key-create"
+                    onSubmit={(event) => void submitCreateKey(event)}
+                  >
+                    <input
+                      className="profile-input"
+                      value={newKeyName}
+                      onChange={(event) => {
+                        setNewKeyName(event.target.value);
+                        setCreateKeyError(null);
+                      }}
+                      placeholder="Key name, e.g. production-cli"
+                      maxLength={80}
+                    />
+                    <button type="submit" className="profile-primary-btn" disabled={isCreatingKey}>
+                      {isCreatingKey ? (
+                        <Loader2 className="profile-spinner" size={15} />
+                      ) : (
+                        <Plus size={15} />
+                      )}
+                      New key
+                    </button>
+                    {createKeyError ? (
+                      <p className="profile-form-error">
+                        <AlertCircle size={14} /> {createKeyError}
+                      </p>
+                    ) : null}
+                  </form>
+
+                  {isLoadingKeys && apiKeys.length === 0 ? (
+                    <div className="profile-security-loading">
+                      <Loader2 className="profile-spinner" size={15} /> Loading keys…
+                    </div>
+                  ) : apiKeys.length === 0 ? (
+                    <p className="profile-security-empty">No API keys yet — create one above.</p>
+                  ) : (
+                    <div className="profile-api-key-list">
+                      {apiKeys.map((key) => (
+                        <div key={key.id} className="profile-api-key-row">
+                          <span
+                            className={`profile-api-key-status ${
+                              key.isActive ? 'active' : 'revoked'
+                            }`}
+                          />
+                          <div className="profile-api-key-copy">
+                            <p className="profile-api-key-name">{key.name || 'Untitled key'}</p>
+                            <p className="profile-api-key-meta">
+                              <code>{key.keyPrefix}••••••••</code>
+                              <span className="feed-dot">·</span>
+                              <span>{key.isActive ? 'Active' : key.status}</span>
+                              <span className="feed-dot">·</span>
+                              <span>Created {formatDate(key.createdAt)}</span>
+                            </p>
+                          </div>
+                          <div className="profile-api-key-actions">
+                            {key.lastUsedAt ? (
+                              <span className="profile-api-key-last">
+                                Last used {formatDate(key.lastUsedAt)}
+                              </span>
+                            ) : null}
+                            {key.isActive ? (
+                              <button
+                                type="button"
+                                className="profile-secondary-btn compact"
+                                onClick={() => setRevokeTarget(key)}
+                              >
+                                <Trash2 size={13} /> Revoke
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="profile-connected" aria-labelledby="connected-title">
+                  <div className="profile-keys-head">
+                    <div>
+                      <h3 id="connected-title">
+                        <Globe2 size={16} /> Connected accounts
+                      </h3>
+                      <p>Link external identities to enrich your public profile.</p>
+                    </div>
+                  </div>
+                  <div className="profile-connected-grid">
+                    <div className="profile-connected-card">
+                      <span className="profile-connected-icon">
+                        <Github size={18} />
+                      </span>
+                      <div>
+                        <p className="profile-connected-name">GitHub</p>
+                        <p className="profile-connected-meta">
+                          {profile.github_url ? (
+                            <a href={profile.github_url} target="_blank" rel="noreferrer">
+                              {githubHandle(profile.github_url)}
+                            </a>
+                          ) : (
+                            'Not connected'
+                          )}
+                        </p>
+                      </div>
+                      <span
+                        className={`profile-connected-state ${profile.github_url ? 'linked' : ''}`}
+                      >
+                        {profile.github_url ? 'Linked' : '—'}
+                      </span>
+                    </div>
+                    <div className="profile-connected-card">
+                      <span className="profile-connected-icon">
+                        <Chrome size={18} />
+                      </span>
+                      <div>
+                        <p className="profile-connected-name">Browser sessions</p>
+                        <p className="profile-connected-meta">Managed under Security & Access.</p>
+                      </div>
+                      <span className="profile-connected-state">—</span>
+                    </div>
+                  </div>
+                </section>
+              </>
+            ) : (
+              /* accounts */
+              <>
+                <header className="profile-panel-header">
+                  <div>
+                    <p className="profile-eyebrow">ACCOUNT</p>
+                    <h2 id="profile-section-title">Account Information</h2>
+                    <p>Read-only account metadata and lifecycle availability.</p>
+                  </div>
+                </header>
+                <div className="profile-account-grid">
+                  <div className="profile-account-item">
+                    <CalendarDays size={17} />
+                    <div>
+                      <span>Account created</span>
+                      <strong>{formatDate(profile.created_at)}</strong>
+                    </div>
+                  </div>
+                  <div className="profile-account-item">
+                    <ShieldCheck size={17} />
+                    <div>
+                      <span>Role & permissions</span>
+                      <strong>{roleDescription(profile.role)}</strong>
+                    </div>
+                  </div>
+                  <div className="profile-account-item">
+                    <KeyRound size={17} />
+                    <div>
+                      <span>Account ID</span>
+                      <code>{profile.id}</code>
+                    </div>
+                  </div>
+                  <div className="profile-account-item">
+                    <Clock3 size={17} />
+                    <div>
+                      <span>Last login</span>
+                      <strong>
+                        {formatDateTime(profile.last_login_at)}
+                        {profile.last_login_ip ? ` · ${profile.last_login_ip}` : ''}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+                <section className="profile-danger-zone" aria-labelledby="deactivate-account-title">
+                  <div>
+                    <h3 id="deactivate-account-title">Deactivate account</h3>
+                    <p>
+                      Your account will be disabled and you will be signed out. Active sessions and
+                      API keys will be revoked. Your existing account and data records will be
+                      retained.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="profile-danger-btn"
+                    onClick={() => setDeactivateOpen(true)}
+                  >
+                    <Trash2 size={15} /> Deactivate account
+                  </button>
+                </section>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {revokeTarget && (
+        <div
+          className="profile-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="revoke-key-title"
+        >
+          <div className="profile-modal-card">
+            <div className="profile-modal-header">
+              <h2 id="revoke-key-title">Revoke API key?</h2>
+              <button
+                type="button"
+                className="profile-modal-close"
+                onClick={() => setRevokeTarget(null)}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="profile-modal-copy">
+              “{revokeTarget.name || 'Untitled key'}” will immediately stop working. Integrations
+              using it will fail until you create and configure a replacement key.
+            </p>
+            <div className="profile-modal-actions">
+              <button
+                type="button"
+                className="profile-secondary-btn"
+                onClick={() => setRevokeTarget(null)}
+                disabled={isRevokingKey}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="profile-danger-btn"
+                onClick={() => void confirmRevokeKey()}
+                disabled={isRevokingKey}
+              >
+                {isRevokingKey ? (
+                  <Loader2 className="profile-spinner" size={15} />
+                ) : (
+                  <Trash2 size={15} />
+                )}
+                Revoke key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {oneTimeSecret && (
+        <div
+          className="profile-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="secret-title"
+        >
+          <div className="profile-modal-card profile-secret-modal">
+            <div className="profile-modal-header">
+              <h2 id="secret-title">Key created</h2>
+              <button
+                type="button"
+                className="profile-modal-close"
+                onClick={() => {
+                  setOneTimeSecret(null);
+                  setCopiedSecret(false);
+                }}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <CheckCircle2 className="profile-secret-icon" size={22} />
+            <p className="profile-modal-copy">
+              Copy the secret now — for security it won&apos;t be shown again.
+            </p>
+            <code className="profile-secret-value">{oneTimeSecret}</code>
+            <div className="profile-modal-actions">
+              <button
+                type="button"
+                className="profile-primary-btn"
+                onClick={() => void copyOneTimeSecret()}
+              >
+                {copiedSecret ? <CheckCircle2 size={15} /> : <Copy size={15} />}
+                {copiedSecret ? 'Copied' : 'Copy secret'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {totpOpen && (
+        <div className="profile-modal" role="dialog" aria-modal="true" aria-labelledby="totp-title">
+          <div className="profile-modal-card profile-totp-modal">
+            <div className="profile-modal-header">
+              <h2 id="totp-title">Set up authenticator app</h2>
+              <button
+                type="button"
+                className="profile-modal-close"
+                onClick={() => {
+                  setTotpOpen(false);
+                  setTotpSecret('');
+                  setTotpUri('');
+                  setTotpError(null);
+                }}
+                disabled={isTotpBusy}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="profile-modal-copy">
+              Scan the QR code with your authenticator app, then enter the 6-digit code it
+              generates.
+            </p>
+            {totpUri ? (
+              <div className="profile-totp-qr">
+                <img src={totpUri} alt="QR code for your authenticator app" />
+              </div>
+            ) : (
+              <div className="profile-state">
+                <Loader2 className="profile-spinner" size={16} /> Generating…
+              </div>
+            )}
+            {totpSecret ? <code className="profile-totp-secret">{totpSecret}</code> : null}
+            <div className="profile-otp-wrap">
+              <OtpInput
+                value={totpCode}
+                onChange={setTotpCode}
+                label="Verification code"
+                disabled={isTotpBusy}
+                invalid={!!totpError}
+              />
+            </div>
+            {totpError ? (
+              <p className="profile-form-error">
+                <AlertCircle size={14} /> {totpError}
+              </p>
+            ) : null}
+            <div className="profile-modal-actions">
+              <button
+                type="button"
+                className="profile-primary-btn"
+                onClick={() => void confirmTotpSetup()}
+                disabled={isTotpBusy || totpCode.length !== 6}
+              >
+                {isTotpBusy ? (
+                  <Loader2 className="profile-spinner" size={15} />
+                ) : (
+                  <ShieldCheck size={15} />
+                )}
+                Enable 2FA
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deactivateOpen && (
+        <div
+          className="profile-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="deactivate-confirm-title"
+        >
+          <div className="profile-modal-card">
+            <div className="profile-modal-header">
+              <h2 id="deactivate-confirm-title">Deactivate your account</h2>
+              <button
+                type="button"
+                className="profile-modal-close"
+                onClick={() => {
+                  setDeactivateOpen(false);
+                  setDeactivationError(null);
+                }}
+                disabled={isDeactivating}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="profile-modal-copy">
+              This permanently disables your account, signs you out everywhere and revokes all API
+              keys. Enter your password to confirm.
+            </p>
+            <form className="profile-form" onSubmit={(event) => void confirmDeactivation(event)}>
+              <label className="profile-field">
+                <span>Password</span>
+                <input
+                  className="profile-input"
+                  type="password"
+                  value={deactivatePassword}
+                  onChange={(event) => {
+                    setDeactivatePassword(event.target.value);
+                    setDeactivationError(null);
+                  }}
+                  placeholder="Your password"
+                  autoComplete="current-password"
+                />
+              </label>
+              {deactivationError ? (
+                <p className="profile-form-error">
+                  <AlertCircle size={14} /> {deactivationError}
+                </p>
+              ) : null}
+              <div className="profile-modal-actions">
+                <button
+                  type="button"
+                  className="profile-secondary-btn"
+                  onClick={() => setDeactivateOpen(false)}
+                  disabled={isDeactivating}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="profile-danger-btn"
+                  disabled={isDeactivating || !deactivatePassword}
+                >
+                  {isDeactivating ? (
+                    <Loader2 className="profile-spinner" size={15} />
+                  ) : (
+                    <Trash2 size={15} />
+                  )}
+                  {isDeactivating ? 'Deactivating…' : 'Deactivate account'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

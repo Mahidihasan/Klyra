@@ -9,11 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint \"src/**/*.ts\"",
-<<<<<<< HEAD
-    "test": "node --require ts-node/register/transpile-only --test src/__tests__/otp.test.ts src/__tests__/operations.test.ts",
-=======
-    "test": "node --require ts-node/register/transpile-only --test src/__tests__/*.test.ts",
->>>>>>> origin/nazmul-profile-v2
+    "test": "node --require ts-node/register/transpile-only --test src/__tests__/otp.test.ts src/__tests__/operations.test.ts src/__tests__/login-totp.test.ts src/__tests__/account-deactivation.test.ts",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:status": "node scripts/migrate.mjs --status",
     "seed:billing": "node -r dotenv/config -r ts-node/register/transpile-only scripts/seed-billing.ts dotenv_config_path=../.env.development"

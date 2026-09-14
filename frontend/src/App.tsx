@@ -14,7 +14,6 @@ import { ApiBuilder } from './pages/ApiBuilder/index';
 import { ApiBuildPage } from './pages/ApiBuild';
 import { BillingPage } from './pages/Billing/index';
 import { RepositoriesPage } from './pages/Repositories/index';
-<<<<<<< HEAD
 import { AdminOverviewPage } from './pages/AdminOverview/index';
 import { AdminUsersPage } from './pages/AdminUsers/index';
 import { AdminApisPage } from './pages/AdminApis/index';
@@ -24,9 +23,7 @@ import { AdminSubscriptionsPage } from './pages/AdminSubscriptions/index';
 import { AdminUsagePage } from './pages/AdminUsage/index';
 import { AdminActivityPage } from './pages/AdminActivity/index';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
-=======
 import { ProfilePage } from './pages/Profile';
->>>>>>> origin/nazmul-profile-v2
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';

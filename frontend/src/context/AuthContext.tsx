@@ -15,12 +15,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<LoginResponse>;
-<<<<<<< HEAD
-  verify2FA: (tempToken: string, code: string) => Promise<UserProfile>;
-=======
   verify2FA: (tempToken: string, code: string) => Promise<{ challengeType?: 'totp' }>;
   verifyTotp: (tempToken: string, code: string) => Promise<void>;
->>>>>>> origin/nazmul-profile-v2
   logout: () => Promise<void>;
   loadProfile: () => Promise<UserProfile>;
   refreshProfile: () => Promise<void>;
@@ -178,17 +174,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res;
   };
 
-<<<<<<< HEAD
-  const verify2FA = async (tempToken: string, code: string): Promise<UserProfile> => {
-    const res = await authApi.verify2FA(tempToken, code);
-    saveSession(res.tokens, res.user);
-    return res.user;
-=======
   const verify2FA = async (tempToken: string, code: string): Promise<{ challengeType?: 'totp' }> => {
     const res = await authApi.verify2FA(tempToken, code);
     if (!res.requires2FA) saveSession(res.tokens, res.user);
     return res.requires2FA ? { challengeType: res.challengeType } : {};
->>>>>>> origin/nazmul-profile-v2
   };
   const verifyTotp = async (tempToken: string, code: string): Promise<void> => { const res = await authApi.verifyTotp(tempToken, code); saveSession(res.tokens, res.user); };
 
