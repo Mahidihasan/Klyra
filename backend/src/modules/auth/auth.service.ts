@@ -811,9 +811,30 @@ export class AuthService {
     const result = await pool.query('SELECT password_hash, two_factor_enabled, two_factor_secret FROM users WHERE id = $1 AND deleted_at IS NULL', [userId]); const user = result.rows[0];
     if (!user || !user.two_factor_enabled || !user.two_factor_secret) throw new Error('Authenticator app 2FA is not enabled.');
     if (!await bcrypt.compare(currentPassword || '', user.password_hash)) throw new Error('Current password is incorrect.');
-    if (!await verifyTotp(decryptTotpSecret(user.two_factor_secret), code || '')) throw new Error('Invalid authenticator code.');
-    await pool.query('UPDATE users SET two_factor_enabled = FALSE, two_factor_secret = NULL, updated_at = NOW() WHERE id = $1', [userId]);
-    await pool.query(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values) VALUES ($1, 'UPDATE', 'users', $1, '{"action":"totp_disabled"}'::jsonb)`, [userId]);
+    let secret: string;
+    try {
+      secret = decryptTotpSecret(user.two_factor_secret);
+    } catch {
+      throw new Error('Authenticator configuration is unavailable.');
+    }
+    if (!await verifyTotp(secret, code || '')) throw new Error('Invalid authenticator code.');
+
+    // One statement makes the state transition and audit record atomic. It
+    // intentionally does not touch user_sessions: disabling a login factor
+    // must not sign out otherwise valid authenticated sessions.
+    const update = await pool.query(
+      `WITH disabled AS (
+         UPDATE users
+         SET two_factor_enabled = FALSE, two_factor_secret = NULL, updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL AND two_factor_enabled = TRUE AND two_factor_secret IS NOT NULL
+         RETURNING id
+       )
+       INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       SELECT id, 'UPDATE', 'users', id, '{"action":"totp_disabled"}'::jsonb FROM disabled
+       RETURNING user_id`,
+      [userId],
+    );
+    if (update.rowCount !== 1) throw new Error('Authenticator app 2FA is not enabled.');
     return { success: true, message: 'Authenticator app 2FA is disabled.' };
   }
 

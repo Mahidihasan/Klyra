@@ -86,3 +86,28 @@ test('invalid TOTP is rejected and never issues a session', async () => {
     assert.equal(db.queries.some((query) => query.includes('INSERT INTO user_sessions')), false);
   } finally { db.restore(); }
 });
+
+test('disabling TOTP clears the secret and leaves sessions untouched', async () => {
+  const password = 'correct horse battery staple';
+  const secret = generateSecret({ length: 20 });
+  const user = makeUser({
+    password_hash: await bcrypt.hash(password, 4),
+    two_factor_enabled: true,
+    two_factor_secret: encryptTotpSecret(secret),
+  });
+  const queries: string[] = [];
+  const originalQuery = pool.query;
+  pool.query = async (query: string) => {
+    queries.push(query);
+    if (query.includes('SELECT password_hash, two_factor_enabled, two_factor_secret')) return { rows: [user] };
+    if (query.includes('WITH disabled AS')) return { rows: [{ user_id: user.id }], rowCount: 1 };
+    return { rows: [], rowCount: 0 };
+  };
+  try {
+    const result = await AuthService.disableTotp(user.id, password, generateSync({ secret }));
+    assert.equal(result.success, true);
+    assert.ok(queries.some((query) => query.includes('two_factor_enabled = FALSE, two_factor_secret = NULL')));
+    assert.ok(queries.some((query) => query.includes('INSERT INTO audit_logs')));
+    assert.equal(queries.some((query) => query.includes('user_sessions')), false);
+  } finally { pool.query = originalQuery; }
+});

@@ -339,7 +339,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   font-size: 20px;
   font-weight: 650;
   letter-spacing: -0.035em;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 
