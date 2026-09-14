@@ -62,6 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const workspaceNav = [
     { id: 'repositories', label: 'Repositories', icon: GitBranch },
     { id: 'my-apis', label: 'My APIs', icon: Layers },
+    { id: 'publish-api', label: 'Publish API', icon: Zap },
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
     { id: 'playground', label: 'Playground', icon: Terminal },
     
@@ -169,26 +170,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </div>
 
-          {/* ADMIN — only rendered for ADMIN/MODERATOR accounts */}
-          {showAdminNav && (
-            <div className="nav-section">
-              <div className="nav-section-title">ADMIN</div>
-              {adminNav.map((item) => {
-                const IconComponent = item.icon;
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    className={`nav-item ${isActive ? 'active' : ''}`}
-                    onClick={() => handleNavClick(item.id)}
-                  >
-                    <IconComponent size={18} className="nav-icon" />
-                    <span className="nav-label">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
 
           {/* ACCOUNT */}
           <div className="nav-section">

@@ -232,9 +232,10 @@ export const Topbar: React.FC<TopbarProps> = ({
 
     padding: 0 28px;
 
-    position: sticky;
+    position: fixed;
     top: 0;
-    z-index: 90;
+    left: 0;
+    z-index: 1000;
 
     gap: 28px;
 

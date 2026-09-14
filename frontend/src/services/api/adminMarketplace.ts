@@ -3,6 +3,11 @@ import {
   AdminCategoryRow,
   AdminReviewRow,
   CategoryPayload,
+  FeaturedApiConfig,
+  AddFeaturedApiPayload,
+  TrendingWeights,
+  TrendingOverride,
+  TrendingApiRow,
 } from '../../types/adminMarketplace';
 import { AdminApiError } from './admin';
 
@@ -46,11 +51,52 @@ export const adminMarketplaceApi = {
     return handleResponse<FeaturedApiRow[]>(res);
   },
 
-  async setFeaturedApis(apiIds: string[]) {
+  async setFeaturedApis(configs: FeaturedApiConfig[]) {
     const res = await fetch(`${API_BASE_URL}/featured`, {
       method: 'PUT',
       headers: authHeaders(),
-      body: JSON.stringify({ apiIds }),
+      body: JSON.stringify({ configs }),
+    });
+    return handleResponse<void>(res);
+  },
+
+  async addFeaturedApi(payload: AddFeaturedApiPayload) {
+    const res = await fetch(`${API_BASE_URL}/featured`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<void>(res);
+  },
+
+  async removeFeaturedApi(id: string) {
+    const res = await fetch(`${API_BASE_URL}/featured/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    return handleResponse<void>(res);
+  },
+
+  // ===================== TRENDING APIs =====================
+  async getTrendingApis(signal?: AbortSignal) {
+    const res = await fetch(`${API_BASE_URL}/trending`, { headers: authHeaders(), signal });
+    return handleResponse<{ apis: TrendingApiRow[]; weights: TrendingWeights }>(res);
+  },
+
+  async setTrendingWeights(weights: TrendingWeights) {
+    const res = await fetch(`${API_BASE_URL}/trending/weights`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(weights),
+    });
+    return handleResponse<void>(res);
+  },
+
+  async setTrendingOverride(payload: Omit<TrendingOverride, 'action'> & { action: 'BOOST' | 'EXCLUDE' | 'RESET' }) {
+    const res = await fetch(`${API_BASE_URL}/trending/override`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
     });
     return handleResponse<void>(res);
   },

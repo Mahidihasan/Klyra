@@ -1,0 +1,307 @@
+/* ------------------------------------------------------------------
+   Admin System Module - CSS
+   ------------------------------------------------------------------ */
+
+.admin-system-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  animation: fadeIn 0.4s ease-out;
+  color: var(--text-primary);
+  height: calc(100vh - var(--topbar-height) - 40px);
+}
+
+.system-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.system-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Tabs */
+.view-tabs {
+  display: flex;
+  background: rgba(20, 21, 36, 0.6);
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-card);
+  backdrop-filter: blur(12px);
+}
+
+.view-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.view-tab:hover {
+  color: var(--text-primary);
+}
+
+.view-tab.active {
+  background: var(--bg-card-active);
+  color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.view-tab.alert-tab {
+  color: #ef4444;
+}
+.view-tab.active.alert-tab {
+  background: rgba(239, 68, 68, 0.1);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+}
+
+/* ------------------------------------------------------------------
+   Moderation Inbox (Split Pane)
+   ------------------------------------------------------------------ */
+.inbox-container {
+  display: flex;
+  flex: 1;
+  background: rgba(20, 21, 36, 0.6);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+
+.inbox-sidebar {
+  width: 350px;
+  border-right: 1px solid var(--border-card);
+  display: flex;
+  flex-direction: column;
+}
+
+.inbox-filter-bar {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-card);
+  display: flex;
+  gap: 8px;
+}
+
+.inbox-filter-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.inbox-filter-btn.active {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.3);
+  color: #a78bfa;
+}
+
+.inbox-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.inbox-item {
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.inbox-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.inbox-item.selected {
+  background: rgba(139, 92, 246, 0.05);
+  border-left: 3px solid var(--accent-purple);
+}
+
+.inbox-item-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.inbox-item-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.inbox-item-preview {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox-content {
+  flex: 1;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------------
+   System & Security Logs (Terminal Viewer)
+   ------------------------------------------------------------------ */
+.terminal-viewer {
+  flex: 1;
+  background: #050505;
+  border: 1px solid #333;
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+
+.terminal-header {
+  background: #111;
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.terminal-title {
+  font-size: 12px;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.terminal-body {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.log-line {
+  display: flex;
+  gap: 16px;
+  padding: 2px 0;
+}
+
+.log-time { color: #666; width: 140px; flex-shrink: 0; }
+.log-level { width: 60px; flex-shrink: 0; font-weight: 600; }
+.log-level.info { color: #3b82f6; }
+.log-level.warn { color: #f59e0b; }
+.log-level.error { color: #ef4444; }
+.log-level.crit { color: #ff00ff; text-shadow: 0 0 5px #ff00ff; }
+.log-message { color: #ddd; flex: 1; word-break: break-all; }
+
+/* ------------------------------------------------------------------
+   AI Threat Detection (Animated Security Dashboard)
+   ------------------------------------------------------------------ */
+.threat-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  flex: 1;
+}
+
+.threat-main-panel {
+  background: rgba(10, 10, 15, 0.8);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Scanning Animation Overlay */
+.threat-main-panel::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: 0;
+  right: 0;
+  height: 200%;
+  background: linear-gradient(to bottom, transparent, rgba(239, 68, 68, 0.05) 50%, transparent);
+  animation: scan 4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes scan {
+  from { transform: translateY(-50%); }
+  to { transform: translateY(50%); }
+}
+
+.threat-alert-card {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 16px;
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  position: relative;
+}
+
+.threat-alert-icon {
+  color: #ef4444;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.7; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ------------------------------------------------------------------
+   Admin Settings
+   ------------------------------------------------------------------ */
+.settings-section {
+  background: rgba(20, 21, 36, 0.6);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.settings-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+}

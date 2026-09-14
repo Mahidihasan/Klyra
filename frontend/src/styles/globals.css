@@ -10,10 +10,10 @@
   --bg-modal: #121322;
   --bg-pill: #1a1b2e;
   
-  --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-card: #202237;
-  --border-focus: #7c3aed;
-  --border-glow: rgba(139, 92, 246, 0.3);
+  --border-subtle: rgba(255, 255, 255, 0.03); /* Softened from 0.07 */
+  --border-card: rgba(255, 255, 255, 0.05); /* Softer card borders */
+  --border-focus: #a78bfa;
+  --border-glow: rgba(139, 92, 246, 0.2);
 
   --accent-purple-start: #6366f1;
   --accent-purple: #8b5cf6;
@@ -73,27 +73,33 @@ html, body {
   flex-direction: column;
 }
 
-/* Custom Scrollbars */
+/* Custom Scrollbars - Ultra Thin */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-app);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #25283e;
+  background: rgba(255,255,255,0.1);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3b3f60;
+  background: rgba(255,255,255,0.2);
+}
+
+/* Bespoke Focus Rings */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-app), 0 0 0 4px var(--accent-purple);
 }
 
 /* Typography Helpers */
 h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  letter-spacing: -0.04em; /* Tight tracking for headings */
 }
 
 button {
@@ -103,6 +109,11 @@ button {
   background: none;
   color: inherit;
   outline: none;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+button:active {
+  transform: scale(0.97); /* Tactile button scale down */
 }
 
 input, select, textarea {
@@ -140,8 +151,32 @@ a:hover {
   to { transform: rotate(360deg); }
 }
 
+@keyframes staggerUp {
+  from { opacity: 0; transform: translateY(12px); filter: blur(4px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
 .animate-fade-in {
   animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stagger-1 { animation: staggerUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.05s; opacity: 0; }
+.stagger-2 { animation: staggerUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.10s; opacity: 0; }
+.stagger-3 { animation: staggerUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.15s; opacity: 0; }
+.stagger-4 { animation: staggerUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.20s; opacity: 0; }
+.stagger-5 { animation: staggerUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.25s; opacity: 0; }
+
+/* Noise Texture Overlay */
+.noise-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.03; /* Extremely subtle */
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
 
 /* Layout Grid Container */
@@ -157,6 +192,7 @@ a:hover {
   display: flex;
   flex: 1;
   min-height: 0;
+  padding-top: var(--topbar-height);
 }
 
 .main-wrapper {

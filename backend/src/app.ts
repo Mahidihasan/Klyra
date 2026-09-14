@@ -12,6 +12,7 @@ import { authOptional } from './modules/repos/auth.service';
 import { gitHttpHandler } from './modules/repos/git.http';
 import reposRouter from './modules/repos/repos.routes';
 import apiBuildRouter from './modules/api-build/api-build.routes';
+import providerApisRouter from './modules/provider/apis.routes';
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use('/api/api-build', apiBuildRouter);
 // Admin dashboard (platform overview). Registered before the `/api` catch-all
 // below so the repos router can't shadow it.
 app.use('/api/v1/admin', authOptionalJwt, adminRouter);
+app.use('/api/v1/apis', authOptionalJwt, providerApisRouter);
 
 // API Repository system (repos, branches, PRs, issues, releases, CI, marketplace)
 app.use('/api', authOptional, reposRouter);

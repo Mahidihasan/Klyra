@@ -62,9 +62,18 @@ export interface AdminApiList {
   degradedReason?: string;
 }
 
-export type ModerateAction = 'APPROVED' | 'REJECTED' | 'DEPRECATED';
+export type ModerateAction = 'APPROVED' | 'REJECTED' | 'DEPRECATED' | 'CHANGES_REQUESTED' | 'WARN' | 'QUARANTINE' | 'SUSPEND' | 'DISMISS';
 
 export interface AdminApiMutationResult {
   api: AdminApiRow;
   auditLogged: boolean;
+}
+
+export type ApiLifecycleStatus = 'PUBLISHED' | 'UNPUBLISHED' | 'DEPRECATED' | 'ARCHIVED';
+
+export interface ApiLifecyclePayload {
+  status: ApiLifecycleStatus;
+  sunsetDate?: string;
+  migrationApiId?: string;
+  reason?: string;
 }

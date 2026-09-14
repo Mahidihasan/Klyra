@@ -12,16 +12,11 @@ import { TabViews } from './components/TabViews';
 import { PlaygroundPage } from './pages/Playground/index';
 import { ApiBuilder } from './pages/ApiBuilder/index';
 import { ApiBuildPage } from './pages/ApiBuild';
+import { PublishApiPage } from './pages/PublishApi/index';
 import { BillingPage } from './pages/Billing/index';
 import { RepositoriesPage } from './pages/Repositories/index';
-import { AdminOverviewPage } from './pages/AdminOverview/index';
-import { AdminUsersPage } from './pages/AdminUsers/index';
-import { AdminApisPage } from './pages/AdminApis/index';
-import { AdminMarketplacePage } from './pages/AdminMarketplace/index';
-import { AdminRevenuePage } from './pages/AdminRevenue/index';
-import { AdminSubscriptionsPage } from './pages/AdminSubscriptions/index';
-import { AdminUsagePage } from './pages/AdminUsage/index';
-import { AdminActivityPage } from './pages/AdminActivity/index';
+import { AdminLayout } from './layouts/AdminLayout/AdminLayout';
+// Admin pages are now strictly isolated inside AdminLayout
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import './pages/Playground/styles.css';
 
@@ -185,7 +180,7 @@ function AppContent() {
   // the target user, so every admin request would be refused anyway.
   const isAdmin = hasAdminAccess(user?.role) && !getImpersonationSession();
   useEffect(() => {
-    const isAdminTab = activeTab === 'admin-overview' || activeTab === 'admin-users' || activeTab === 'admin-apis' || activeTab === 'admin-marketplace' || activeTab === 'admin-revenue' || activeTab === 'admin-subscriptions' || activeTab === 'admin-usage' || activeTab === 'admin-activity';
+    const isAdminTab = activeTab === 'admin-overview' || activeTab === 'admin-users' || activeTab === 'admin-apis' || activeTab === 'admin-marketplace' || activeTab === 'admin-billing' || activeTab === 'admin-subscriptions' || activeTab === 'admin-usage' || activeTab === 'admin-activity' || activeTab === 'admin-database' || activeTab === 'admin-engine' || activeTab === 'admin-devops' || activeTab === 'admin-forensics';
     if (!isLoading && isAdminTab && !isAdmin) {
       setActiveTab('home');
     }
@@ -317,6 +312,16 @@ function AppContent() {
             }}
           />
         </div>
+      ) : activeTab === 'publish-api' ? (
+        <div style={{ position: 'relative', minHeight: '100vh', background: 'var(--bg-primary, #0b0c12)' }}>
+          <PublishApiPage 
+            onBack={() => setActiveTab('home')}
+            onSuccess={(id) => {
+              // Usually we'd navigate to the API detail or success page, for now just go home
+              setActiveTab('home');
+            }}
+          />
+        </div>
       ) : activeTab === 'api-builder' && activeApiProject ? (
         <ApiBuilder
           project={activeApiProject}
@@ -332,6 +337,10 @@ function AppContent() {
             );
           }}
         />
+      ) : activeTab.startsWith('admin-') ? (
+        /* STRICT ADMIN ISOLATION: 
+           Completely bypasses standard Topbar, Sidebar, and AppBody */
+        <AdminLayout activeTab={activeTab} setActiveTab={setActiveTab} />
       ) : (
         <>
           {/* Top Header Bar - Full Width */}
@@ -545,38 +554,6 @@ function AppContent() {
               ) : activeTab === 'repositories' ? (
                 <main>
                   <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
-                </main>
-              ) : activeTab === 'admin-overview' ? (
-                <main className="content-page-wrapper">
-                  <AdminOverviewPage />
-                </main>
-              ) : activeTab === 'admin-users' ? (
-                <main className="content-page-wrapper">
-                  <AdminUsersPage />
-                </main>
-              ) : activeTab === 'admin-apis' ? (
-                <main className="content-page-wrapper">
-                  <AdminApisPage />
-                </main>
-              ) : activeTab === 'admin-marketplace' ? (
-                <main className="content-page-wrapper">
-                  <AdminMarketplacePage />
-                </main>
-              ) : activeTab === 'admin-revenue' ? (
-                <main className="content-page-wrapper">
-                  <AdminRevenuePage />
-                </main>
-              ) : activeTab === 'admin-subscriptions' ? (
-                <main className="content-page-wrapper">
-                  <AdminSubscriptionsPage />
-                </main>
-              ) : activeTab === 'admin-usage' ? (
-                <main className="content-page-wrapper">
-                  <AdminUsagePage />
-                </main>
-              ) : activeTab === 'admin-activity' ? (
-                <main className="content-page-wrapper">
-                  <AdminActivityPage />
                 </main>
               ) : (
                 <main className="content-page-wrapper">

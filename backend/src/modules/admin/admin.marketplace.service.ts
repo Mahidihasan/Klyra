@@ -4,35 +4,54 @@ import {
   AdminCategoryRow,
   AdminReviewRow,
   CategoryPayload,
+  FeaturedApiConfig,
+  AddFeaturedApiPayload,
+  TrendingWeights,
+  TrendingOverride,
+  TrendingApiRow,
 } from './admin.marketplace.types';
 import { ViewerIdentity } from './admin.users.types';
 
 export class AdminMarketplaceService {
   // ===================== FEATURED APIs =====================
 
-  async getFeaturedApis(): Promise<FeaturedApiRow[]> {
+  async getFeaturedConfigs(): Promise<FeaturedApiConfig[]> {
     const result = await db.query(
-    `
+      `
       SELECT value
       FROM system_settings
       WHERE key = 'featured_apis'
       `
     );
 
-    const apiIds: string[] = result.rows[0]?.value || [];
+    const rawConfigs: any[] = result.rows[0]?.value || [];
 
-    if (apiIds.length === 0) {
+    return rawConfigs.map((c, i) => {
+      if (typeof c === 'string') {
+        return { apiId: c, slotType: 'Hero Carousel', orderIndex: i, expiresAt: null, promoTag: null };
+      }
+      return c;
+    });
+  }
+
+  async getFeaturedApis(): Promise<FeaturedApiRow[]> {
+    const configs = await this.getFeaturedConfigs();
+
+    if (configs.length === 0) {
       return [];
     }
+
+    const apiIds = configs.map(c => c.apiId);
 
     const apisResult = await db.query(
       `
       SELECT 
         a.id, 
         a.name, 
-        v.logo_url AS "logoUrl",
+        a.logo_url AS "logoUrl",
         u.name AS "ownerName",
-        c.name AS "categoryName"
+        c.name AS "categoryName",
+        a.rating
       FROM apis a
       LEFT JOIN api_versions v ON v.api_id = a.id AND v.is_current = true
       LEFT JOIN users u ON u.id = a.owner_id
@@ -42,12 +61,22 @@ export class AdminMarketplaceService {
       [apiIds]
     );
 
-    // Return in the exact order specified by the system setting
     const apiMap = new Map(apisResult.rows.map((row: any) => [row.id, row]));
-    return apiIds.map(id => apiMap.get(id)).filter(Boolean) as FeaturedApiRow[];
+    return configs.map(conf => {
+      const api = apiMap.get(conf.apiId);
+      if (!api) return null;
+      return {
+        ...api,
+        slotType: conf.slotType || 'Hero Carousel',
+        orderIndex: conf.orderIndex,
+        expiresAt: conf.expiresAt || null,
+        promoTag: conf.promoTag || null,
+        rating: Number(api.rating)
+      };
+    }).filter(Boolean) as FeaturedApiRow[];
   }
 
-  async setFeaturedApis(viewer: ViewerIdentity, apiIds: string[]): Promise<void> {
+  async setFeaturedApis(viewer: ViewerIdentity, configs: FeaturedApiConfig[]): Promise<void> {
     await db.query(
       `
       INSERT INTO system_settings (key, value, updated_by, updated_at)
@@ -57,16 +86,185 @@ export class AdminMarketplaceService {
         updated_by = EXCLUDED.updated_by,
         updated_at = NOW()
       `,
-      [JSON.stringify(apiIds), viewer.id]
+      [JSON.stringify(configs), viewer.id]
     );
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, details)
+      INSERT INTO audit_logs (user_id, action, entity_type, new_values)
       VALUES ($1, 'UPDATE', 'FEATURED_APIS', $2)
       `,
-      [viewer.id, { apiIds }]
+      [viewer.id, { configs }]
     );
+  }
+
+  async addFeaturedApi(viewer: ViewerIdentity, payload: AddFeaturedApiPayload): Promise<void> {
+    const configs = await this.getFeaturedConfigs();
+    const filtered = configs.filter(c => c.apiId !== payload.apiId);
+    filtered.push(payload);
+    filtered.sort((a, b) => a.orderIndex - b.orderIndex);
+    await this.setFeaturedApis(viewer, filtered);
+  }
+
+  async removeFeaturedApi(viewer: ViewerIdentity, apiId: string): Promise<void> {
+    const configs = await this.getFeaturedConfigs();
+    const filtered = configs.filter(c => c.apiId !== apiId);
+    await this.setFeaturedApis(viewer, filtered);
+  }
+
+  // ===================== TRENDING APIs =====================
+
+  async getTrendingWeights(): Promise<TrendingWeights> {
+    const result = await db.query(`SELECT value FROM system_settings WHERE key = 'trending_weights'`);
+    if (result.rows[0]) {
+      return result.rows[0].value as TrendingWeights;
+    }
+    return { requestWeight: 40, subWeight: 30, ratingWeight: 30, errorPenalty: 10 };
+  }
+
+  async setTrendingWeights(viewer: ViewerIdentity, weights: TrendingWeights): Promise<void> {
+    await db.query(
+      `
+      INSERT INTO system_settings (key, value, updated_by, updated_at)
+      VALUES ('trending_weights', $1::jsonb, $2, NOW())
+      ON CONFLICT (key) DO UPDATE SET 
+        value = EXCLUDED.value,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = NOW()
+      `,
+      [JSON.stringify(weights), viewer.id]
+    );
+
+    await db.query(
+      `
+      INSERT INTO audit_logs (user_id, action, entity_type, new_values)
+      VALUES ($1, 'UPDATE', 'TRENDING_WEIGHTS', $2)
+      `,
+      [viewer.id, { weights }]
+    );
+  }
+
+  async getTrendingOverrides(): Promise<TrendingOverride[]> {
+    const result = await db.query(`SELECT value FROM system_settings WHERE key = 'trending_overrides'`);
+    return (result.rows[0]?.value || []) as TrendingOverride[];
+  }
+
+  async setTrendingOverride(viewer: ViewerIdentity, payload: { apiId: string, action: 'BOOST' | 'EXCLUDE' | 'RESET', boostValue?: number, expiresAt?: string }): Promise<void> {
+    let overrides = await this.getTrendingOverrides();
+    
+    // Remove existing for this API
+    overrides = overrides.filter(o => o.apiId !== payload.apiId);
+
+    if (payload.action !== 'RESET') {
+      overrides.push({
+        apiId: payload.apiId,
+        action: payload.action,
+        boostValue: payload.boostValue,
+        expiresAt: payload.expiresAt
+      });
+    }
+
+    await db.query(
+      `
+      INSERT INTO system_settings (key, value, updated_by, updated_at)
+      VALUES ('trending_overrides', $1::jsonb, $2, NOW())
+      ON CONFLICT (key) DO UPDATE SET 
+        value = EXCLUDED.value,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = NOW()
+      `,
+      [JSON.stringify(overrides), viewer.id]
+    );
+
+    await db.query(
+      `
+      INSERT INTO audit_logs (user_id, action, entity_type, new_values)
+      VALUES ($1, 'UPDATE', 'TRENDING_OVERRIDE', $2)
+      `,
+      [viewer.id, { payload }]
+    );
+  }
+
+  async getTrendingApis(): Promise<TrendingApiRow[]> {
+    const weights = await this.getTrendingWeights();
+    const overrides = await this.getTrendingOverrides();
+
+    const apisResult = await db.query(
+      `
+      SELECT 
+        a.id, 
+        a.name, 
+        a.logo_url AS "logoUrl",
+        c.name AS "categoryName",
+        a.total_requests AS "totalRequests",
+        a.total_subscribers AS "totalSubscribers",
+        a.rating
+      FROM apis a
+      LEFT JOIN api_versions v ON v.api_id = a.id AND v.is_current = true
+      LEFT JOIN categories c ON c.id = a.category_id
+      WHERE a.status = 'PUBLISHED' AND a.deleted_at IS NULL
+      `
+    );
+
+    // Calculate max values for normalization
+    let maxReqs = 1;
+    let maxSubs = 1;
+    for (const row of apisResult.rows) {
+      if (Number(row.totalRequests) > maxReqs) maxReqs = Number(row.totalRequests);
+      if (Number(row.totalSubscribers) > maxSubs) maxSubs = Number(row.totalSubscribers);
+    }
+
+    let results: TrendingApiRow[] = [];
+
+    for (const row of apisResult.rows) {
+      const override = overrides.find(o => o.apiId === row.id);
+      
+      // Handle expiration
+      let isExpired = false;
+      if (override && override.expiresAt) {
+        if (new Date(override.expiresAt) < new Date()) {
+          isExpired = true;
+        }
+      }
+
+      if (override && override.action === 'EXCLUDE' && !isExpired) {
+        continue;
+      }
+
+      // Algorithmic Base Score (Normalized to 100)
+      const reqScore = (Number(row.totalRequests) / maxReqs) * 100;
+      const subScore = (Number(row.totalSubscribers) / maxSubs) * 100;
+      const ratScore = (Number(row.rating) / 5) * 100;
+
+      let baseScore = 
+        (reqScore * (weights.requestWeight / 100)) + 
+        (subScore * (weights.subWeight / 100)) + 
+        (ratScore * (weights.ratingWeight / 100));
+
+      let finalScore = baseScore;
+      let status: 'ALGORITHMIC' | 'BOOSTED' | 'EXCLUDED' = 'ALGORITHMIC';
+
+      if (override && override.action === 'BOOST' && !isExpired) {
+        status = 'BOOSTED';
+        const boostVal = override.boostValue || 0;
+        finalScore = finalScore * (1 + (boostVal / 100));
+      }
+
+      results.push({
+        id: row.id,
+        name: row.name,
+        logoUrl: row.logoUrl,
+        categoryName: row.categoryName,
+        totalRequests: Number(row.totalRequests),
+        totalSubscribers: Number(row.totalSubscribers),
+        rating: Number(row.rating),
+        dynamicScore: Math.round(finalScore * 10) / 10,
+        overrideStatus: status,
+      });
+    }
+
+    results.sort((a, b) => b.dynamicScore - a.dynamicScore);
+    return results.slice(0, 20);
   }
 
   // ===================== CATEGORIES =====================
@@ -99,7 +297,7 @@ export class AdminMarketplaceService {
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
       VALUES ($1, 'CREATE', 'CATEGORY', $2, $3)
       `,
       [viewer.id, category.id, payload]
@@ -134,7 +332,7 @@ export class AdminMarketplaceService {
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
       VALUES ($1, 'UPDATE', 'CATEGORY', $2, $3)
       `,
       [viewer.id, id, payload]
@@ -144,6 +342,13 @@ export class AdminMarketplaceService {
   }
 
   async deleteCategory(viewer: ViewerIdentity, id: string): Promise<void> {
+    const apiCountResult = await db.query('SELECT COUNT(*) FROM apis WHERE category_id = $1 AND deleted_at IS NULL', [id]);
+    if (parseInt(apiCountResult.rows[0].count, 10) > 0) {
+      const error: any = new Error('Category has active APIs assigned');
+      error.code = 'CONFLICT';
+      throw error;
+    }
+
     const result = await db.query('DELETE FROM categories WHERE id = $1', [id]);
     if (result.rowCount === 0) {
       throw new Error('Category not found');
@@ -151,7 +356,7 @@ export class AdminMarketplaceService {
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, resource_id)
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id)
       VALUES ($1, 'DELETE', 'CATEGORY', $2)
       `,
       [viewer.id, id]
@@ -204,7 +409,7 @@ export class AdminMarketplaceService {
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
       VALUES ($1, 'UPDATE', 'REVIEW', $2, $3)
       `,
       [viewer.id, id, { isApproved }]
@@ -228,7 +433,7 @@ export class AdminMarketplaceService {
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, resource_id)
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id)
       VALUES ($1, 'DELETE', 'REVIEW', $2)
       `,
       [viewer.id, id]

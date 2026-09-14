@@ -107,7 +107,7 @@ export class AdminRevenueService {
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
       VALUES ($1, 'UPDATE', 'PAYOUT', $2, $3)
       `,
       [viewer.id, id, { status: 'PROCESSED' }]

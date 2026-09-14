@@ -17,8 +17,10 @@ import {
   AdminApiRow,
   ApiStatusValue,
   ModerateAction,
+  ApiLifecyclePayload,
 } from './admin.apis.types';
 import { AuditContext } from './admin.users.types';
+import { resolveMockReportByApiId } from './admin.moderation.mock';
 
 const SORT_COLUMN: Record<AdminApiListQuery['sort'], string> = {
   created: 'a.created_at',
@@ -223,6 +225,19 @@ export async function moderateApi(
     } else if (action === 'DEPRECATED') {
       deprecateVersion = true;
       auditAction = 'UPDATE'; // Assuming no native DEPRECATE in audit_action enum
+    } else if (action === 'CHANGES_REQUESTED') {
+      newStatus = 'REJECTED';
+      auditAction = 'UPDATE'; // Logs that changes were requested
+    } else if (action === 'WARN') {
+      auditAction = 'UPDATE';
+    } else if (action === 'QUARANTINE') {
+      newStatus = 'ARCHIVED';
+      auditAction = 'UPDATE';
+    } else if (action === 'SUSPEND') {
+      newStatus = 'REJECTED';
+      auditAction = 'REJECT';
+    } else if (action === 'DISMISS') {
+      auditAction = 'UPDATE';
     }
 
     // 3. Apply mutations
@@ -262,6 +277,14 @@ export async function moderateApi(
       `,
       [targetId]
     );
+
+    if (['WARN', 'QUARANTINE', 'SUSPEND', 'DISMISS'].includes(action)) {
+      resolveMockReportByApiId(targetId);
+      if (action === 'QUARANTINE' || action === 'SUSPEND') {
+        // Redis client is not installed, so we simulate the cache invalidation
+        console.log(`[Redis Simulation] Cache invalidated for API ${targetId}`);
+      }
+    }
 
     return { api: mapApiRow(updatedRows[0]), auditLogged: true };
   });

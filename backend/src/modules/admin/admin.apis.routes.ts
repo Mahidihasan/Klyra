@@ -8,6 +8,7 @@ import {
   ModerateAction,
 } from './admin.apis.types';
 import { listApis, moderateApi } from './admin.apis.service';
+import { getMockReports } from './admin.moderation.mock';
 import { PolicyActor } from './admin.users.policy';
 import { GuardrailError, DatabaseUnavailableError } from './admin.users.service';
 
@@ -119,6 +120,17 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/moderation/reports', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    const reports = getMockReports();
+    return res.json({ success: true, data: { reports } });
+  } catch (err) {
+    return handleError(res, 'GET /apis/moderation/reports', err);
+  }
+});
+
 router.post('/:id/moderate', async (req: Request, res: Response) => {
   try {
     const actor = requireActor(req, res);
@@ -126,8 +138,8 @@ router.post('/:id/moderate', async (req: Request, res: Response) => {
 
     const { action, reason } = req.body ?? {};
 
-    if (!['APPROVED', 'REJECTED', 'DEPRECATED'].includes(action)) {
-      return fail(res, 400, 'INVALID_ACTION', 'Action must be APPROVED, REJECTED, or DEPRECATED');
+    if (!['APPROVED', 'REJECTED', 'DEPRECATED', 'CHANGES_REQUESTED', 'WARN', 'QUARANTINE', 'SUSPEND', 'DISMISS'].includes(action)) {
+      return fail(res, 400, 'INVALID_ACTION', 'Action must be a valid ModerateAction');
     }
 
     if (reason !== undefined && typeof reason !== 'string') {

@@ -25,6 +25,8 @@ import {
   AdminApiListQuery,
   AdminApiMutationResult,
   ModerateAction,
+  ApiAbuseReport,
+  ApiLifecyclePayload,
 } from '../../types/adminApis';
 
 const API_BASE_URL = '/api/v1/admin';
@@ -308,6 +310,23 @@ export const adminApi = {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ action, reason }),
+    });
+    return handleResponse<AdminApiMutationResult>(res);
+  },
+
+  async getModerationReports(options: RequestOptions = {}) {
+    const res = await fetch(`${API_BASE_URL}/apis/moderation/reports`, {
+      headers: authHeaders(),
+      signal: options.signal,
+    });
+    return handleResponse<{ reports: ApiAbuseReport[] }>(res);
+  },
+
+  async updateApiLifecycle(apiId: string, payload: ApiLifecyclePayload) {
+    const res = await fetch(`${API_BASE_URL}/apis/${encodeURIComponent(apiId)}/lifecycle`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
     });
     return handleResponse<AdminApiMutationResult>(res);
   },
