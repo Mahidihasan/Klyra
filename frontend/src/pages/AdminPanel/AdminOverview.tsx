@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { RealTimeTrafficWidget, ActiveTasksWidget, GatewayStatsWidget, LiveGatewayFeedWidget, AiInsightsWidget } from './components/DashboardWidgets';
+import { TrafficNexusWidget } from './components/TrafficNexusWidget';
 import { SpotlightCard } from './components/SpotlightCard';
 import { GripHorizontal, CheckCircle, FileText, Settings } from 'lucide-react';
 import './AdminOverview.css';
 
 const WIDGET_REGISTRY = {
+  nexus: <TrafficNexusWidget />,
   insights: <AiInsightsWidget />,
   traffic: <RealTimeTrafficWidget />,
   tasks: <ActiveTasksWidget />,
@@ -17,6 +19,7 @@ type WidgetKey = keyof typeof WIDGET_REGISTRY;
 export const AdminOverview = () => {
   // Widget order layout
   const [layout, setLayout] = useState<Array<{ id: WidgetKey, span: 'col-span-12' | 'col-span-8' | 'col-span-4' }>>([
+    { id: 'nexus', span: 'col-span-12' },
     { id: 'insights', span: 'col-span-12' },
     { id: 'traffic', span: 'col-span-8' },
     { id: 'tasks', span: 'col-span-4' },

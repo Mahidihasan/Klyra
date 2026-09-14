@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import { X } from 'lucide-react';
 
 import { AdminApis } from '../../pages/AdminPanel/AdminApis';
 import { AdminBilling } from '../../pages/AdminPanel/AdminBilling';
@@ -17,8 +19,14 @@ import { CommandSidebar } from '../../components/CommandSidebar';
 import { AdminCommandPalette } from './components/AdminCommandPalette';
 import { SoftDeleteProvider } from './context/SoftDeleteContext';
 import { AdminUIProvider, useAdminUI } from './context/AdminUIContext';
-import { SlideOverDrawer } from '../../components/SlideOverDrawer';
 import './AdminLayout.css';
+
+// Custom glowing resize handle
+const ResizeHandle = () => (
+  <PanelResizeHandle className="relative flex w-2 items-center justify-center bg-transparent group outline-none cursor-col-resize z-50">
+    <div className="z-10 flex h-full w-[1px] bg-white/5 transition-all duration-300 group-hover:w-[2px] group-hover:bg-[#a78bfa] group-hover:shadow-[0_0_12px_rgba(167,139,250,0.8)] group-active:bg-[#f472b6] group-active:shadow-[0_0_12px_rgba(244,114,182,0.8)]" />
+  </PanelResizeHandle>
+);
 
 interface AdminLayoutProps {
   activeTab: NavigationTab;
@@ -46,26 +54,16 @@ const AdminLayoutInner: React.FC<AdminLayoutProps> = ({ activeTab, setActiveTab 
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'admin-overview':
-        return <AdminOverview />;
-      case 'admin-users':
-        return <AdminUsers />;
-      case 'admin-apis':
-        return <AdminApis />;
-      case 'admin-billing':
-        return <AdminBilling />;
-      case 'admin-activity':
-        return <AdminSystem />;
-      case 'admin-database':
-        return <AdminDatabase />;
-      case 'admin-engine':
-        return <AdminEngineRoom />;
-      case 'admin-devops':
-        return <AdminDevOps />;
-      case 'admin-forensics':
-        return <AdminForensics />;
-      default:
-        return <AdminOverview />;
+      case 'admin-overview': return <AdminOverview />;
+      case 'admin-users': return <AdminUsers />;
+      case 'admin-apis': return <AdminApis />;
+      case 'admin-billing': return <AdminBilling />;
+      case 'admin-activity': return <AdminSystem />;
+      case 'admin-database': return <AdminDatabase />;
+      case 'admin-engine': return <AdminEngineRoom />;
+      case 'admin-devops': return <AdminDevOps />;
+      case 'admin-forensics': return <AdminForensics />;
+      default: return <AdminOverview />;
     }
   };
 
@@ -78,23 +76,62 @@ const AdminLayoutInner: React.FC<AdminLayoutProps> = ({ activeTab, setActiveTab 
       </div>
       <div className="noise-overlay admin-noise"></div>
       
-      <CommandSidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
-
-      {/* Wrapping the main layout in motion.div for the scaling effect */}
       <motion.div 
         className="admin-layout-wrapper"
-        animate={{ 
-          scale: isDrawerOpen ? 0.98 : 1,
-          opacity: isDrawerOpen ? 0.6 : 1,
-          borderRadius: isDrawerOpen ? '24px' : '0px'
-        }}
-        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-        style={{ transformOrigin: 'center center' }}
+        initial={false}
+        animate={{ opacity: 1 }}
       >
-        <div className="admin-main ml-24">
-          <CommandHeader />
+        {/* Sidebar is now structurally fixed outside the resizable layout */}
+        <CommandSidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
 
-          <div className="admin-page-content stagger-2">{renderContent()}</div>
+        {/* The main workspace requires ml-20 to accommodate the fixed w-20 sidebar */}
+        <div className="ml-20 flex-1 h-full w-full">
+          <PanelGroup orientation="horizontal" className="h-full w-full">
+            
+            {/* Panel 2: Main Content */}
+            <Panel defaultSize={isDrawerOpen ? 60 : 100}>
+              <div className="admin-main h-full flex flex-col">
+                <CommandHeader />
+                <div className="admin-page-content stagger-2 flex-1 overflow-y-auto">
+                  {renderContent()}
+                </div>
+              </div>
+            </Panel>
+
+          {/* Panel 3: Inspector Panel */}
+          {isDrawerOpen && (
+            <>
+              <ResizeHandle />
+              <Panel 
+                defaultSize={34} 
+                minSize={20} 
+                maxSize={50}
+                className="bg-[#0f0f14]/80 backdrop-blur-md"
+              >
+                <motion.div 
+                  initial={{ x: 20, opacity: 0 }} 
+                  animate={{ x: 0, opacity: 1 }} 
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  className="h-full flex flex-col"
+                >
+                  <div className="sticky top-0 z-10 bg-transparent border-b border-white/5 p-6 flex items-center justify-between">
+                    <h2 className="text-xl font-semibold text-white m-0">{drawerTitle}</h2>
+                    <button 
+                      onClick={closeDrawer} 
+                      className="text-white/70 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-full outline-none"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-6 scroll-smooth [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
+                    {drawerContent}
+                  </div>
+                </motion.div>
+              </Panel>
+            </>
+          )}
+
+        </PanelGroup>
         </div>
       </motion.div>
 
@@ -103,14 +140,6 @@ const AdminLayoutInner: React.FC<AdminLayoutProps> = ({ activeTab, setActiveTab 
         onClose={() => setIsCommandPaletteOpen(false)}
         setActiveTab={setActiveTab}
       />
-
-      <SlideOverDrawer 
-        isOpen={isDrawerOpen} 
-        onClose={closeDrawer} 
-        title={drawerTitle}
-      >
-        {drawerContent}
-      </SlideOverDrawer>
     </>
   );
 };

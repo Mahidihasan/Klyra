@@ -34,7 +34,7 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
             border: '1px solid rgba(255, 255, 255, 0.1)',
             padding: '12px 24px',
             borderRadius: '100px', // Pill shape
-            boxShadow: '0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset'
+            boxShadow: '0 0 40px rgba(167, 139, 250, 0.15), 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset'
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

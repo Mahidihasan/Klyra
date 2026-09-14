@@ -1,119 +1,253 @@
-import React, { useState } from 'react';
-import { ShieldAlert, Zap, ServerCrash, Save } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ShieldAlert, Zap, ServerCrash, Save, Activity, Settings2 } from 'lucide-react';
+import { motion } from 'framer-motion';
 
-export const RateLimiter = () => {
-  const [limits, setLimits] = useState({
-    free: 100,
-    pro: 1000,
-    enterprise: 10000
-  });
+const HoldToActivateButton = ({ onActivate }: { onActivate: () => void }) => {
+  const [progress, setProgress] = useState(0);
+  const [isHolding, setIsHolding] = useState(false);
+  const frameRef = useRef<number>();
+
+  useEffect(() => {
+    if (isHolding) {
+      const startTime = Date.now() - (progress * 30); // 3 seconds = 3000ms
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const newProgress = Math.min((elapsed / 3000) * 100, 100);
+        setProgress(newProgress);
+        if (newProgress >= 100) {
+          onActivate();
+          setIsHolding(false);
+        } else {
+          frameRef.current = requestAnimationFrame(animate);
+        }
+      };
+      frameRef.current = requestAnimationFrame(animate);
+    } else {
+      setProgress(0);
+    }
+    return () => cancelAnimationFrame(frameRef.current!);
+  }, [isHolding, progress, onActivate]);
 
   return (
-    <div className="rate-limiter-container">
-      
-      {/* Emergency Kill Switch */}
-      <div className="kill-switch-card">
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          <div className="danger-icon-wrapper">
-            <ShieldAlert size={32} color="#ef4444" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <h2 style={{ margin: '0 0 8px', color: '#ef4444', fontSize: 20 }}>Emergency Gateway Override</h2>
-            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>
-              Instantly drop all incoming unauthenticated traffic or enforce an absolute global rate limit across all nodes. Use only under active DDoS or severe platform degradation.
-            </p>
-          </div>
+    <div 
+      className="relative flex items-center justify-center cursor-pointer select-none"
+      onPointerDown={() => setIsHolding(true)}
+      onPointerUp={() => setIsHolding(false)}
+      onPointerLeave={() => setIsHolding(false)}
+    >
+      <div className="absolute inset-0 bg-[repeating-linear-gradient(45deg,#000,#000_10px,#ef4444_10px,#ef4444_20px)] opacity-20 rounded-xl pointer-events-none" />
+      <div className="relative z-10 flex items-center justify-center w-full px-6 py-4 rounded-xl bg-black/80 border border-rose-500/30 shadow-[inset_0_4px_24px_rgba(225,29,72,0.4)] overflow-hidden transition-all hover:border-rose-500/50">
+        <div 
+          className="absolute left-0 top-0 bottom-0 bg-rose-600/40 transition-none"
+          style={{ width: `${progress}%` }}
+        />
+        <div className="relative flex items-center gap-3 z-10">
+          <ServerCrash size={20} className="text-rose-500" />
+          <span className="font-bold text-rose-500 uppercase tracking-widest text-sm">
+            {isHolding ? 'Hold to Kill...' : 'Block IP / Kill API'}
+          </span>
         </div>
-        
-        <div style={{ display: 'flex', gap: 16, marginTop: 24 }}>
-          <button className="btn-danger-solid">
-            <ServerCrash size={16} /> Drop Unauthenticated Traffic
-          </button>
-          <button className="btn-danger-outline">
-            Ban Malicious IP Range
-          </button>
+      </div>
+    </div>
+  );
+};
+
+const getSliderColor = (val: number, max: number) => {
+  const p = val / max;
+  if (p < 0.4) return { color: '#34d399', glow: 'rgba(52,211,153,0.5)' }; // Emerald
+  if (p < 0.75) return { color: '#fbbf24', glow: 'rgba(251,191,36,0.5)' }; // Amber
+  return { color: '#f97316', glow: 'rgba(249,115,22,0.7)' }; // Orange
+};
+
+const Gauge = ({ value, max }: { value: number, max: number }) => {
+  const radius = 30;
+  const circumference = radius * Math.PI;
+  const strokeDashoffset = circumference - (value / max) * circumference;
+  const { color } = getSliderColor(value, max);
+
+  return (
+    <div className="relative w-20 h-10 overflow-hidden flex flex-col items-center justify-end">
+      <svg className="absolute top-0" width="80" height="40" viewBox="0 0 80 40">
+        <path 
+          d="M 10 35 A 30 30 0 0 1 70 35" 
+          fill="none" 
+          stroke="rgba(255,255,255,0.1)" 
+          strokeWidth="6" 
+          strokeLinecap="round" 
+        />
+        <motion.path 
+          d="M 10 35 A 30 30 0 0 1 70 35" 
+          fill="none" 
+          stroke={color} 
+          strokeWidth="6" 
+          strokeLinecap="round" 
+          strokeDasharray={circumference}
+          animate={{ strokeDashoffset }}
+          transition={{ type: 'spring', bounce: 0 }}
+        />
+      </svg>
+      <div className="absolute bottom-0 text-[10px] font-mono font-bold text-white/70">
+        {Math.round((value/max)*100)}%
+      </div>
+    </div>
+  );
+};
+
+const TactileSlider = ({ label, value, max, onChange, step = 1 }: any) => {
+  const { color, glow } = getSliderColor(value, max);
+  const percent = (value / max) * 100;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-white/70">{label}</span>
+        <div className="flex items-center gap-4">
+          <span className="font-mono text-sm font-bold text-white">{value.toLocaleString()}</span>
+          <Gauge value={value} max={max} />
+        </div>
+      </div>
+      <div className="relative w-full h-3 bg-black/50 rounded-full border border-white/5">
+        <div 
+          className="absolute top-0 left-0 h-full rounded-full transition-all duration-300"
+          style={{ width: `${percent}%`, backgroundColor: color, boxShadow: `0 0 15px ${glow}` }}
+        />
+        <input 
+          type="range"
+          min="0"
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+      </div>
+    </div>
+  );
+};
+
+const TIERS = ['Free', 'Pro', 'Enterprise'];
+
+export const RateLimiter = () => {
+  const [activeTier, setActiveTier] = useState('Free');
+  
+  const [limits, setLimits] = useState<Record<string, { rpm: number, burst: number }>>({
+    Free: { rpm: 60, burst: 100 },
+    Pro: { rpm: 1000, burst: 2500 },
+    Enterprise: { rpm: 10000, burst: 50000 }
+  });
+
+  const currentLimits = limits[activeTier];
+
+  const updateLimit = (key: 'rpm' | 'burst', val: number) => {
+    setLimits(prev => ({
+      ...prev,
+      [activeTier]: { ...prev[activeTier], [key]: val }
+    }));
+  };
+
+  return (
+    <div className="flex gap-8 pb-32">
+      {/* Configuration Hub */}
+      <div className="flex-1 flex flex-col gap-6">
+        <div className="p-8 rounded-3xl bg-[#0a0a0f] border border-white/5 shadow-2xl">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <Settings2 size={24} className="text-indigo-400" />
+              <h2 className="text-xl font-bold text-white tracking-tight">Global Gateway Limits</h2>
+            </div>
+            
+            {/* macOS-Style Segmented Control */}
+            <div className="relative flex p-1 bg-black/40 rounded-lg border border-white/10 w-fit">
+              {TIERS.map(tier => (
+                <button
+                  key={tier}
+                  onClick={() => setActiveTier(tier)}
+                  className={`relative z-10 px-6 py-1.5 text-sm font-semibold rounded-md transition-colors ${activeTier === tier ? 'text-white' : 'text-white/40 hover:text-white/70'}`}
+                >
+                  {activeTier === tier && (
+                    <motion.div
+                      layoutId="tier-pill"
+                      className="absolute inset-0 bg-white/10 border border-white/20 rounded-md -z-10 shadow-lg"
+                      transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                    />
+                  )}
+                  {tier}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-12">
+            <TactileSlider 
+              label="Requests per Minute (RPM)"
+              value={currentLimits.rpm}
+              max={activeTier === 'Free' ? 500 : activeTier === 'Pro' ? 5000 : 50000}
+              step={activeTier === 'Enterprise' ? 1000 : 10}
+              onChange={(val: number) => updateLimit('rpm', val)}
+            />
+
+            <TactileSlider 
+              label="Burst Tolerance (Concurrency)"
+              value={currentLimits.burst}
+              max={activeTier === 'Free' ? 200 : activeTier === 'Pro' ? 10000 : 100000}
+              step={activeTier === 'Enterprise' ? 1000 : 10}
+              onChange={(val: number) => updateLimit('burst', val)}
+            />
+          </div>
+
+          <div className="mt-12 flex items-center justify-end gap-4 border-t border-white/5 pt-6">
+            <button className="px-6 py-2.5 rounded-xl border border-white/10 text-white/70 font-semibold text-sm hover:bg-white/5 transition-colors">
+              Revert Changes
+            </button>
+            <button className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-500 text-white font-bold text-sm hover:bg-indigo-600 transition-colors shadow-lg shadow-indigo-500/20">
+              <Save size={16} /> Deploy Configuration
+            </button>
+          </div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginTop: 24 }}>
-        
-        {/* Tier Limits */}
-        <div className="config-card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
-            <Zap size={18} color="#a78bfa" />
-            <h3 style={{ margin: 0, fontSize: 16 }}>Global Tier Limits</h3>
+      {/* Danger & Monitoring Side Panel */}
+      <div className="w-80 flex flex-col gap-6">
+        {/* The Hazard Kill Switch */}
+        <div className="p-6 rounded-3xl bg-[#0a0a0f] border border-rose-500/20 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+            <ShieldAlert size={100} />
           </div>
-
-          <div className="slider-group">
-            <div className="slider-label">
-              <span>Free Tier (req/min)</span>
-              <span className="mono-text">{limits.free}</span>
-            </div>
-            <input 
-              type="range" min="10" max="500" value={limits.free} 
-              onChange={e => setLimits({...limits, free: parseInt(e.target.value)})}
-              className="klyra-slider"
-            />
-          </div>
-
-          <div className="slider-group">
-            <div className="slider-label">
-              <span>Pro Tier (req/min)</span>
-              <span className="mono-text">{limits.pro}</span>
-            </div>
-            <input 
-              type="range" min="100" max="5000" value={limits.pro} 
-              onChange={e => setLimits({...limits, pro: parseInt(e.target.value)})}
-              className="klyra-slider"
-            />
-          </div>
-
-          <div className="slider-group">
-            <div className="slider-label">
-              <span>Enterprise Tier (req/min)</span>
-              <span className="mono-text">{limits.enterprise.toLocaleString()}</span>
-            </div>
-            <input 
-              type="range" min="1000" max="50000" step="1000" value={limits.enterprise} 
-              onChange={e => setLimits({...limits, enterprise: parseInt(e.target.value)})}
-              className="klyra-slider"
-            />
-          </div>
-          
-          <button className="btn-primary" style={{ marginTop: 24, width: '100%' }}>
-            <Save size={16} /> Apply Global Limits
-          </button>
+          <h3 className="text-lg font-bold text-rose-500 tracking-tight mb-2 flex items-center gap-2">
+            <ShieldAlert size={18} /> Emergency Protocol
+          </h3>
+          <p className="text-[12px] text-white/50 mb-6 leading-relaxed">
+            Instantly drop all incoming unauthenticated traffic or block malicious IP ranges. Use only under active DDoS.
+          </p>
+          <HoldToActivateButton onActivate={() => console.log('Kill switch engaged!')} />
         </div>
 
-        {/* Custom Overrides */}
-        <div className="config-card">
-           <h3 style={{ margin: '0 0 24px', fontSize: 16 }}>Custom API Overrides</h3>
-           <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
-             Target specific APIs that are exceptionally resource intensive (e.g., Heavy LLM Inference) to bypass global tier limits.
-           </p>
-
-           <div className="override-list">
-             <div className="override-item">
-               <div>
-                 <div style={{ fontWeight: 600, fontSize: 13 }}>DeepSeek Coder Inference</div>
-                 <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>api_x9j2</div>
-               </div>
-               <div className="override-limit">50 req/min</div>
-             </div>
-             <div className="override-item">
-               <div>
-                 <div style={{ fontWeight: 600, fontSize: 13 }}>Video Render Engine</div>
-                 <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>api_v2r</div>
-               </div>
-               <div className="override-limit">10 req/min</div>
-             </div>
-           </div>
-
-           <button className="btn-ghost" style={{ marginTop: 16, width: '100%' }}>
-             + Add Custom Override
-           </button>
+        {/* Live Network Health (Aesthetic Filler) */}
+        <div className="p-6 rounded-3xl bg-[#0a0a0f] border border-white/5 shadow-2xl">
+          <h3 className="text-sm font-bold text-white tracking-tight mb-4 flex items-center gap-2">
+            <Activity size={16} className="text-emerald-400" /> Network Health
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <div className="flex justify-between text-[11px] text-white/50 mb-1">
+                <span>Global Edge Latency</span>
+                <span className="text-emerald-400 font-mono">24ms</span>
+              </div>
+              <div className="w-full h-1.5 bg-black rounded-full overflow-hidden">
+                <div className="w-1/4 h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-[11px] text-white/50 mb-1">
+                <span>Error Rate (5xx)</span>
+                <span className="text-emerald-400 font-mono">0.01%</span>
+              </div>
+              <div className="w-full h-1.5 bg-black rounded-full overflow-hidden">
+                <div className="w-[1%] h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+              </div>
+            </div>
+          </div>
         </div>
-
       </div>
     </div>
   );

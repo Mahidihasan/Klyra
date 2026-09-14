@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, Filter, MoreVertical, X, Plus } from 'lucide-react';
+import { Search, Filter, MoreVertical, X, Plus, Copy, Eye, Ban, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   AdminUserRow, 
   UserRoleValue, 
@@ -58,6 +59,14 @@ export const AdminUsers = () => {
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [emailUserTarget, setEmailUserTarget] = useState<AdminUserRow | null>(null);
 
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, user: AdminUserRow } | null>(null);
+
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, []);
+
   // Initialization
   useEffect(() => {
     setUsers(generateMockUsers());
@@ -107,12 +116,77 @@ export const AdminUsers = () => {
     setEmailUserTarget(null);
   };
 
+  // Helper to generate avatar color from initials
+  const getAvatarColor = (name: string) => {
+    const colors = ['from-indigo-500 to-purple-500', 'from-pink-500 to-rose-500', 'from-emerald-400 to-cyan-400', 'from-amber-400 to-orange-500'];
+    const charCode = name.charCodeAt(0) || 0;
+    return colors[charCode % colors.length];
+  };
+
   const columns: ColumnDef<AdminUserRow>[] = useMemo(() => [
-    { id: 'name', header: 'Name', accessorKey: 'name', width: 250, isEditable: true },
-    { id: 'email', header: 'Email', accessorKey: 'email', width: 300, isEditable: true },
-    { id: 'role', header: 'Role', accessorKey: 'role', width: 150 },
-    { id: 'status', header: 'Status', accessorKey: 'status', width: 150 },
-    { id: 'tier', header: 'Tier', accessorKey: 'subscriptionTier', width: 150 },
+    { 
+      id: 'name', 
+      header: 'User', 
+      accessorKey: 'name', 
+      width: 320,
+      cellRenderer: (row) => (
+        <div className="flex items-center gap-3 w-full overflow-hidden">
+          <div className={`w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center bg-gradient-to-br ${getAvatarColor(row.name)} text-white font-medium shadow-lg shadow-black/20`}>
+            {row.name.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex flex-col overflow-hidden w-full">
+            <span className="font-medium text-[13px] text-white truncate">{row.name}</span>
+            <span className="text-[11px] text-white/40 truncate">{row.email}</span>
+          </div>
+        </div>
+      )
+    },
+    { 
+      id: 'status', 
+      header: 'Status', 
+      accessorKey: 'status', 
+      width: 140,
+      cellRenderer: (row) => {
+        const isSuspended = row.status === 'SUSPENDED' || row.status === 'BANNED';
+        const isActive = row.status === 'ACTIVE';
+        return (
+          <div className="flex items-center gap-2">
+            <div className="relative flex h-2 w-2">
+              {isActive && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isActive ? 'bg-emerald-500' : isSuspended ? 'bg-rose-500' : 'bg-zinc-500'}`}></span>
+            </div>
+            <span className={`text-[12px] font-medium capitalize ${isActive ? 'text-emerald-400' : isSuspended ? 'text-rose-400' : 'text-zinc-400'}`}>
+              {row.status.toLowerCase()}
+            </span>
+          </div>
+        )
+      }
+    },
+    { 
+      id: 'role', 
+      header: 'Role', 
+      accessorKey: 'role', 
+      width: 130,
+      cellRenderer: (row) => (
+        <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+          {row.role}
+        </div>
+      )
+    },
+    { 
+      id: 'tier', 
+      header: 'Plan', 
+      accessorKey: 'subscriptionTier', 
+      width: 130,
+      cellRenderer: (row) => {
+        const isPro = row.subscriptionTier === 'PRO' || row.subscriptionTier === 'ENTERPRISE';
+        return (
+          <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide ${isPro ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-white/5 text-white/50 border border-white/5'}`}>
+            {row.subscriptionTier}
+          </div>
+        )
+      }
+    },
     { id: 'apis', header: 'APIs (Sub/Own)', accessorKey: 'apisSubscribed', width: 150 },
   ], []);
 
@@ -127,89 +201,91 @@ export const AdminUsers = () => {
 
   return (
     <div className="admin-users-container">
-      <div className="users-header">
-        <h1>User Management (10,000+)</h1>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-semibold text-white tracking-tight mb-1">Users</h1>
+          <p className="text-sm text-white/50">Manage access, roles, and platform activity.</p>
+        </div>
+        <button className="h-9 px-4 rounded-full bg-white text-black font-semibold text-sm hover:bg-white/90 transition-colors shadow-lg shadow-white/10 flex items-center gap-2">
+          <Plus size={16} /> Add User
+        </button>
+      </div>
+
+      {/* Smart Filtering Bar */}
+      <div className="flex items-center gap-3 p-1.5 rounded-2xl bg-[#0a0a0f]/80 backdrop-blur-md border border-white/5 shadow-2xl shadow-black/50 mb-6">
+        <div className="flex items-center flex-1 h-10 px-3 gap-2 bg-white/5 rounded-xl border border-white/5 focus-within:border-white/20 focus-within:bg-white/10 transition-colors">
+          <Search size={16} className="text-white/40" />
+          <input 
+            type="text" 
+            className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder:text-white/30" 
+            placeholder="Search by name or email..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
         
-        <div className="users-controls">
-          <div className="search-input-wrapper">
-            <Search size={16} />
-            <input 
-              type="text" 
-              className="search-input" 
-              placeholder="Search by name or email..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
+
+        <div className="flex items-center gap-2 pr-2">
+          <div className="relative group">
+            <select 
+              className="appearance-none h-10 pl-3 pr-8 rounded-xl bg-transparent text-sm font-medium text-white/70 hover:text-white hover:bg-white/5 border border-transparent cursor-pointer outline-none transition-colors"
+              value={roleFilter} 
+              onChange={(e) => setRoleFilter(e.target.value)}
+            >
+              <option value="ALL" className="bg-[#12121a]">Role: All</option>
+              <option value="USER" className="bg-[#12121a]">User</option>
+              <option value="PROVIDER" className="bg-[#12121a]">Provider</option>
+              <option value="MODERATOR" className="bg-[#12121a]">Moderator</option>
+              <option value="ADMIN" className="bg-[#12121a]">Admin</option>
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/40 group-hover:text-white/70">
+              <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+          </div>
+
+          <div className="relative group">
+            <select 
+              className="appearance-none h-10 pl-3 pr-8 rounded-xl bg-transparent text-sm font-medium text-white/70 hover:text-white hover:bg-white/5 border border-transparent cursor-pointer outline-none transition-colors"
+              value={statusFilter} 
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="ALL" className="bg-[#12121a]">Status: All</option>
+              <option value="ACTIVE" className="bg-[#12121a]">Active</option>
+              <option value="SUSPENDED" className="bg-[#12121a]">Suspended</option>
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/40 group-hover:text-white/70">
+              <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
           </div>
           
-          <div className="query-builder">
-            <Filter size={16} color="var(--text-muted)" style={{ marginRight: 4 }} />
-            
-            <div className="query-clause">
-              <span className="query-field">Role</span>
-              <span className="query-operator">is</span>
-              <select 
-                className="filter-select" 
-                style={{ minWidth: 0, padding: '2px 4px', border: 'none', background: 'transparent', height: 'auto', fontSize: 12, fontWeight: 600, color: '#22c55e' }}
-                value={roleFilter} 
-                onChange={(e) => setRoleFilter(e.target.value)}
-              >
-                <option value="ALL">Any</option>
-                <option value="USER">User</option>
-                <option value="PROVIDER">Provider</option>
-                <option value="MODERATOR">Moderator</option>
-                <option value="ADMIN">Admin</option>
-              </select>
-              {roleFilter !== 'ALL' && <button className="query-remove" onClick={() => setRoleFilter('ALL')}><X size={12} /></button>}
+          <div className="relative group">
+            <select 
+              className="appearance-none h-10 pl-3 pr-8 rounded-xl bg-transparent text-sm font-medium text-white/70 hover:text-white hover:bg-white/5 border border-transparent cursor-pointer outline-none transition-colors"
+              value={tierFilter} 
+              onChange={(e) => setTierFilter(e.target.value)}
+            >
+              <option value="ALL" className="bg-[#12121a]">Plan: All</option>
+              <option value="FREE" className="bg-[#12121a]">Free</option>
+              <option value="PRO" className="bg-[#12121a]">Pro</option>
+              <option value="ENTERPRISE" className="bg-[#12121a]">Enterprise</option>
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/40 group-hover:text-white/70">
+              <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </div>
-
-            <span className="query-and">AND</span>
-
-            <div className="query-clause">
-              <span className="query-field">Status</span>
-              <span className="query-operator">is</span>
-              <select 
-                className="filter-select" 
-                style={{ minWidth: 0, padding: '2px 4px', border: 'none', background: 'transparent', height: 'auto', fontSize: 12, fontWeight: 600, color: '#22c55e' }}
-                value={statusFilter} 
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="ALL">Any</option>
-                <option value="ACTIVE">Active</option>
-                <option value="INACTIVE">Inactive</option>
-                <option value="SUSPENDED">Suspended</option>
-                <option value="BANNED">Banned</option>
-              </select>
-              {statusFilter !== 'ALL' && <button className="query-remove" onClick={() => setStatusFilter('ALL')}><X size={12} /></button>}
-            </div>
-
-            <span className="query-and">AND</span>
-
-            <div className="query-clause">
-              <span className="query-field">Tier</span>
-              <span className="query-operator">is</span>
-              <select 
-                className="filter-select" 
-                style={{ minWidth: 0, padding: '2px 4px', border: 'none', background: 'transparent', height: 'auto', fontSize: 12, fontWeight: 600, color: '#22c55e' }}
-                value={tierFilter} 
-                onChange={(e) => setTierFilter(e.target.value)}
-              >
-                <option value="ALL">Any</option>
-                <option value="FREE">Free</option>
-                <option value="PRO">Pro</option>
-                <option value="ENTERPRISE">Enterprise</option>
-              </select>
-              {tierFilter !== 'ALL' && <button className="query-remove" onClick={() => setTierFilter('ALL')}><X size={12} /></button>}
-            </div>
-
-            <button className="btn-add-query">
-              <Plus size={12} /> Add filter
-            </button>
           </div>
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, marginTop: '24px' }}>
+      <div 
+        className="flex-1 min-h-0 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]"
+        style={{ 
+          transform: selectedUser ? 'scale(0.98)' : 'scale(1)', 
+          transformOrigin: 'center center',
+          opacity: selectedUser ? 0.6 : 1,
+          pointerEvents: selectedUser ? 'none' : 'auto'
+        }}
+      >
         <InfiniteMatrixTable
           data={filteredUsers}
           columns={columns}
@@ -217,6 +293,12 @@ export const AdminUsers = () => {
           onSelectionChange={setSelectedRowIds}
           onCellSave={handleCellSave}
           getRowId={(row) => row.id}
+          rowHeight={64}
+          onRowClick={(row) => setSelectedUser(row)}
+          onContextMenu={(e, row) => {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, user: row });
+          }}
         />
       </div>
 
@@ -224,10 +306,58 @@ export const AdminUsers = () => {
         selectedCount={selectedRowIds.size}
         onClearSelection={() => setSelectedRowIds(new Set())}
         actions={[
-          { label: 'Export CSV', onClick: () => console.log('Exporting...') },
-          { label: 'Delete Selected', onClick: handleBulkDelete, variant: 'danger' }
+          { label: 'Bulk Suspend', onClick: () => console.log('Bulk suspending...'), variant: 'danger' },
+          { label: 'Change Role', onClick: () => console.log('Change role...') },
+          { label: 'Export CSV', onClick: () => console.log('Exporting...') }
         ]}
       />
+
+      {/* Custom Context Menu */}
+      <AnimatePresence>
+        {contextMenu && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.1 }}
+            className="fixed z-[9999] w-48 bg-[#12121a]/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/80 overflow-hidden flex flex-col py-1"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-3 py-2 border-b border-white/5 mb-1">
+              <div className="text-[11px] font-semibold text-white/40 uppercase tracking-wider truncate">
+                {contextMenu.user.name}
+              </div>
+            </div>
+            
+            <button 
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors text-left"
+              onClick={() => { navigator.clipboard.writeText(contextMenu.user.email); setContextMenu(null); }}
+            >
+              <Copy size={14} /> Copy Email
+            </button>
+            <button 
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors text-left"
+              onClick={() => { setSelectedUser(contextMenu.user); setContextMenu(null); }}
+            >
+              <Eye size={14} /> View Details
+            </button>
+            <button 
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 transition-colors text-left"
+              onClick={() => { handleUpdateStatus(contextMenu.user.id, 'SUSPENDED'); setContextMenu(null); }}
+            >
+              <Ban size={14} /> Suspend User
+            </button>
+            <div className="h-[1px] bg-white/5 my-1" />
+            <button 
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-rose-500 hover:bg-rose-500/10 hover:text-rose-400 transition-colors text-left"
+              onClick={() => { setUsers(prev => prev.filter(u => u.id !== contextMenu.user.id)); setContextMenu(null); }}
+            >
+              <Trash2 size={14} /> Delete
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Drawer */}
       <UserDrawer 

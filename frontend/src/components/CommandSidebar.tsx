@@ -41,19 +41,19 @@ export const CommandSidebar: React.FC<CommandSidebarProps> = ({
   ];
 
   return (
-    <aside className="fixed top-0 left-0 z-50 flex h-screen w-24 flex-col justify-between border-r border-white/5 bg-[#0f0f14]/80 backdrop-blur-md pt-6 pb-6">
+      <aside className="fixed top-0 left-0 h-screen w-20 flex flex-col items-center justify-between border-r border-white/5 bg-[#0a0a0f] py-6 z-[9999]">
       
       {/* Logo / Brand */}
-      <div className="flex-shrink-0 flex justify-center pb-6 border-b border-white/5">
+      <div className="flex-shrink-0 flex justify-center w-full pb-6 border-b border-white/5">
         <MagneticWrapper magneticRadius={30} strength={0.3}>
           <div className="brand-icon">
-            <Command size={22} color="#fff" />
+            <Command size={22} className="text-white" />
           </div>
         </MagneticWrapper>
       </div>
 
       {/* Navigation Items */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none] flex flex-col gap-4 items-center pt-6 pb-6">
+      <nav className="flex-1 overflow-y-auto w-full [&::-webkit-scrollbar]:hidden [scrollbar-width:none] flex flex-col gap-4 items-center pt-6 pb-6">
           {adminNav.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -97,7 +97,7 @@ export const CommandSidebar: React.FC<CommandSidebarProps> = ({
       </nav>
 
       {/* Footer / Actions */}
-      <div className="flex-shrink-0 mt-auto flex justify-center pt-6 border-t border-white/5">
+      <div className="flex-shrink-0 mt-auto flex justify-center w-full pt-6 border-t border-white/5">
         <Tooltip content="Exit Admin Panel" direction="right">
           <MagneticWrapper magneticRadius={30} strength={0.5}>
             <button 
