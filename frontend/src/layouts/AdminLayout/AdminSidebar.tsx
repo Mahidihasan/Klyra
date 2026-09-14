@@ -10,13 +10,13 @@ interface AdminSidebarProps {
 
 export const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, setActiveTab, onLogout }) => {
   return (
-    <aside className="admin-sidebar stagger-1">
-      <div className="admin-sidebar-header">
+    <aside className="admin-sidebar stagger-1 h-screen flex flex-col">
+      <div className="admin-sidebar-header shrink-0">
         <span className="admin-brand">Klyra</span>
         <span className="admin-badge">Admin</span>
       </div>
 
-      <nav className="admin-nav">
+      <nav className="admin-nav flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <div 
           className={`admin-nav-item ${activeTab === 'admin-overview' ? 'active' : ''}`}
           onClick={() => setActiveTab('admin-overview')}
@@ -90,7 +90,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, setActive
         </div>
       </nav>
 
-      <div className="admin-sidebar-footer">
+      <div className="admin-sidebar-footer shrink-0">
         <button 
           className="btn-ghost-action stagger-2" 
           style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, borderColor: 'rgba(239,68,68,0.2)', color: '#ef4444' }}

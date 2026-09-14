@@ -41,19 +41,19 @@ export const CommandSidebar: React.FC<CommandSidebarProps> = ({
   ];
 
   return (
-    <div className="floating-sidebar">
-      <div className="floating-sidebar-inner">
-        {/* Logo / Brand */}
-        <div className="floating-sidebar-header">
-          <MagneticWrapper magneticRadius={30} strength={0.3}>
-            <div className="brand-icon">
-              <Command size={22} color="#fff" />
-            </div>
-          </MagneticWrapper>
-        </div>
+    <aside className="fixed top-0 left-0 z-50 flex h-screen w-24 flex-col justify-between border-r border-white/5 bg-[#0f0f14]/80 backdrop-blur-md pt-6 pb-6">
+      
+      {/* Logo / Brand */}
+      <div className="flex-shrink-0 flex justify-center pb-6 border-b border-white/5">
+        <MagneticWrapper magneticRadius={30} strength={0.3}>
+          <div className="brand-icon">
+            <Command size={22} color="#fff" />
+          </div>
+        </MagneticWrapper>
+      </div>
 
-        {/* Navigation Items */}
-        <nav className="floating-sidebar-nav">
+      {/* Navigation Items */}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none] flex flex-col gap-4 items-center pt-6 pb-6">
           {adminNav.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -94,59 +94,24 @@ export const CommandSidebar: React.FC<CommandSidebarProps> = ({
               </Tooltip>
             );
           })}
-        </nav>
+      </nav>
 
-        {/* Footer / Actions */}
-        <div className="floating-sidebar-footer">
-          <Tooltip content="Exit Admin Panel" direction="right">
-            <MagneticWrapper magneticRadius={30} strength={0.5}>
-              <button 
-                onClick={onLogout}
-                className="floating-nav-item logout-btn"
-                aria-label="Logout"
-              >
-                <LogOut size={20} color="#ef4444" />
-              </button>
-            </MagneticWrapper>
-          </Tooltip>
-        </div>
+      {/* Footer / Actions */}
+      <div className="flex-shrink-0 mt-auto flex justify-center pt-6 border-t border-white/5">
+        <Tooltip content="Exit Admin Panel" direction="right">
+          <MagneticWrapper magneticRadius={30} strength={0.5}>
+            <button 
+              onClick={onLogout}
+              className="floating-nav-item logout-btn"
+              aria-label="Logout"
+            >
+              <LogOut size={20} color="#ef4444" />
+            </button>
+          </MagneticWrapper>
+        </Tooltip>
       </div>
 
       <style>{`
-        .floating-sidebar {
-          position: fixed;
-          left: 24px;
-          top: 50%;
-          transform: translateY(-50%);
-          z-index: 100;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .floating-sidebar-inner {
-          background: rgba(15, 15, 20, 0.4);
-          backdrop-filter: blur(24px);
-          -webkit-backdrop-filter: blur(24px);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 32px;
-          padding: 16px 8px;
-          display: flex;
-          flex-direction: column;
-          gap: 24px;
-          box-shadow: 
-            0 20px 40px rgba(0,0,0,0.4), 
-            0 0 0 1px rgba(255,255,255,0.05) inset,
-            0 10px 20px rgba(0,0,0,0.2) inset;
-        }
-
-        .floating-sidebar-header {
-          display: flex;
-          justify-content: center;
-          padding-bottom: 12px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
         .brand-icon {
           width: 44px;
           height: 44px;
@@ -213,6 +178,6 @@ export const CommandSidebar: React.FC<CommandSidebarProps> = ({
           background: rgba(239, 68, 68, 0.2);
         }
       `}</style>
-    </div>
+    </aside>
   );
 };

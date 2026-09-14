@@ -91,7 +91,7 @@ const AdminLayoutInner: React.FC<AdminLayoutProps> = ({ activeTab, setActiveTab 
         transition={{ type: 'spring', stiffness: 350, damping: 30 }}
         style={{ transformOrigin: 'center center' }}
       >
-        <div className="admin-main">
+        <div className="admin-main ml-24">
           <CommandHeader />
 
           <div className="admin-page-content stagger-2">{renderContent()}</div>

@@ -50,7 +50,6 @@ export const CommandHeader: React.FC = () => {
           align-items: center;
           justify-content: space-between;
           padding: 0 40px;
-          padding-left: 140px; /* Make room for floating sidebar */
           background-color: transparent;
           z-index: 40;
           position: sticky;
