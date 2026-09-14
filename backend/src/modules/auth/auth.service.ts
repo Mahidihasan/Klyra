@@ -1,11 +1,17 @@
 import bcrypt from 'bcryptjs';
+import type { Express } from 'express';
 import { pool } from '../../services/database.service';
+import { CLOUDINARY_FOLDERS, deleteFile, uploadFile } from '../../services/storage.service';
 import {
   UserRecord,
   UserMetadata,
   UserPublicProfile,
   AuthTokens,
+  LoginResult,
   LoginHistoryItem,
+  UpdateProfileInput,
+  UpdatePreferencesInput,
+  UserPreferences,
 } from './auth.types';
 import {
   signJwt,
@@ -16,10 +22,37 @@ import {
 } from './jwt.util';
 import { EmailService, OtpEmailService, EmailDeliveryError } from './email.service';
 import { issueOtp, verifyOtp, OtpError, OTP_ERROR_MESSAGES } from './otp.service';
+import { createTotpSetup, decryptTotpSecret, encryptTotpSecret, verifyTotp } from './totp.service';
 
 const BCRYPT_ROUNDS = 12;
+const ACCEPTED_TIMEZONES = new Set([
+  'UTC', 'Africa/Cairo', 'Africa/Johannesburg', 'America/Anchorage', 'America/Argentina/Buenos_Aires',
+  'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Mexico_City', 'America/New_York',
+  'America/Phoenix', 'America/Sao_Paulo', 'America/Toronto', 'Asia/Bangkok', 'Asia/Dhaka', 'Asia/Dubai',
+  'Asia/Hong_Kong', 'Asia/Jakarta', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Seoul',
+  'Asia/Tokyo', 'Australia/Melbourne', 'Australia/Perth', 'Australia/Sydney', 'Europe/Amsterdam',
+  'Europe/Berlin', 'Europe/Istanbul', 'Europe/London', 'Europe/Madrid', 'Europe/Paris', 'Pacific/Auckland',
+]);
+
+export class PasswordChangeError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = 'PasswordChangeError';
+  }
+}
+
+export class AccountDeactivationError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = 'AccountDeactivationError';
+  }
+}
 
 function sanitizeUser(user: any): UserPublicProfile {
+  const metadata: UserMetadata = user.metadata || {};
+  const storedPreferences: Partial<UserPreferences> = metadata.preferences || {};
+  const personalInfo = metadata.personal_info || {};
+  const nameParts = user.name.trim().split(/\s+/);
   return {
     id: user.id,
     email: user.email,
@@ -27,10 +60,45 @@ function sanitizeUser(user: any): UserPublicProfile {
     role: user.role,
     email_verified_at: user.email_verified_at,
     status: user.status,
+    is_active: user.is_active,
+    two_factor_enabled: user.two_factor_enabled,
     avatar_url: user.avatar_url,
+    bio: user.bio,
+    company: user.company,
+    website: user.website,
+    first_name: personalInfo.first_name || nameParts[0] || '',
+    last_name: personalInfo.last_name || nameParts.slice(1).join(' ') || '',
+    handle: personalInfo.handle || null,
+    job_title: personalInfo.job_title || null,
+    github_url: personalInfo.github_url || null,
+    preferences: {
+      theme: storedPreferences.theme === 'light' || storedPreferences.theme === 'system' ? storedPreferences.theme : 'dark',
+      timezone: typeof storedPreferences.timezone === 'string' ? storedPreferences.timezone : 'UTC',
+      notifications: {
+        email: user.email_enabled ?? true,
+        push: user.push_enabled ?? true,
+        in_app: user.in_app_enabled ?? true,
+      },
+      api_response_format: storedPreferences.api_response_format === 'xml' ? 'xml' : 'json',
+      code_snippet_preference: ['curl', 'javascript-fetch', 'javascript-axios', 'python', 'go'].includes(storedPreferences.code_snippet_preference as string)
+        ? storedPreferences.code_snippet_preference as UserPreferences['code_snippet_preference'] : 'curl',
+      email_notifications: {
+        api_downtime_alerts: storedPreferences.email_notifications?.api_downtime_alerts ?? true,
+        monthly_usage_quota_warnings: storedPreferences.email_notifications?.monthly_usage_quota_warnings ?? true,
+        product_announcements: storedPreferences.email_notifications?.product_announcements ?? false,
+      },
+    },
+    last_login_at: user.last_login_at,
+    last_login_ip: user.last_login_ip,
     created_at: user.created_at,
+    updated_at: user.updated_at,
   };
 }
+
+const PUBLIC_PROFILE_FIELDS = `u.id, u.email, u.name, u.role, u.email_verified_at, u.status,
+  u.is_active, u.two_factor_enabled, u.avatar_url, u.bio, u.company, u.website,
+  u.metadata, u.last_login_at, u.last_login_ip::text, u.created_at, u.updated_at,
+  np.email_enabled, np.push_enabled, np.in_app_enabled`;
 
 function maskEmail(email: string): string {
   const [name, domain] = email.split('@');
@@ -40,6 +108,309 @@ function maskEmail(email: string): string {
 }
 
 export class AuthService {
+  /** Return the safe, authenticated-user profile shape used by the client. */
+  static async getProfile(userId: string): Promise<UserPublicProfile | null> {
+    const result = await pool.query(
+      `SELECT ${PUBLIC_PROFILE_FIELDS}
+       FROM users u
+       LEFT JOIN notification_preferences np ON np.user_id = u.id
+       WHERE u.id = $1 AND u.deleted_at IS NULL`,
+      [userId],
+    );
+
+    return result.rows[0] ? sanitizeUser(result.rows[0]) : null;
+  }
+
+  /**
+   * Update the profile fields that are already represented in the users table.
+   * Passwords, email, roles, session data and 2FA state deliberately cannot be
+   * changed through this path.
+   */
+  static async updateProfile(userId: string, input: UpdateProfileInput): Promise<UserPublicProfile> {
+    const fields: string[] = [];
+    const values: Array<string | null> = [];
+
+    const add = (column: string, value: string | null) => {
+      values.push(value);
+      fields.push(`${column} = $${values.length}`);
+    };
+
+    const personalFields = ['first_name', 'last_name', 'handle', 'job_title', 'github_url'] as const;
+    const hasPersonalInfo = personalFields.some((field) => input[field] !== undefined);
+
+    if (input.name !== undefined && !hasPersonalInfo) {
+      if (typeof input.name !== 'string') throw new Error('Name must be a string.');
+      const name = input.name.trim();
+      if (name.length < 2 || name.length > 100) {
+        throw new Error('Name must be between 2 and 100 characters.');
+      }
+      add('name', name);
+    }
+
+    if (hasPersonalInfo) {
+      if (personalFields.some((field) => input[field] === undefined)) {
+        throw new Error('First name, last name, handle, job title, and GitHub profile must be provided together.');
+      }
+      const firstName = normalizeRequiredProfileText(input.first_name, 'First name', 50);
+      const lastName = normalizeRequiredProfileText(input.last_name, 'Last name', 50);
+      const fullName = `${firstName} ${lastName}`;
+      if (fullName.length > 100) throw new Error('First and last name together must be 100 characters or fewer.');
+      const handle = normalizeRequiredProfileText(input.handle, 'Username', 30).toLowerCase();
+      const jobTitle = normalizeOptionalProfileText(input.job_title, 'Job title', 100);
+      const githubUrl = normalizeOptionalProfileText(input.github_url, 'GitHub profile URL', 500);
+      if (!/^[a-z0-9][a-z0-9_-]{2,29}$/.test(handle)) {
+        throw new Error('Username must be 3–30 characters and use only letters, numbers, underscores, or hyphens.');
+      }
+      if (!jobTitle) throw new Error('Job title is required.');
+      validateGithubUrl(githubUrl);
+      // Keep legacy display/header data synchronized without introducing a new column.
+      add('name', fullName);
+      values.push(JSON.stringify({ first_name: firstName, last_name: lastName, handle, job_title: jobTitle, github_url: githubUrl }));
+      fields.push(`metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{personal_info}', $${values.length}::jsonb, true)`);
+    }
+
+    if (input.company !== undefined) {
+      add('company', normalizeOptionalProfileText(input.company, 'Company', 255));
+    }
+
+    if (input.bio !== undefined) {
+      add('bio', normalizeOptionalProfileText(input.bio, 'Bio', 2000));
+    }
+
+    if (input.website !== undefined) {
+      const website = normalizeOptionalProfileText(input.website, 'Website', 500);
+      if (website) {
+        let url: URL;
+        try {
+          url = new URL(website);
+        } catch {
+          throw new Error('Website must be a valid URL.');
+        }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+          throw new Error('Website must use http:// or https://.');
+        }
+      }
+      add('website', website);
+    }
+
+    if (fields.length === 0) {
+      throw new Error('Provide at least one profile field to update.');
+    }
+
+    values.push(userId);
+    const result = await pool.query(
+      `UPDATE users
+       SET ${fields.join(', ')}, updated_at = NOW()
+       WHERE id = $${values.length} AND deleted_at IS NULL
+       RETURNING id`,
+      values,
+    );
+
+    const user = result.rows[0];
+    if (!user) throw new Error('User not found.');
+
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'UPDATE', 'users', $1, $2::jsonb)`,
+      [userId, JSON.stringify({ profile_fields: fields.map((field) => field.split(' ')[0]) })],
+    );
+
+    return (await this.getProfile(userId))!;
+  }
+
+  static async updatePreferences(userId: string, input: UpdatePreferencesInput): Promise<UserPublicProfile> {
+    const current = await this.getProfile(userId);
+    if (!current) throw new Error('User not found.');
+
+    const theme = input.theme === undefined ? current.preferences.theme : input.theme;
+    const timezone = input.timezone === undefined ? current.preferences.timezone : input.timezone;
+    const notifications = input.notifications === undefined ? current.preferences.notifications : input.notifications;
+    const apiResponseFormat = input.api_response_format === undefined ? current.preferences.api_response_format : input.api_response_format;
+    const codeSnippetPreference = input.code_snippet_preference === undefined ? current.preferences.code_snippet_preference : input.code_snippet_preference;
+    const emailNotifications = input.email_notifications === undefined ? current.preferences.email_notifications : input.email_notifications;
+
+    if (theme !== 'dark' && theme !== 'light' && theme !== 'system') throw new Error('Theme must be dark, light, or system.');
+    if (typeof timezone !== 'string' || !ACCEPTED_TIMEZONES.has(timezone)) throw new Error('Timezone must be selected from the supported timezone list.');
+    if (!notifications || typeof notifications !== 'object' || typeof (notifications as any).email !== 'boolean' || typeof (notifications as any).push !== 'boolean' || typeof (notifications as any).in_app !== 'boolean') {
+      throw new Error('Notification preferences must include Email, Push, and In-app settings.');
+    }
+    if (apiResponseFormat !== 'json' && apiResponseFormat !== 'xml') throw new Error('API response format must be JSON or XML.');
+    if (!['curl', 'javascript-fetch', 'javascript-axios', 'python', 'go'].includes(codeSnippetPreference as string)) throw new Error('Code snippet preference must be a supported language.');
+    if (!emailNotifications || typeof emailNotifications !== 'object' || typeof (emailNotifications as any).api_downtime_alerts !== 'boolean' || typeof (emailNotifications as any).monthly_usage_quota_warnings !== 'boolean' || typeof (emailNotifications as any).product_announcements !== 'boolean') {
+      throw new Error('Email notification preferences must include all supported alert categories.');
+    }
+
+    const metadataPreferences = { theme, timezone, api_response_format: apiResponseFormat, code_snippet_preference: codeSnippetPreference, email_notifications: emailNotifications };
+    await pool.query('BEGIN');
+    try {
+      await pool.query(
+        `UPDATE users
+         SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{preferences}',
+           (COALESCE(metadata -> 'preferences', '{}'::jsonb) - 'language') || $1::jsonb, true),
+           updated_at = NOW()
+         WHERE id = $2 AND deleted_at IS NULL`,
+        [JSON.stringify(metadataPreferences), userId],
+      );
+      await pool.query(
+        `INSERT INTO notification_preferences (user_id, email_enabled, push_enabled, in_app_enabled)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id) DO UPDATE SET email_enabled = EXCLUDED.email_enabled,
+           push_enabled = EXCLUDED.push_enabled, in_app_enabled = EXCLUDED.in_app_enabled, updated_at = NOW()`,
+        [userId, (notifications as any).email, (notifications as any).push, (notifications as any).in_app],
+      );
+      await pool.query(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'UPDATE', 'users', $1, '{"profile_fields":["preferences"]}'::jsonb)`, [userId],
+      );
+      await pool.query('COMMIT');
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      throw error;
+    }
+    return (await this.getProfile(userId))!;
+  }
+
+  /**
+   * Disable an account without deleting its retained records. Password
+   * re-authentication prevents a stolen browser session from disabling a user.
+   */
+  static async deactivateAccount(userId: string, currentPassword: unknown): Promise<{ success: boolean; message: string }> {
+    if (typeof currentPassword !== 'string' || !currentPassword || currentPassword.length > 256) {
+      throw new AccountDeactivationError('Current password is required.', 400);
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const userResult = await client.query(
+        `SELECT id, password_hash, status, is_active
+         FROM users
+         WHERE id = $1 AND deleted_at IS NULL
+         FOR UPDATE`,
+        [userId],
+      );
+      const user = userResult.rows[0];
+      if (!user) throw new AccountDeactivationError('Account not found.', 404);
+      if (user.status !== 'ACTIVE' || !user.is_active) {
+        throw new AccountDeactivationError('This account is already inactive.', 400);
+      }
+
+      const passwordMatches = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!passwordMatches) {
+        throw new AccountDeactivationError('Current password is incorrect.', 401);
+      }
+
+      await client.query(
+        `UPDATE users
+         SET status = 'INACTIVE', is_active = FALSE, updated_at = NOW()
+         WHERE id = $1`,
+        [userId],
+      );
+      const sessionResult = await client.query(
+        'UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL',
+        [userId],
+      );
+      const keyResult = await client.query(
+        `UPDATE api_keys
+         SET status = 'REVOKED', is_active = FALSE, revoked_at = NOW()
+         WHERE user_id = $1 AND status = 'ACTIVE' AND is_active = TRUE`,
+        [userId],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'SUSPEND', 'users', $1, $2::jsonb)`,
+        [userId, JSON.stringify({ action: 'account_deactivated', sessions_revoked: sessionResult.rowCount, api_keys_revoked: keyResult.rowCount })],
+      );
+      await client.query('COMMIT');
+      return { success: true, message: 'Your account has been deactivated and you have been signed out.' };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Upload a replacement avatar and persist only its Cloudinary references. */
+  static async updateAvatar(userId: string, file: Express.Multer.File): Promise<UserPublicProfile> {
+    const existing = await pool.query(
+      'SELECT avatar_public_id FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId],
+    );
+    if (!existing.rows[0]) throw new Error('User not found.');
+
+    const previousPublicId = existing.rows[0].avatar_public_id as string | null;
+    const asset = await uploadFile(file, {
+      folder: CLOUDINARY_FOLDERS.AVATARS,
+      resourceType: 'image',
+      publicId: userId,
+    });
+
+    const updated = await pool.query(
+      `UPDATE users
+       SET avatar_url = $1, avatar_public_id = $2, avatar_metadata = $3::jsonb, updated_at = NOW()
+       WHERE id = $4 AND deleted_at IS NULL
+       RETURNING id, email, name, role, email_verified_at, status, avatar_url,
+                 bio, company, website, created_at`,
+      [asset.secure_url, asset.public_id, JSON.stringify(asset), userId],
+    );
+    const user = updated.rows[0];
+    if (!user) throw new Error('User not found.');
+
+    if (previousPublicId && previousPublicId !== asset.public_id) {
+      try {
+        await deleteFile(previousPublicId);
+      } catch {
+        // The new avatar is already persisted; a failed cleanup must not undo it.
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'UPDATE', 'users', $1, '{"profile_fields":["avatar"]}'::jsonb)`,
+      [userId],
+    );
+
+    return (await this.getProfile(userId))!;
+  }
+
+  /** Remove the avatar reference and clean up its Cloudinary asset. */
+  static async removeAvatar(userId: string): Promise<UserPublicProfile> {
+    const existing = await pool.query(
+      'SELECT avatar_public_id FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId],
+    );
+    const previousPublicId = existing.rows[0]?.avatar_public_id as string | null | undefined;
+    if (previousPublicId === undefined) throw new Error('User not found.');
+
+    const updated = await pool.query(
+      `UPDATE users
+       SET avatar_url = NULL, avatar_public_id = NULL, avatar_metadata = NULL, updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id, email, name, role, email_verified_at, status, avatar_url,
+                 bio, company, website, created_at`,
+      [userId],
+    );
+    const user = updated.rows[0];
+    if (!user) throw new Error('User not found.');
+
+    if (previousPublicId) {
+      try {
+        await deleteFile(previousPublicId);
+      } catch {
+        // The user record has already been safely cleared.
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'UPDATE', 'users', $1, '{"profile_fields":["avatar"]}'::jsonb)`,
+      [userId],
+    );
+
+    return (await this.getProfile(userId))!;
+  }
+
   /**
    * Register a new platform user (unverified) and email an OTP for
    * email verification. On email delivery failure the created user is
@@ -182,13 +553,7 @@ export class AuthService {
     rememberMe = false,
     ip = '127.0.0.1',
     userAgent = 'Unknown Device'
-  ): Promise<{
-    requires2FA?: boolean;
-    tempToken?: string;
-    maskedEmail?: string;
-    tokens?: AuthTokens;
-    user?: UserPublicProfile;
-  }> {
+  ): Promise<LoginResult> {
     const cleanEmail = email.trim().toLowerCase();
 
     // Query user
@@ -206,6 +571,12 @@ export class AuthService {
         [JSON.stringify({ success: false, reason: 'user_not_found', email: cleanEmail }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
       );
       throw new Error('Invalid email or password.');
+    }
+
+    if (user.status !== 'ACTIVE' || !user.is_active) {
+      const err = new Error('Account is inactive or suspended.') as any;
+      if (user.status === 'INACTIVE' && !user.is_active) err.code = 'ACCOUNT_INACTIVE';
+      throw err;
     }
 
     const metadata: UserMetadata = user.metadata || {};
@@ -306,6 +677,8 @@ export class AuthService {
         expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
         rememberMe: !!rememberMe,
         tempToken,
+        emailVerified: false,
+        requiresTotp: !!user.two_factor_enabled,
       };
 
       await pool.query('UPDATE users SET metadata = $1 WHERE id = $2', [JSON.stringify(metadata), user.id]);
@@ -313,9 +686,17 @@ export class AuthService {
 
       return {
         requires2FA: true,
+        challengeType: 'email',
         tempToken,
         maskedEmail: maskEmail(user.email),
       };
+    }
+
+    if (user.two_factor_enabled) {
+      const tempToken = generateRandomToken(24);
+      metadata.pending_2fa = { expiresAt: Date.now() + 10 * 60 * 1000, rememberMe: !!rememberMe, tempToken, emailVerified: true, requiresTotp: true };
+      await pool.query('UPDATE users SET metadata = $1 WHERE id = $2', [JSON.stringify(metadata), user.id]);
+      return { requires2FA: true, challengeType: 'totp', tempToken };
     }
 
     // 5. Known Device: Complete Login immediately
@@ -335,7 +716,7 @@ export class AuthService {
     code: string,
     ip = '127.0.0.1',
     userAgent = 'Unknown Device'
-  ): Promise<{ tokens: AuthTokens; user: UserPublicProfile }> {
+  ): Promise<LoginResult> {
     if (!tempToken || !code) {
       throw new Error('Security code and session token are required.');
     }
@@ -349,6 +730,10 @@ export class AuthService {
     const user: UserRecord = userRes.rows[0];
     if (!user) {
       throw new Error('Invalid or expired 2FA session. Please log in again.');
+    }
+
+    if (user.status !== 'ACTIVE' || !user.is_active) {
+      throw new Error('Account is inactive or suspended.');
     }
 
     const metadata: UserMetadata = user.metadata || {};
@@ -365,7 +750,7 @@ export class AuthService {
     }
 
     const inputCodeHash = sha256(code.trim());
-    if (inputCodeHash !== pending2FA.codeHash) {
+    if (!pending2FA.codeHash || inputCodeHash !== pending2FA.codeHash) {
       throw new Error('Invalid verification code. Please check the code sent to your email.');
     }
 
@@ -381,9 +766,76 @@ export class AuthService {
     });
     metadata.known_devices = knownDevices;
     const rememberMe = pending2FA.rememberMe;
+    if (pending2FA.requiresTotp || user.two_factor_enabled) {
+      metadata.pending_2fa = { ...pending2FA, emailVerified: true, codeHash: undefined };
+      await pool.query('UPDATE users SET metadata = $1 WHERE id = $2', [JSON.stringify(metadata), user.id]);
+      return { requires2FA: true, challengeType: 'totp', tempToken: pending2FA.tempToken };
+    }
     metadata.pending_2fa = null;
+    const loginResult = await this.completeLogin(user, metadata, currentFingerprint, ip, userAgent, rememberMe);
+    return { requires2FA: false, ...loginResult };
+  }
 
-    return this.completeLogin(user, metadata, currentFingerprint, ip, userAgent, rememberMe);
+  static async verifyLoginTotp(tempToken: string, code: string, ip = '127.0.0.1', userAgent = 'Unknown Device'): Promise<{ tokens: AuthTokens; user: UserPublicProfile }> {
+    if (!tempToken || !code) throw new Error('Authenticator code and session token are required.');
+    const result = await pool.query(`SELECT * FROM users WHERE metadata->'pending_2fa'->>'tempToken' = $1 AND deleted_at IS NULL`, [tempToken]);
+    const user: UserRecord = result.rows[0]; const pending = user?.metadata?.pending_2fa;
+    if (!user || !pending || !pending.requiresTotp || Date.now() > pending.expiresAt) throw new Error('Invalid or expired authentication session. Please log in again.');
+    if (!pending.emailVerified || !user.two_factor_enabled || !user.two_factor_secret) throw new Error('Complete the required email verification first.');
+    let valid = false; try { valid = await verifyTotp(decryptTotpSecret(user.two_factor_secret), code); } catch { throw new Error('Authenticator configuration is unavailable.'); }
+    if (!valid) throw new Error('Invalid authenticator code.');
+    const metadata: UserMetadata = { ...user.metadata, pending_2fa: null };
+    return this.completeLogin(user, metadata, generateDeviceFingerprint(userAgent, ip), ip, userAgent, pending.rememberMe);
+  }
+
+  static async startTotpSetup(userId: string): Promise<{ secret: string; qrCodeDataUrl: string }> {
+    const result = await pool.query('SELECT email, two_factor_enabled, metadata FROM users WHERE id = $1 AND deleted_at IS NULL', [userId]); const user = result.rows[0];
+    if (!user) throw new Error('User not found.'); if (user.two_factor_enabled) throw new Error('Authenticator app 2FA is already enabled.');
+    const setup = await createTotpSetup(user.email);
+    await pool.query('UPDATE users SET metadata = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify({ ...(user.metadata || {}), pending_2fa_setup: { secret: encryptTotpSecret(setup.secret), expiresAt: Date.now() + 600000 } }), userId]);
+    return setup;
+  }
+
+  static async confirmTotpSetup(userId: string, code: string): Promise<{ success: boolean; message: string }> {
+    const result = await pool.query('SELECT metadata FROM users WHERE id = $1 AND deleted_at IS NULL', [userId]); const user = result.rows[0]; const pending = user?.metadata?.pending_2fa_setup;
+    if (!pending || Date.now() > pending.expiresAt) throw new Error('Authenticator setup has expired. Start setup again.');
+    let secret: string; try { secret = decryptTotpSecret(pending.secret); } catch { throw new Error('Authenticator setup is unavailable.'); }
+    if (!await verifyTotp(secret, code)) throw new Error('Invalid authenticator code.');
+    const metadata = { ...user.metadata }; delete metadata.pending_2fa_setup;
+    await pool.query('UPDATE users SET two_factor_enabled = TRUE, two_factor_secret = $1, metadata = $2, updated_at = NOW() WHERE id = $3', [encryptTotpSecret(secret), JSON.stringify(metadata), userId]);
+    await pool.query(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values) VALUES ($1, 'UPDATE', 'users', $1, '{"action":"totp_enabled"}'::jsonb)`, [userId]);
+    return { success: true, message: 'Authenticator app 2FA is enabled.' };
+  }
+
+  static async disableTotp(userId: string, currentPassword: string, code: string): Promise<{ success: boolean; message: string }> {
+    const result = await pool.query('SELECT password_hash, two_factor_enabled, two_factor_secret FROM users WHERE id = $1 AND deleted_at IS NULL', [userId]); const user = result.rows[0];
+    if (!user || !user.two_factor_enabled || !user.two_factor_secret) throw new Error('Authenticator app 2FA is not enabled.');
+    if (!await bcrypt.compare(currentPassword || '', user.password_hash)) throw new Error('Current password is incorrect.');
+    let secret: string;
+    try {
+      secret = decryptTotpSecret(user.two_factor_secret);
+    } catch {
+      throw new Error('Authenticator configuration is unavailable.');
+    }
+    if (!await verifyTotp(secret, code || '')) throw new Error('Invalid authenticator code.');
+
+    // One statement makes the state transition and audit record atomic. It
+    // intentionally does not touch user_sessions: disabling a login factor
+    // must not sign out otherwise valid authenticated sessions.
+    const update = await pool.query(
+      `WITH disabled AS (
+         UPDATE users
+         SET two_factor_enabled = FALSE, two_factor_secret = NULL, updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL AND two_factor_enabled = TRUE AND two_factor_secret IS NOT NULL
+         RETURNING id
+       )
+       INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       SELECT id, 'UPDATE', 'users', id, '{"action":"totp_disabled"}'::jsonb FROM disabled
+       RETURNING user_id`,
+      [userId],
+    );
+    if (update.rowCount !== 1) throw new Error('Authenticator app 2FA is not enabled.');
+    return { success: true, message: 'Authenticator app 2FA is disabled.' };
   }
 
   /**
@@ -489,7 +941,7 @@ export class AuthService {
     const tokenHash = sha256(rawRefreshToken);
     const sessionRes = await pool.query(
       `SELECT s.id as session_id, s.user_id, s.expires_at, s.revoked_at,
-              u.id, u.email, u.name, u.role, u.status
+              u.id, u.email, u.name, u.role, u.status, u.is_active, u.deleted_at
        FROM user_sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.refresh_token_hash = $1`,
@@ -500,7 +952,9 @@ export class AuthService {
     if (!session) throw new Error('Invalid refresh token.');
     if (session.revoked_at) throw new Error('Session has been revoked.');
     if (new Date(session.expires_at) < new Date()) throw new Error('Session has expired.');
-    if (session.status !== 'ACTIVE') throw new Error('Account is inactive or suspended.');
+    if (session.status !== 'ACTIVE' || !session.is_active || session.deleted_at) {
+      throw new Error('Account is inactive or suspended.');
+    }
 
     // Issue new 15-minute access token
     const newAccessToken = signJwt(
@@ -513,6 +967,7 @@ export class AuthService {
       },
       15 * 60
     );
+    await pool.query('UPDATE user_sessions SET last_active_at = NOW() WHERE id = $1 AND revoked_at IS NULL', [session.session_id]);
 
     return {
       accessToken: newAccessToken,
@@ -553,6 +1008,109 @@ export class AuthService {
     }
 
     return genericResponse;
+  }
+
+  static async listSecuritySessions(userId: string, currentSessionId?: string): Promise<any[]> {
+    const result = await pool.query(`SELECT id, user_agent, ip_address::text, created_at, last_active_at, expires_at, revoked_at FROM user_sessions WHERE user_id = $1 ORDER BY last_active_at DESC`, [userId]);
+    return result.rows.map((session) => ({ id: session.id, ...parseSessionUserAgent(session.user_agent), ip: session.ip_address, location: null, created_at: session.created_at, last_active_at: session.last_active_at, expires_at: session.expires_at, revoked_at: session.revoked_at, is_current: session.id === currentSessionId }));
+  }
+
+  static async revokeSecuritySession(userId: string, sessionId: string, currentSessionId?: string): Promise<{ revokedCurrent: boolean }> {
+    const result = await pool.query('UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL RETURNING id', [sessionId, userId]);
+    if (!result.rows[0]) throw new Error('Active session not found.');
+    await pool.query(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values) VALUES ($1, 'UPDATE', 'user_sessions', $2, '{"action":"session_revoked"}'::jsonb)`, [userId, sessionId]);
+    return { revokedCurrent: sessionId === currentSessionId };
+  }
+
+  static async revokeOtherSecuritySessions(userId: string, currentSessionId?: string): Promise<{ revoked: number }> {
+    const result = await pool.query('UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND id <> $2::uuid AND revoked_at IS NULL RETURNING id', [userId, currentSessionId || '00000000-0000-0000-0000-000000000000']);
+    await pool.query(`INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values) VALUES ($1, 'UPDATE', 'user_sessions', $1, $2::jsonb)`, [userId, JSON.stringify({ action: 'other_sessions_revoked', count: result.rowCount || 0 })]);
+    return { revoked: result.rowCount || 0 };
+  }
+
+  /**
+   * Request proof-of-email before restoring a voluntarily deactivated account.
+   * This response is deliberately identical for every email/status combination
+   * so callers cannot use it to discover which accounts exist or are inactive.
+   */
+  static async requestAccountReactivation(email: string): Promise<{ success: boolean; message: string }> {
+    const genericResponse = {
+      success: true,
+      message: 'If an eligible inactive account exists for this email address, a verification code has been sent.',
+    };
+    if (typeof email !== 'string' || !email.trim()) return genericResponse;
+
+    const cleanEmail = email.trim().toLowerCase();
+    const userRes = await pool.query(
+      `SELECT id, email
+       FROM users
+       WHERE email = $1 AND status = 'INACTIVE' AND is_active = FALSE AND deleted_at IS NULL`,
+      [cleanEmail],
+    );
+    const user = userRes.rows[0];
+    if (!user) return genericResponse;
+
+    try {
+      const otp = await issueOtp(user.id, 'ACCOUNT_REACTIVATION');
+      await OtpEmailService.sendAccountReactivationOTP(user.email, otp);
+    } catch (err) {
+      // Preserve the enumeration-safe response even if delivery or resend
+      // policy prevents issuance. The provider internals remain server-only.
+      // eslint-disable-next-line no-console
+      console.error('[auth] Account reactivation OTP could not be issued.');
+    }
+    return genericResponse;
+  }
+
+  /**
+   * Restore only a voluntarily deactivated account after email-OTP ownership
+   * proof. SUSPENDED, BANNED, deleted, and already-active accounts never match
+   * this transition. Revoked sessions and API keys are intentionally untouched.
+   */
+  static async confirmAccountReactivation(email: string, otp: string): Promise<{ success: boolean; message: string }> {
+    if (typeof email !== 'string' || !email.trim() || typeof otp !== 'string' || !otp.trim()) {
+      throw new OtpError('OTP_INVALID', OTP_ERROR_MESSAGES.OTP_INVALID);
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const userRes = await pool.query(
+      `SELECT id
+       FROM users
+       WHERE email = $1 AND status = 'INACTIVE' AND is_active = FALSE AND deleted_at IS NULL`,
+      [cleanEmail],
+    );
+    const user = userRes.rows[0];
+    if (!user) throw new OtpError('OTP_INVALID', OTP_ERROR_MESSAGES.OTP_INVALID);
+
+    await verifyOtp(user.id, 'ACCOUNT_REACTIVATION', otp);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `UPDATE users
+         SET status = 'ACTIVE', is_active = TRUE, updated_at = NOW()
+         WHERE id = $1 AND status = 'INACTIVE' AND is_active = FALSE AND deleted_at IS NULL
+         RETURNING id`,
+        [user.id],
+      );
+      if (!result.rows[0]) {
+        throw new OtpError('OTP_INVALID', OTP_ERROR_MESSAGES.OTP_INVALID);
+      }
+      await client.query(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'UPDATE', 'users', $1, $2::jsonb)`,
+        [user.id, JSON.stringify({ action: 'account_reactivated' })],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return { success: true, message: 'Your account has been reactivated. Please sign in to continue.' };
   }
 
   /**
@@ -658,6 +1216,80 @@ export class AuthService {
   }
 
   /**
+   * Change an authenticated user's password after verifying the current one.
+   * Other refresh-token sessions are revoked so an active password change does
+   * not leave previously signed-in devices able to obtain new access tokens.
+   */
+  static async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    sessionId?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
+      throw new PasswordChangeError('Current password and new password are required.', 400);
+    }
+    if (newPassword.length < 8 || newPassword.length > 256) {
+      throw new PasswordChangeError('New password must be between 8 and 256 characters.', 400);
+    }
+    if (currentPassword === newPassword) {
+      throw new PasswordChangeError('New password must be different from your current password.', 400);
+    }
+
+    const userResult = await pool.query(
+      'SELECT id, password_hash FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId],
+    );
+    const user = userResult.rows[0];
+    if (!user) {
+      throw new PasswordChangeError('User not found.', 404);
+    }
+
+    const currentPasswordMatches = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!currentPasswordMatches) {
+      throw new PasswordChangeError('Current password is incorrect.', 401);
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+    await pool.query('BEGIN');
+    try {
+      await pool.query(
+        'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+        [newPasswordHash, userId],
+      );
+
+      if (sessionId) {
+        await pool.query(
+          'UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL',
+          [userId, sessionId],
+        );
+      } else {
+        await pool.query(
+          'UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL',
+          [userId],
+        );
+      }
+
+      await pool.query(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'UPDATE', 'users', $1, '{"action": "password_changed"}')`,
+        [userId],
+      );
+
+      await pool.query('COMMIT');
+    } catch (err) {
+      await pool.query('ROLLBACK');
+      throw err;
+    }
+
+    return {
+      success: true,
+      message: 'Password updated. Other signed-in devices have been signed out.',
+    };
+  }
+
+  /**
    * Logout and revoke active session.
    */
   static async logout(userId: string, sessionId?: string): Promise<void> {
@@ -705,6 +1337,34 @@ export class AuthService {
   }
 }
 
+function normalizeOptionalProfileText(value: unknown, field: string, maxLength: number): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') throw new Error(`${field} must be a string.`);
+  const normalized = value.trim();
+  if (normalized.length > maxLength) {
+    throw new Error(`${field} must be ${maxLength} characters or fewer.`);
+  }
+  return normalized || null;
+}
+
+function normalizeRequiredProfileText(value: unknown, field: string, maxLength: number): string {
+  if (typeof value !== 'string') throw new Error(`${field} must be a string.`);
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`${field} is required.`);
+  if (normalized.length > maxLength) throw new Error(`${field} must be ${maxLength} characters or fewer.`);
+  return normalized;
+}
+
+function validateGithubUrl(url: string | null): void {
+  if (!url) throw new Error('GitHub profile URL is required.');
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new Error('GitHub profile URL must be a valid URL.'); }
+  const pathParts = parsed.pathname.split('/').filter(Boolean);
+  if (parsed.protocol !== 'https:' || !['github.com', 'www.github.com'].includes(parsed.hostname.toLowerCase()) || pathParts.length !== 1) {
+    throw new Error('GitHub profile URL must be an https://github.com/username profile URL.');
+  }
+}
+
 function summarizeUserAgent(ua: string): string {
   if (/Mobile|Android|iPhone|iPad/i.test(ua)) {
     if (/iPhone/i.test(ua)) return 'iPhone (Mobile Safari)';
@@ -726,4 +1386,12 @@ function summarizeUserAgent(ua: string): string {
   }
   if (/Linux/i.test(ua)) return 'Linux';
   return 'Desktop Browser';
+}
+
+function parseSessionUserAgent(userAgent: string | null): { device: string; os: string; browser: string } {
+  const ua = userAgent || '';
+  const os = /Windows/i.test(ua) ? 'Windows' : /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iOS' : /Mac OS|Macintosh/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : 'Unknown OS';
+  const browser = /Edg\//i.test(ua) ? 'Microsoft Edge' : /Firefox\//i.test(ua) ? 'Firefox' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : 'Unknown browser';
+  const device = /iPhone/i.test(ua) ? 'iPhone' : /iPad/i.test(ua) ? 'iPad' : /Android/i.test(ua) ? 'Android device' : 'Desktop';
+  return { device, os, browser };
 }
