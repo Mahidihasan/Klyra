@@ -1,79 +1,368 @@
-import React from 'react';
-import { Shield, Cpu, Activity, AlertTriangle, Crosshair } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Shield, Lock, AlertTriangle, Cpu, Crosshair, Radio } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// ─── Data ──────────────────────────────────────────────────────────────────────
+
+const THREAT_NODES: { id: string; cx: number; cy: number; severity: 'normal' | 'warn' | 'critical'; ip: string }[] = [
+  { id: 'n1', cx: 180, cy: 110, severity: 'critical', ip: '45.33.12.99'   },
+  { id: 'n2', cx: 280, cy: 230, severity: 'warn',     ip: '192.168.1.44'  },
+  { id: 'n3', cx: 110, cy: 220, severity: 'normal',   ip: '203.0.113.12'  },
+  { id: 'n4', cx: 310, cy: 100, severity: 'normal',   ip: '198.51.100.4'  },
+  { id: 'n5', cx: 230, cy: 280, severity: 'warn',     ip: '172.16.254.1'  },
+  { id: 'n6', cx: 140, cy: 175, severity: 'normal',   ip: '10.0.0.55'     },
+];
+
+const CENTER = { cx: 200, cy: 200 };
+
+const INITIAL_FEED = [
+  { id: 1, time: '14:45:01', level: 'critical', msg: 'Blocked 1,420 req from 45.33.12.99 — Reason: DDoS burst pattern' },
+  { id: 2, time: '14:44:55', level: 'warning',  msg: 'IP 192.168.1.44 at 85% rate bucket — throttling applied'         },
+  { id: 3, time: '14:44:30', level: 'info',     msg: 'WAF rule WAF_902 triggered — XSS payload blocked'               },
+  { id: 4, time: '14:43:12', level: 'info',     msg: 'API key usr_9x8f detected across 4 regions simultaneously'       },
+];
+
+const STREAM_FEED = [
+  { id: 5,  time: '14:46:10', level: 'critical', msg: 'New SQL injection attempt on /v1/search — rule SQL_1023'         },
+  { id: 6,  time: '14:46:45', level: 'info',     msg: 'Auto-ban triggered for 77.88.55.33 — 5 failed auth attempts'     },
+  { id: 7,  time: '14:47:02', level: 'warning',  msg: 'Anomalous payload size >10MB on /v1/images/generate'             },
+  { id: 8,  time: '14:48:15', level: 'info',     msg: 'Tor exit node 103.94.56.10 blocked — policy: no-anon-exit-nodes' },
+];
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+const NodePulse = ({ cx, cy, severity }: { cx: number; cy: number; severity: string }) => {
+  const color = severity === 'critical' ? '#f43f5e' : severity === 'warn' ? '#f59e0b' : '#34d399';
+  const glowColor = severity === 'critical' ? 'rgba(244,63,94,0.6)' : severity === 'warn' ? 'rgba(245,158,11,0.5)' : 'rgba(52,211,153,0.4)';
+
+  return (
+    <g>
+      {/* Expanding ping rings for threats */}
+      {severity !== 'normal' && [0, 1].map(i => (
+        <motion.circle
+          key={i}
+          cx={cx} cy={cy}
+          initial={{ r: 6, opacity: 0.8 }}
+          animate={{ r: 26 + i * 8, opacity: 0 }}
+          transition={{ duration: 2 + i * 0.5, repeat: Infinity, delay: i * 0.6, ease: 'easeOut' }}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+        />
+      ))}
+      {/* Core dot */}
+      <motion.circle
+        cx={cx} cy={cy} r={6}
+        fill={color}
+        style={{ filter: `drop-shadow(0 0 8px ${glowColor})` }}
+        animate={severity === 'critical' ? { scale: [1, 1.2, 1] } : {}}
+        transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+      />
+    </g>
+  );
+};
+
+const RadarSweep = () => (
+  <motion.g
+    style={{ transformOrigin: '200px 200px' }}
+    animate={{ rotate: 360 }}
+    transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
+  >
+    <defs>
+      <radialGradient id="sweepGradient" cx="0%" cy="50%" r="100%">
+        <stop offset="0%" stopColor="#6366f1" stopOpacity="0.4" />
+        <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+      </radialGradient>
+    </defs>
+    <path
+      d="M 200 200 L 200 20 A 180 180 0 0 1 380 200 Z"
+      fill="url(#sweepGradient)"
+    />
+  </motion.g>
+);
+
+const ThreatFeedItem = ({ item }: { item: typeof INITIAL_FEED[0] }) => {
+  const color = item.level === 'critical' ? 'text-rose-400' : item.level === 'warning' ? 'text-amber-400' : 'text-sky-400/70';
+  const dot   = item.level === 'critical' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]' : item.level === 'warning' ? 'bg-amber-400' : 'bg-sky-500/60';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      className="flex gap-3 items-start py-3 border-b border-white/5 last:border-0"
+    >
+      <div className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+      <div className="flex-1 min-w-0">
+        <p className={`text-[12px] font-mono leading-relaxed ${color}`}>{item.msg}</p>
+        <span className="text-[11px] text-white/25 font-mono">{item.time}</span>
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── DEFCON Lockdown Modal ─────────────────────────────────────────────────────
+
+const DefconModal = ({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => void }) => {
+  const [input, setInput] = useState('');
+  const ready = input === 'CONFIRM';
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+        transition={{ type: 'spring', bounce: 0.3 }}
+        className="relative w-[480px] rounded-3xl bg-[#0a0a0f] border border-rose-500/40 shadow-[0_0_80px_rgba(244,63,94,0.3)] overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Hazard stripe top bar */}
+        <div className="h-3 w-full bg-[repeating-linear-gradient(45deg,#000,#000_10px,#7f1d1d_10px,#7f1d1d_20px)]" />
+
+        <div className="p-8">
+          <div className="flex items-center gap-3 mb-2">
+            <Lock size={22} className="text-rose-500" />
+            <h2 className="text-xl font-black text-rose-400 tracking-tight uppercase">DEFCON — Global Lockdown</h2>
+          </div>
+          <p className="text-[13px] text-white/50 leading-relaxed mb-8">
+            This will immediately activate <span className="text-white/80 font-semibold">System Maintenance Mode</span> and block all non-essential traffic platform-wide. This action is <span className="text-rose-400 font-bold">irreversible</span> without a manual reset.
+          </p>
+
+          <div className="mb-6">
+            <label className="block text-[11px] uppercase tracking-widest font-bold text-white/40 mb-2">
+              Type <span className="text-rose-400">CONFIRM</span> to proceed
+            </label>
+            <input
+              autoFocus
+              type="text"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              placeholder="CONFIRM"
+              className="w-full px-4 py-3 rounded-xl bg-black/60 border border-white/10 text-white font-mono text-[14px] tracking-widest focus:outline-none focus:border-rose-500/60 transition-colors placeholder:text-white/20"
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 py-3 rounded-xl border border-white/10 text-white/60 font-bold hover:bg-white/5 transition-colors"
+            >
+              Abort
+            </button>
+            <button
+              disabled={!ready}
+              onClick={onConfirm}
+              className={`flex-1 py-3 rounded-xl font-bold uppercase tracking-widest transition-all ${
+                ready
+                  ? 'bg-rose-600 text-white shadow-[0_0_30px_rgba(244,63,94,0.5)] hover:bg-rose-700'
+                  : 'bg-white/5 text-white/20 cursor-not-allowed border border-white/5'
+              }`}
+            >
+              Engage Lockdown
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
+// ─── Main Component ─────────────────────────────────────────────────────────────
 
 export const AIThreatDetection = () => {
+  const [feed, setFeed]             = useState(INITIAL_FEED);
+  const [streamIdx, setStreamIdx]   = useState(0);
+  const [lockdownOpen, setLockdown] = useState(false);
+  const [locked, setLocked]         = useState(false);
+
+  // Auto-stream threat feed entries
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (streamIdx < STREAM_FEED.length) {
+        setFeed(prev => [STREAM_FEED[streamIdx], ...prev].slice(0, 12));
+        setStreamIdx(i => i + 1);
+      }
+    }, 3500);
+    return () => clearInterval(t);
+  }, [streamIdx]);
+
+  const handleConfirmLockdown = () => {
+    setLocked(true);
+    setLockdown(false);
+  };
+
   return (
-    <div className="threat-grid">
-      <div className="threat-main-panel">
-        <h2 style={{ fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
-          <Cpu size={20} color="#8b5cf6" /> Live Neural Threat Analysis
-        </h2>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-            <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>Traffic Analysis State</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#22c55e', fontWeight: 600 }}>
-              <Activity size={16} /> Scanning Live Streams (99.9% clean)
+    <div className="flex flex-col gap-6 pb-32">
+
+      {/* DEFCON Lockdown Banner */}
+      <div className="relative overflow-hidden rounded-2xl border border-rose-500/30">
+        {/* Hazard stripe border */}
+        <div className="absolute inset-x-0 top-0 h-1 bg-[repeating-linear-gradient(90deg,#f43f5e,#f43f5e_12px,transparent_12px,transparent_24px)]" />
+        <div className="flex items-center justify-between px-8 py-5 bg-rose-950/20">
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <motion.div
+                className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center"
+                animate={locked ? {} : { boxShadow: ['0 0 0px rgba(244,63,94,0)', '0 0 20px rgba(244,63,94,0.5)', '0 0 0px rgba(244,63,94,0)'] }}
+                transition={{ duration: 2.5, repeat: Infinity }}
+              >
+                <Lock size={22} className={locked ? 'text-rose-300' : 'text-rose-500'} />
+              </motion.div>
+            </div>
+            <div>
+              <div className="text-[13px] font-black uppercase tracking-widest text-rose-400">
+                DEFCON — Global Lockdown Protocol
+              </div>
+              <div className="text-[12px] text-white/40 mt-0.5">
+                {locked
+                  ? '⚠️ System is in LOCKDOWN MODE — all non-essential traffic blocked'
+                  : 'Instantly enforce system-wide maintenance mode and block all non-essential traffic.'}
+              </div>
             </div>
           </div>
-          
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-            <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>Automated Mitigations</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', fontWeight: 600 }}>
-              <Shield size={16} color="#8b5cf6" /> 14 IPs Banned Last 24h
-            </div>
+
+          {locked ? (
+            <button
+              onClick={() => setLocked(false)}
+              className="px-6 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white/60 font-bold text-sm hover:bg-white/10 transition-colors"
+            >
+              Disengage Lockdown
+            </button>
+          ) : (
+            <button
+              onClick={() => setLockdown(true)}
+              className="px-6 py-2.5 rounded-xl bg-rose-600/80 text-white font-black text-sm uppercase tracking-widest hover:bg-rose-600 shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all border border-rose-500/50"
+            >
+              Engage Lockdown
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Main Body */}
+      <div className="grid grid-cols-[1fr_360px] gap-6">
+
+        {/* AI Threat Radar */}
+        <div className="rounded-2xl bg-black/60 border border-white/5 p-6 shadow-2xl">
+          <div className="flex items-center gap-2 mb-6">
+            <Cpu size={16} className="text-indigo-400" />
+            <h3 className="text-sm font-bold text-white tracking-tight uppercase">Live Threat Radar</h3>
+            <motion.div
+              className="ml-auto flex items-center gap-2 text-[11px] font-mono text-emerald-400"
+              animate={{ opacity: [1, 0.4, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+              SCANNING
+            </motion.div>
+          </div>
+
+          <div className="flex items-center justify-center">
+            <svg width="400" height="400" className="overflow-visible">
+              <defs>
+                <radialGradient id="radarBg" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%"   stopColor="#6366f1" stopOpacity="0.08" />
+                  <stop offset="100%" stopColor="#6366f1" stopOpacity="0"    />
+                </radialGradient>
+              </defs>
+
+              {/* Background radar fill */}
+              <circle cx="200" cy="200" r="180" fill="url(#radarBg)" />
+
+              {/* Concentric rings */}
+              {[60, 110, 160, 180].map(r => (
+                <circle key={r} cx="200" cy="200" r={r} fill="none" stroke="rgba(99,102,241,0.12)" strokeWidth="1" />
+              ))}
+
+              {/* Crosshair lines */}
+              <line x1="200" y1="20"  x2="200" y2="380" stroke="rgba(99,102,241,0.1)" strokeWidth="1" />
+              <line x1="20"  y1="200" x2="380" y2="200" stroke="rgba(99,102,241,0.1)" strokeWidth="1" />
+
+              {/* Connection lines from center to nodes */}
+              {THREAT_NODES.map(n => (
+                <line
+                  key={n.id + 'l'}
+                  x1={CENTER.cx} y1={CENTER.cy}
+                  x2={n.cx}      y2={n.cy}
+                  stroke={n.severity === 'critical' ? 'rgba(244,63,94,0.2)' : 'rgba(99,102,241,0.1)'}
+                  strokeWidth="1"
+                  strokeDasharray="4 4"
+                />
+              ))}
+
+              {/* Radar sweep */}
+              <RadarSweep />
+
+              {/* Center node — the gateway */}
+              <circle cx="200" cy="200" r="8" fill="#6366f1" style={{ filter: 'drop-shadow(0 0 12px rgba(99,102,241,0.8))' }} />
+              <circle cx="200" cy="200" r="20" fill="none" stroke="rgba(99,102,241,0.3)" strokeWidth="1" />
+
+              {/* Threat nodes */}
+              {THREAT_NODES.map(n => (
+                <NodePulse key={n.id} cx={n.cx} cy={n.cy} severity={n.severity} />
+              ))}
+            </svg>
+          </div>
+
+          {/* Legend */}
+          <div className="flex justify-center gap-6 mt-4 text-[11px] font-semibold text-white/40">
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Clean</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Suspicious</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-rose-500 inline-block" /> Critical Threat</span>
           </div>
         </div>
 
-        <h3 style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>Detected Anomalies (Real-time)</h3>
-        
-        <div className="threat-alert-card">
-          <AlertTriangle size={24} className="threat-alert-icon" />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, color: '#fca5a5', marginBottom: 4 }}>DDoS Pattern Detected - Endpoint /v1/images/generate</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-              Coordinated traffic burst from 300+ unique IPs originating from AWS us-east-1. Pattern matches known stress-testing tools.
+        {/* AI Security Insights Feed */}
+        <div className="rounded-2xl bg-black/60 border border-white/5 flex flex-col shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+            <div className="flex items-center gap-2">
+              <Radio size={15} className="text-indigo-400" />
+              <h3 className="text-sm font-bold text-white tracking-tight">AI Security Insights</h3>
             </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button className="btn-ghost-action btn-danger-action">Initiate Hard Rate Limit</button>
-              <button className="btn-ghost-action">View Raw Traffic</button>
-            </div>
+            <motion.div
+              className="text-[10px] font-mono font-bold text-rose-400 uppercase tracking-widest"
+              animate={{ opacity: [1, 0.3, 1] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+            >
+              LIVE
+            </motion.div>
           </div>
-        </div>
 
-        <div className="threat-alert-card" style={{ borderColor: 'rgba(245, 158, 11, 0.3)', background: 'rgba(245, 158, 11, 0.05)' }}>
-          <Crosshair size={24} style={{ color: '#f59e0b' }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, color: '#fcd34d', marginBottom: 4 }}>Potential API Key Leak</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-              Key belonging to User "usr_9x8f" is suddenly being used across 4 different geographic regions simultaneously.
+          <div className="flex-1 overflow-y-auto px-6 py-2">
+            <AnimatePresence initial={false}>
+              {feed.map(item => (
+                <ThreatFeedItem key={item.id} item={item} />
+              ))}
+            </AnimatePresence>
+          </div>
+
+          {/* Threat Summary Chips */}
+          <div className="px-6 py-4 border-t border-white/5 flex gap-3 flex-wrap">
+            <div className="px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[11px] font-bold text-rose-400">
+              🔴 {feed.filter(f => f.level === 'critical').length} Critical
             </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button className="btn-ghost-action" style={{ borderColor: 'rgba(245, 158, 11, 0.5)', color: '#f59e0b' }}>Revoke Key & Notify User</button>
+            <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-400">
+              🟡 {feed.filter(f => f.level === 'warning').length} Warnings
+            </div>
+            <div className="px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[11px] font-bold text-sky-400">
+              🔵 {feed.filter(f => f.level === 'info').length} Mitigated
             </div>
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div style={{ background: 'rgba(20, 21, 36, 0.6)', border: '1px solid var(--border-card)', borderRadius: 12, padding: 20 }}>
-          <h3 style={{ fontSize: 14, marginBottom: 16 }}>Threat Matrix Settings</h3>
-          <div className="settings-row" style={{ padding: '8px 0' }}>
-            <div>
-              <div className="settings-label">Auto-Ban Malicious IPs</div>
-              <div className="settings-desc">Immediately block IPs matching high-confidence threat signatures.</div>
-            </div>
-            <div className="toggle-switch on"><div className="toggle-knob" /></div>
-          </div>
-          <div className="settings-row" style={{ padding: '8px 0' }}>
-            <div>
-              <div className="settings-label">Key Revocation Engine</div>
-              <div className="settings-desc">Auto-revoke keys when leaked to public GitHub repos.</div>
-            </div>
-            <div className="toggle-switch on"><div className="toggle-knob" /></div>
-          </div>
-        </div>
-      </div>
+      {/* DEFCON Modal */}
+      <AnimatePresence>
+        {lockdownOpen && (
+          <DefconModal
+            onClose={() => setLockdown(false)}
+            onConfirm={handleConfirmLockdown}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
