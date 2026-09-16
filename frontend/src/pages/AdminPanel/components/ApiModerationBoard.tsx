@@ -17,7 +17,7 @@ export const ApiModerationBoard: React.FC<ApiModerationBoardProps> = ({ apis, on
   const published = apis.filter(a => a.status === 'PUBLISHED');
 
   const renderColumn = (title: string, icon: React.ReactNode, items: AdminApiRow[], columnType: 'PENDING' | 'REJECTED' | 'PUBLISHED') => (
-    <div className="kanban-column">
+    <div className="kanban-column flex-1 min-w-0 flex flex-col h-full min-h-[500px]">
       <div className="kanban-col-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {icon} {title}
@@ -64,7 +64,7 @@ export const ApiModerationBoard: React.FC<ApiModerationBoardProps> = ({ apis, on
   );
 
   return (
-    <div className="kanban-board">
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 w-full items-start">
       {renderColumn('Pending Review', <Clock size={16} color="#3b82f6" />, pending, 'PENDING')}
       {renderColumn('Needs Changes / Rejected', <AlertCircle size={16} color="#ef4444" />, rejected, 'REJECTED')}
       {renderColumn('Approved & Published', <CheckCircle2 size={16} color="#22c55e" />, published, 'PUBLISHED')}

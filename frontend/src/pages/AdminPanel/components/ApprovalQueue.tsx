@@ -144,7 +144,7 @@ const Column = ({ id, title, icon: Icon, colorClass, apis, onReview }: any) => {
   });
 
   return (
-    <div className="flex flex-col flex-1 h-[70vh] min-w-[320px] bg-[#12121a]/50 rounded-2xl border border-white/5 overflow-hidden">
+    <div className="flex flex-col flex-1 min-w-0 h-full min-h-[500px] bg-[#12121a]/50 rounded-2xl border border-white/5 overflow-hidden">
       <div className={`p-4 border-b border-white/5 flex items-center justify-between ${colorClass}`}>
         <div className="flex items-center gap-2">
           <Icon size={16} />
@@ -264,8 +264,8 @@ export const ApprovalQueue = () => {
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-        <div className="flex gap-6 overflow-x-auto pb-4">
-          <div className={`transition-all duration-500 rounded-2xl ${activeColumnId === 'PENDING' ? 'shadow-[0_0_40px_rgba(245,158,11,0.2)]' : ''}`}>
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 w-full pb-4">
+          <div className={`flex flex-col min-w-0 transition-all duration-500 rounded-2xl ${activeColumnId === 'PENDING' ? 'shadow-[0_0_40px_rgba(245,158,11,0.2)]' : ''}`}>
             <Column 
               id="PENDING" 
               title="Pending Review" 
@@ -275,7 +275,7 @@ export const ApprovalQueue = () => {
               onReview={setReviewingApi}
             />
           </div>
-          <div className={`transition-all duration-500 rounded-2xl ${activeColumnId === 'APPROVED' ? 'shadow-[0_0_40px_rgba(16,185,129,0.2)]' : ''}`}>
+          <div className={`flex flex-col min-w-0 transition-all duration-500 rounded-2xl ${activeColumnId === 'APPROVED' ? 'shadow-[0_0_40px_rgba(16,185,129,0.2)]' : ''}`}>
             <Column 
               id="APPROVED" 
               title="Approved & Published" 
@@ -285,7 +285,7 @@ export const ApprovalQueue = () => {
               onReview={setReviewingApi}
             />
           </div>
-          <div className={`transition-all duration-500 rounded-2xl ${activeColumnId === 'REJECTED' ? 'shadow-[0_0_40px_rgba(244,63,94,0.2)]' : ''}`}>
+          <div className={`flex flex-col min-w-0 transition-all duration-500 rounded-2xl ${activeColumnId === 'REJECTED' ? 'shadow-[0_0_40px_rgba(244,63,94,0.2)]' : ''}`}>
             <Column 
               id="REJECTED" 
               title="Rejected" 

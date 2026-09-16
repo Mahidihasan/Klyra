@@ -199,7 +199,7 @@ export const RateLimiter = () => {
             <button className="px-6 py-2.5 rounded-xl border border-white/10 text-white/70 font-semibold text-sm hover:bg-white/5 transition-colors">
               Revert Changes
             </button>
-            <button className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-500 text-white font-bold text-sm hover:bg-indigo-600 transition-colors shadow-lg shadow-indigo-500/20">
+            <button className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-500 text-white font-bold text-sm hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-500/20 active:scale-95">
               <Save size={16} /> Deploy Configuration
             </button>
           </div>

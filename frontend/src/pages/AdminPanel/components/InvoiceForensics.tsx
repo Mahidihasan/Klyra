@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Search, FileText, ChevronDown, ChevronRight, XCircle } from 'lucide-react';
+import { Search, FileText, ChevronDown, ChevronRight, Ban } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const MOCK_LINE_ITEMS = [
   { id: 'li_1', endpoint: 'GET /api/v1/weather', calls: 14500, rate: 0.001, total: 14.50, waived: false },
@@ -19,69 +20,144 @@ export const InvoiceForensics = () => {
   const totalBilled = items.reduce((acc, curr) => curr.waived ? acc : acc + curr.total, 0);
 
   return (
-    <div style={{ background: 'rgba(20, 21, 36, 0.4)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 12, padding: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 8, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          <FileText size={16} color="#3b82f6" /> Invoice Forensics
+    <div className="bg-zinc-950/60 backdrop-blur-2xl border border-white/5 rounded-2xl p-6 shadow-2xl flex flex-col h-full">
+      
+      {/* ── Header ── */}
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-[14px] font-bold text-white m-0 flex items-center gap-2 tracking-widest uppercase">
+          <FileText size={16} className="text-blue-500" /> Invoice Forensics
         </h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Search size={14} color="var(--text-muted)" />
+        <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
+          <Search size={14} className="text-white/40" />
           <input 
             type="text" 
             value={invoiceId} 
             onChange={e => setInvoiceId(e.target.value)} 
-            style={{ background: 'transparent', border: 'none', color: '#3b82f6', outline: 'none', width: 100, fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-mono)' }}
+            className="bg-transparent border-none text-blue-400 outline-none w-[100px] text-[13px] font-bold font-mono"
           />
         </div>
       </div>
 
-      <div style={{ border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1fr 1fr 1fr 80px', padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+      {/* ── Table Container ── */}
+      <div className="border border-white/5 rounded-xl overflow-hidden bg-black/20 flex flex-col flex-1">
+        
+        {/* Table Header */}
+        <div className="grid grid-cols-[32px_2fr_1fr_1fr_1fr_100px] p-3 bg-white/[0.02] border-b border-white/5 text-[11px] text-white/50 uppercase tracking-widest font-bold shrink-0">
           <div></div>
           <div>Endpoint</div>
-          <div style={{ textAlign: 'right' }}>Calls</div>
-          <div style={{ textAlign: 'right' }}>Rate</div>
-          <div style={{ textAlign: 'right' }}>Total</div>
-          <div style={{ textAlign: 'right' }}>Action</div>
+          <div className="text-right">Calls</div>
+          <div className="text-right">Rate</div>
+          <div className="text-right">Total</div>
+          <div className="text-right pr-2">Action</div>
         </div>
 
-        {items.map(item => (
-          <div key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1fr 1fr 1fr 80px', padding: '12px 16px', alignItems: 'center', background: item.waived ? 'rgba(239,68,68,0.05)' : 'transparent', opacity: item.waived ? 0.6 : 1 }}>
-              <div onClick={() => setExpanded(expanded === item.id ? null : item.id)} style={{ cursor: 'pointer', color: 'var(--text-muted)' }}>
-                {expanded === item.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        {/* Rows */}
+        <div className="flex-1 overflow-y-auto">
+          {items.map(item => (
+            <div key={item.id} className="border-b border-white/5 last:border-0 group">
+              <div className={`grid grid-cols-[32px_2fr_1fr_1fr_1fr_100px] p-3 items-center transition-colors duration-300 ${
+                item.waived ? 'bg-rose-500/5' : 'hover:bg-white/[0.02]'
+              }`}>
+                
+                {/* Expander */}
+                <div onClick={() => setExpanded(expanded === item.id ? null : item.id)} className="cursor-pointer text-white/30 hover:text-white/70">
+                  {expanded === item.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </div>
+                
+                {/* Endpoint */}
+                <div className={`text-[13px] font-mono transition-colors duration-300 ${
+                  item.waived ? 'text-white/30' : 'text-zinc-300'
+                }`}>
+                  {item.endpoint}
+                </div>
+                
+                {/* Calls */}
+                <div className="text-[12px] font-mono text-right text-white/60">
+                  {item.calls.toLocaleString()}
+                </div>
+                
+                {/* Rate */}
+                <div className="text-[12px] font-mono text-right text-white/40">
+                  ${item.rate}
+                </div>
+                
+                {/* Total (with Strikethrough Animation) */}
+                <div className="text-right flex justify-end">
+                  <div className="relative inline-block">
+                    <span className={`text-[13px] font-mono font-bold tracking-wider transition-all duration-300 ${
+                      item.waived 
+                        ? 'text-white/30' 
+                        : 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]'
+                    }`}>
+                      ${item.total.toFixed(2)}
+                    </span>
+                    {/* Strikethrough Line */}
+                    <motion.div
+                      initial={false}
+                      animate={{ width: item.waived ? '100%' : '0%' }}
+                      transition={{ duration: 0.3, ease: 'easeOut' }}
+                      className="absolute top-1/2 left-0 h-[2px] bg-rose-500 -translate-y-1/2 origin-left"
+                    />
+                  </div>
+                </div>
+                
+                {/* Action Toggle */}
+                <div className="text-right flex justify-end pr-2">
+                  <button 
+                    onClick={() => toggleWaive(item.id)}
+                    className={`relative overflow-hidden flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest transition-all duration-200 border active:scale-95 ${
+                      item.waived 
+                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 shadow-[0_0_10px_rgba(244,63,94,0.2)]'
+                        : 'bg-zinc-800/50 border-white/10 text-white/40 hover:text-white/70 hover:border-white/30'
+                    }`}
+                  >
+                    <Ban size={12} className={item.waived ? 'animate-pulse' : ''} />
+                    {item.waived ? 'Waived' : 'Waive'}
+                  </button>
+                </div>
+
               </div>
-              <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)', color: item.waived ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: item.waived ? 'line-through' : 'none' }}>{item.endpoint}</div>
-              <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', textAlign: 'right' }}>{item.calls.toLocaleString()}</div>
-              <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', textAlign: 'right', color: 'var(--text-muted)' }}>${item.rate}</div>
-              <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)', textAlign: 'right', fontWeight: 600, color: item.waived ? 'var(--text-muted)' : '#22c55e' }}>
-                ${item.total.toFixed(2)}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <button 
-                  onClick={() => toggleWaive(item.id)}
-                  style={{ background: 'none', border: 'none', color: item.waived ? 'var(--text-muted)' : '#ef4444', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, width: '100%' }}
-                >
-                  <XCircle size={12} /> {item.waived ? 'Unwaive' : 'Waive'}
-                </button>
-              </div>
+
+              {/* Expanded Details */}
+              <AnimatePresence>
+                {expanded === item.id && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden bg-black/40"
+                  >
+                    <div className="px-12 py-3 text-[11px] text-white/40 font-mono flex items-center justify-between">
+                      <div className="flex flex-col gap-1">
+                        <div><span className="text-white/20">Strategy:</span> Daily Aggregate</div>
+                        <div><span className="text-white/20">Avg Latency:</span> 42ms <span className="mx-2">|</span> <span className="text-white/20">Error Rate:</span> 0.01%</div>
+                      </div>
+                      <button className="px-3 py-1 rounded bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 transition-colors active:scale-95">
+                        View Raw Logs
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-            {expanded === item.id && (
-              <div style={{ padding: '12px 16px 12px 48px', background: 'rgba(0,0,0,0.2)', fontSize: 11, color: 'var(--text-muted)' }}>
-                <div style={{ marginBottom: 4 }}>Breakdown strategy: Daily Aggregate</div>
-                <div>Avg Latency: 42ms | Error Rate: 0.01%</div>
-                <button style={{ marginTop: 8, background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '4px 8px', borderRadius: 4, fontSize: 10, cursor: 'pointer' }}>View Raw Logs</button>
-              </div>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px', background: 'rgba(255,255,255,0.01)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Adjusted Total</span>
-            <span style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#22c55e' }}>${totalBilled.toFixed(2)}</span>
+        {/* ── Footer / Total ── */}
+        <div className="flex justify-end items-center p-4 bg-black/40 border-t border-white/5 shrink-0 gap-6">
+          <span className="text-[12px] text-white/50 uppercase tracking-widest font-bold">Adjusted Total</span>
+          <div className="relative">
+            <motion.span 
+              key={totalBilled}
+              initial={{ scale: 1.1, color: '#fff' }}
+              animate={{ scale: 1, color: '#34d399' }}
+              className="text-[20px] font-black font-mono tracking-wider drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]"
+            >
+              ${totalBilled.toFixed(2)}
+            </motion.span>
           </div>
         </div>
+
       </div>
     </div>
   );

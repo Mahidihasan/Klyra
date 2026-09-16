@@ -377,7 +377,7 @@ export const AdminSettings = () => {
                     </div>
                     <button
                       onClick={() => setDangerModal({ label: action.label, word: action.word })}
-                      className="px-4 py-2 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-[12px] font-bold hover:bg-rose-500/20 transition-colors whitespace-nowrap"
+                      className="px-4 py-2 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-[12px] font-bold hover:bg-rose-500/20 transition-colors active:scale-95 shrink-0"
                     >
                       {action.label}
                     </button>

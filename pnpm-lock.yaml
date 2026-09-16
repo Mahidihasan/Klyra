@@ -126,6 +126,9 @@ importers:
       '@hookform/resolvers':
         specifier: ^5.9.1
         version: 5.9.1(react-hook-form@7.88.0)(zod@4.6.2)
+      '@tanstack/react-table':
+        specifier: ^9.2.4
+        version: 9.2.4(react-dom@18.2.0)(react@18.2.0)
       '@tanstack/react-virtual':
         specifier: ^3.14.13
         version: 3.14.13(react-dom@18.2.0)(react@18.2.0)
@@ -1176,6 +1179,31 @@ packages:
       tslib: 2.8.1
     dev: false
 
+  /@tanstack/react-store@0.11.1(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-HaIGKI3YLmjBYIvy5DFDY23oNaYZIsTZfngey07Uh5iLVJgM3bIGCnZeOFOqzjFld9JHWcaHJnasD/bKoGKwJQ==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    dependencies:
+      '@tanstack/store': 0.11.1
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+      use-sync-external-store: 1.7.0(react@18.2.0)
+    dev: false
+
+  /@tanstack/react-table@9.2.4(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-Rzp1Q4e0/nIgEjmISYR5HeEgLTNtrG+C7NFZf/AbCxPO5hg+zC3yNGwcoECigUk8SFzzvhXbd2rFdtP2ZiGrfA==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      react: '>=18'
+    dependencies:
+      '@tanstack/react-store': 0.11.1(react-dom@18.2.0)(react@18.2.0)
+      '@tanstack/table-core': 9.2.4
+      react: 18.2.0
+    transitivePeerDependencies:
+      - react-dom
+    dev: false
+
   /@tanstack/react-virtual@3.14.13(react-dom@18.2.0)(react@18.2.0):
     resolution: {integrity: sha512-JbDTAwtzZ99aOeCrAfW5EsE5KSq5RWh6Af2dtFwyLIIk48Ja7vm6n4axu/43T3vfjFnEGJalxJ1wyYjSQD6bSg==}
     peerDependencies:
@@ -1185,6 +1213,17 @@ packages:
       '@tanstack/virtual-core': 3.17.11
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
+    dev: false
+
+  /@tanstack/store@0.11.1:
+    resolution: {integrity: sha512-mzTOBhypOuDJAy/D8n2MfUZ1HFkXnmSETviRyhqEC8LUE7/IZQExOTxMANj3KjTofYTkFNpBY67qaVrT41YccA==}
+    dev: false
+
+  /@tanstack/table-core@9.2.4:
+    resolution: {integrity: sha512-GwdDyGGr6UXAtubF14yAwcXvdaogqfsQgIk89Suebjxob/Rjq2xvfmXsjDF1rQmKmhHsJm9TOY7myxv3i6geJw==}
+    engines: {node: '>=20'}
+    dependencies:
+      '@tanstack/store': 0.11.1
     dev: false
 
   /@tanstack/virtual-core@3.17.11:

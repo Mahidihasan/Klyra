@@ -8,32 +8,32 @@ const MOCK_LEAKS = [
 
 export const RevenueLeakage = () => {
   return (
-    <div style={{ background: 'rgba(20, 21, 36, 0.4)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 12, padding: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+    <div className="bg-zinc-950/60 backdrop-blur-2xl border border-white/5 rounded-2xl p-5 shadow-2xl">
+      <div className="flex justify-between items-start mb-4">
         <div>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            <Droplet size={16} color="#ef4444" /> Revenue Leakage Monitor
+          <h3 className="text-[14px] font-bold text-white m-0 flex items-center gap-2 tracking-widest uppercase">
+            <Droplet size={16} className="text-rose-500" /> Revenue Leakage Monitor
           </h3>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>Active uncollected funds</p>
+          <p className="text-[12px] text-white/40 mt-1">Active uncollected funds</p>
         </div>
-        <div style={{ fontSize: 24, fontWeight: 700, color: '#ef4444', fontFamily: 'var(--font-mono)' }}>
+        <div className="text-[24px] font-bold text-rose-500 font-mono">
           $1,650.00
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="flex flex-col gap-3">
         {MOCK_LEAKS.map(leak => (
-          <div key={leak.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', padding: '12px 16px', borderRadius: 8 }}>
+          <div key={leak.id} className="flex justify-between items-center bg-rose-500/5 border border-rose-500/20 p-3 px-4 rounded-lg">
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{leak.user}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="text-[13px] font-semibold text-white/90">{leak.user}</div>
+              <div className="text-[11px] text-white/40 mt-1 flex items-center gap-1.5">
                 <CreditCard size={12} /> {leak.issue} • <Clock size={12} /> {leak.date}
               </div>
             </div>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>${leak.amount.toFixed(2)}</span>
-              <button style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-primary)', border: '1px solid rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <div className="flex items-center gap-4">
+              <span className="text-[14px] font-semibold font-mono text-white/90">${leak.amount.toFixed(2)}</span>
+              <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/70 text-[12px] font-bold hover:bg-white/10 transition-colors active:scale-95">
                 <Mail size={14} /> Dunning
               </button>
             </div>

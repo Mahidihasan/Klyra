@@ -1,6 +1,66 @@
-import React, { useState, useEffect } from 'react';
-import { Key, Globe, Monitor, Smartphone, X, ShieldCheck, Eye, EyeOff, Trash2, AlertTriangle, Wifi } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { Key, Globe, Monitor, Smartphone, X, ShieldCheck, Eye, EyeOff, Trash2, AlertTriangle, Wifi, ShieldAlert } from 'lucide-react';
+import { motion, AnimatePresence, useAnimation } from 'framer-motion';
+
+const HoldToExecute = ({ durationMs, onExecute, label, dangerMode }: { durationMs: number, onExecute: () => void, label: string, dangerMode?: boolean }) => {
+  const [progress, setProgress] = useState(0);
+  const [isHolding, setIsHolding] = useState(false);
+  
+  const holdTimer = useRef<ReturnType<typeof setTimeout>>();
+  const progressInterval = useRef<ReturnType<typeof setInterval>>();
+  const controls = useAnimation();
+
+  useEffect(() => {
+    if (isHolding) {
+      const startTime = Date.now();
+      progressInterval.current = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        setProgress(Math.min((elapsed / durationMs) * 100, 100));
+      }, 30);
+
+      holdTimer.current = setTimeout(() => {
+        setProgress(100);
+        setIsHolding(false);
+        onExecute();
+        controls.start({ scale: [1, 1.05, 1], transition: { duration: 0.3 } });
+      }, durationMs);
+    } else {
+      clearInterval(progressInterval.current);
+      clearTimeout(holdTimer.current);
+      setProgress(0);
+    }
+    return () => {
+      clearInterval(progressInterval.current);
+      clearTimeout(holdTimer.current);
+    };
+  }, [isHolding, durationMs, onExecute, controls]);
+
+  return (
+    <motion.div animate={controls} className="relative flex-1">
+      <button 
+        onPointerDown={() => setIsHolding(true)}
+        onPointerUp={() => setIsHolding(false)}
+        onPointerLeave={() => setIsHolding(false)}
+        className={`relative overflow-hidden w-full h-full min-h-[44px] rounded-xl border font-bold text-[14px] flex items-center justify-center select-none transition-all duration-300 ${
+          dangerMode 
+            ? 'bg-rose-950 border-rose-500/30 text-rose-500 hover:border-rose-500 hover:text-rose-400 active:scale-95 cursor-pointer'
+            : 'bg-zinc-900 border-zinc-500/30 text-zinc-500 hover:border-zinc-500/60 active:scale-95 cursor-pointer'
+        }`}
+      >
+        <div 
+          className={`absolute left-0 top-0 bottom-0 mix-blend-screen transition-all duration-75 ease-linear ${dangerMode ? 'bg-rose-500/30' : 'bg-white/20'}`}
+          style={{ width: `${progress}%` }}
+        />
+        {isHolding && (
+          <div className={`absolute inset-0 animate-pulse pointer-events-none ${dangerMode ? 'bg-rose-500/10' : 'bg-white/5'}`} />
+        )}
+        <span className="relative z-10 flex items-center gap-2">
+          {dangerMode && <ShieldAlert size={16} className={isHolding ? 'animate-pulse' : ''} />} {label}
+        </span>
+      </button>
+    </motion.div>
+  );
+};
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -149,12 +209,15 @@ const KeyRow = ({ apiKey }: { apiKey: typeof PLATFORM_KEYS[0] }) => {
                 Revoking <span className="font-mono text-white/80 bg-white/5 px-1.5 py-0.5 rounded">{maskKey(apiKey.key)}</span> will instantly drop all active connections using this key. This cannot be undone.
               </p>
               <div className="flex gap-3">
-                <button onClick={() => setRevokeModal(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/60 font-semibold hover:bg-white/5 transition-colors">
+                <button onClick={() => setRevokeModal(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/60 font-semibold hover:bg-white/5 transition-colors active:scale-95">
                   Cancel
                 </button>
-                <button onClick={() => setRevokeModal(false)} className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700 transition-colors shadow-[0_0_20px_rgba(244,63,94,0.4)]">
-                  Revoke Key
-                </button>
+                <HoldToExecute 
+                  durationMs={2000} 
+                  onExecute={() => setRevokeModal(false)} 
+                  label="Hold to Revoke" 
+                  dangerMode={true} 
+                />
               </div>
             </motion.div>
           </motion.div>
