@@ -1,5 +1,5 @@
-import React from 'react';
-import { DollarSign, Plus, Check, Users, Sparkles, TrendingUp } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Check, Sparkles, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { PricingPlan } from '../../../types/apibuild';
 
 interface TabPlansProps {
@@ -13,8 +13,10 @@ export const TabPlans: React.FC<TabPlansProps> = ({
   onOpenCreatePlan,
   onShowToast
 }) => {
+  const [view, setView] = useState('ALL');
   const totalSubscribers = plans.reduce((acc, p) => acc + p.subscribers, 0);
   const totalMrr = plans.reduce((acc, p) => acc + p.subscribers * p.priceMonthly, 0);
+  const visiblePlans = view === 'ALL' ? plans : plans.filter((plan) => view === 'PAID' ? plan.priceMonthly > 0 : plan.priceMonthly === 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -42,9 +44,18 @@ export const TabPlans: React.FC<TabPlansProps> = ({
         </div>
       </div>
 
+      <div className="kly-card kly-plan-controls">
+        <div><span className="kly-eyebrow"><ShieldCheck size={12} /> Commercial governance</span><strong>Plans are ready for controlled publishing</strong><small>Review limits, overage policy, and subscriber impact before changing a tier.</small></div>
+        <div className="kly-segmented-control" role="group" aria-label="Filter plans">
+          <button className={view === 'ALL' ? 'is-active' : ''} onClick={() => setView('ALL')}><SlidersHorizontal size={12} /> All tiers</button>
+          <button className={view === 'PAID' ? 'is-active' : ''} onClick={() => setView('PAID')}>Paid</button>
+          <button className={view === 'FREE' ? 'is-active' : ''} onClick={() => setView('FREE')}>Free</button>
+        </div>
+      </div>
+
       {/* Plan Cards Grid */}
       <div className="kly-grid-3col">
-        {plans.map((p) => {
+        {visiblePlans.map((p) => {
           const planMrr = p.subscribers * p.priceMonthly;
           const isPopular = p.name.toLowerCase() === 'pro';
           return (
@@ -101,6 +112,7 @@ export const TabPlans: React.FC<TabPlansProps> = ({
             </div>
           );
         })}
+        {!visiblePlans.length && <div className="kly-card kly-empty-state"><Sparkles size={18} /><span>No tiers match this view.</span></div>}
       </div>
 
       {/* Footer Add Plan action */}

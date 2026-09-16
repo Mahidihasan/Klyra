@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 import { Activity, Server, ArrowUpRight, Clock, CheckCircle2, Loader2, Terminal, Pause, Play, Trash2, Eye, Sparkles } from 'lucide-react';
+import { io } from 'socket.io-client';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // ------------------------------------------------------------------
 // API Pulse Node-Graph Canvas Widget
@@ -136,33 +138,48 @@ const ApiPulseCanvas = () => {
 // ------------------------------------------------------------------
 export const RealTimeTrafficWidget = () => {
   const [data, setData] = useState<any[]>([]);
+  const [kpis, setKpis] = useState({ hits: 0, latency: 0, errorRate: 0, uptime: 99.9 });
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Generate initial realistic time-series data
-    const initialData = Array.from({ length: 20 }).map((_, i) => ({
-      time: new Date(Date.now() - (20 - i) * 1000).toLocaleTimeString([], { second: '2-digit' }),
-      hits: Math.floor(Math.random() * 500) + 200,
-      latency: Math.floor(Math.random() * 50) + 10,
-    }));
-    setData(initialData);
-
-    const interval = setInterval(() => {
-      setData(prev => {
-        const newData = [...prev.slice(1)];
-        newData.push({
-          time: new Date().toLocaleTimeString([], { second: '2-digit' }),
-          hits: Math.floor(Math.random() * 500) + 200,
-          latency: Math.floor(Math.random() * 50) + 10,
+    const fetchData = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/platform/overview', {
+          headers: { 'Authorization': `Bearer ${token}` }
         });
-        return newData;
-      });
-    }, 1000);
-
+        if (res.ok) {
+          const json = await res.json();
+          setData(json.chartData || []);
+          setKpis({
+            hits: json.kpis?.hits || 0,
+            latency: json.kpis?.latency || 0,
+            errorRate: json.kpis?.errorRate || 0,
+            uptime: json.kpis?.uptime || 99.9
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch platform overview', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+    const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  const currentHits = data.length > 0 ? data[data.length - 1].hits : 0;
-  const currentLatency = data.length > 0 ? data[data.length - 1].latency : 0;
+  if (isLoading) {
+    return (
+      <div className="widget-card" style={{ height: 400 }}>
+        <div className="w-full h-full bg-white/5 border border-white/5 rounded-xl animate-[pulse_2s_ease-in-out_infinite]" />
+      </div>
+    );
+  }
+
+  const currentHits = kpis.hits;
+  const currentLatency = kpis.latency;
+  const errorRate = kpis.errorRate;
   const uptimeStatus = currentLatency > 60 ? 'yellow' : 'green';
 
   return (
@@ -207,7 +224,7 @@ export const RealTimeTrafficWidget = () => {
         </div>
         <div>
           <div className="metric-label">5xx Error Rate</div>
-          <div className="metric-value" style={{ color: '#22c55e' }}>0.01%</div>
+          <div className="metric-value" style={{ color: '#22c55e' }}>{errorRate.toFixed(2)}%</div>
         </div>
       </div>
 
@@ -221,7 +238,45 @@ export const RealTimeTrafficWidget = () => {
 // ------------------------------------------------------------------
 // 2. Long-Running Task UI
 // ------------------------------------------------------------------
+// Task colour palette — cycles across jobs for the neon aesthetic
+const TASK_COLORS = ['#3b82f6', '#a78bfa', '#e879f9', '#34d399'];
+
+interface ActiveTask {
+  id: string;
+  name: string;
+  progress: number;
+  step: string;
+  eta: string;
+}
+
 export const ActiveTasksWidget = () => {
+  const [tasks, setTasks] = useState<ActiveTask[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTasks = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/queue/active-tasks', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setTasks(json.tasks || []);
+        }
+      } catch (err) {
+        console.error('[ActiveTasksWidget] fetch failed:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTasks();
+    // Short-poll every 2 seconds to keep the widget live
+    const interval = setInterval(fetchTasks, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="widget-card">
       <div className="widget-header">
@@ -229,60 +284,126 @@ export const ActiveTasksWidget = () => {
           <Clock size={18} color="var(--text-muted)" />
           <h3 className="widget-title">Active Background Tasks</h3>
         </div>
-        <span className="badge">2 Running</span>
+        {/* Badge shows live count, or spinner while loading */}
+        {isLoading
+          ? <span className="badge"><Loader2 size={12} className="spin-icon" style={{ display: 'inline' }} /> Loading</span>
+          : <span className="badge">{tasks.length > 0 ? `${tasks.length} Running` : 'System Idle'}</span>
+        }
       </div>
 
       <div className="task-list">
-        {/* Task 1 */}
-        <div className="task-item">
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Loader2 size={14} className="spin-icon" color="#3b82f6" /> 
-              Syncing Global Redis Cache
+        {/* ── Skeleton loaders ── */}
+        {isLoading && [0, 1].map((i) => (
+          <div key={i} className="task-item" style={{ opacity: 0.6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div className="bg-white/10 h-4 w-48 rounded animate-pulse" />
+              <div className="bg-white/10 h-4 w-8 rounded animate-pulse" />
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>45%</div>
+            <div className="progress-bar-bg">
+              <div className="bg-white/10 h-full rounded animate-pulse" style={{ width: '60%' }} />
+            </div>
+            <div className="bg-white/10 h-3 w-40 rounded animate-pulse mt-2" />
           </div>
-          <div className="progress-bar-bg">
-            <div className="progress-bar-fill" style={{ width: '45%', background: '#3b82f6' }}></div>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, display: 'flex', gap: 8 }}>
-            <span>Step 2/4: Rehydrating Edge Nodes...</span>
-            <span style={{ color: 'var(--text-secondary)' }}>ETA: 4m 12s</span>
-          </div>
-        </div>
+        ))}
 
-        {/* Task 2 */}
-        <div className="task-item">
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Loader2 size={14} className="spin-icon" color="#a78bfa" /> 
-              Generating Monthly Invoice Reports
+        {/* ── Empty state ── */}
+        {!isLoading && tasks.length === 0 && (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '32px 16px',
+            gap: 10,
+            color: 'var(--text-muted)',
+          }}>
+            <CheckCircle2 size={32} style={{ opacity: 0.3, color: '#10b981' }} />
+            <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.02em' }}>System Idle</span>
+            <span style={{ fontSize: 11, opacity: 0.5, textAlign: 'center' }}>No active background tasks</span>
+          </div>
+        )}
+
+        {/* ── Live tasks ── */}
+        {!isLoading && tasks.map((task, i) => {
+          const color = TASK_COLORS[i % TASK_COLORS.length];
+          return (
+            <div key={task.id} className="task-item">
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Loader2 size={14} className="spin-icon" color={color} />
+                  {task.name}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{task.progress}%</div>
+              </div>
+              <div className="progress-bar-bg">
+                <div
+                  className="progress-bar-fill"
+                  style={{
+                    width: `${task.progress}%`,
+                    background: color,
+                    transition: 'width 0.8s ease',
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, display: 'flex', gap: 8 }}>
+                <span>{task.step}</span>
+                <span style={{ color: 'var(--text-secondary)' }}>ETA: {task.eta}</span>
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>89%</div>
-          </div>
-          <div className="progress-bar-bg">
-            <div className="progress-bar-fill" style={{ width: '89%', background: '#a78bfa' }}></div>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, display: 'flex', gap: 8 }}>
-            <span>Step 5/5: Compressing PDFs...</span>
-            <span style={{ color: 'var(--text-secondary)' }}>ETA: 15s</span>
-          </div>
-        </div>
+          );
+        })}
       </div>
     </div>
   );
 };
 
+
 // ------------------------------------------------------------------
 // 3. Top APIs & Gateway Stats
 // ------------------------------------------------------------------
+
+interface TopApi {
+  id: string;
+  name: string;
+  provider: string;
+  totalRequests: number;
+  trend: number; // week-over-week percentage, e.g. 14.2 or -3.5
+}
+
+/** Format raw request count to a compact human-readable string. */
+function formatHits(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(2)}M`;
+  if (count >= 1_000)     return `${(count / 1_000).toFixed(1)}K`;
+  return String(count);
+}
+
 export const GatewayStatsWidget = () => {
-  const topApis = [
-    { name: 'Stable Diffusion XL API', provider: 'usr_8x2a', hits: '1.2M', trend: '+14%' },
-    { name: 'Global Weather v2', provider: 'system', hits: '850K', trend: '+5%' },
-    { name: 'Financial Sentiment Analysis', provider: 'usr_abc', hits: '430K', trend: '-2%' },
-    { name: 'DeepSeek Coder LLM', provider: 'usr_llm', hits: '320K', trend: '+45%' },
-  ];
+  const [apis, setApis] = useState<TopApi[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTopApis = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/platform/top-apis', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setApis(json.apis || []);
+        }
+      } catch (err) {
+        console.error('[GatewayStatsWidget] fetch failed:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTopApis();
+    // Refresh every 30s — hits data doesn't change at sub-second frequency
+    const interval = setInterval(fetchTopApis, 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="widget-card">
@@ -294,26 +415,60 @@ export const GatewayStatsWidget = () => {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {topApis.map((api, i) => (
-          <div key={i} className="list-item">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-              <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'var(--text-muted)' }}>
-                {i + 1}
-              </div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{api.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{api.provider}</div>
-              </div>
-            </div>
-            
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}>{api.hits} hits</div>
-              <div style={{ fontSize: 11, color: api.trend.startsWith('+') ? '#22c55e' : '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-                {api.trend} {api.trend.startsWith('+') && <ArrowUpRight size={10} />}
-              </div>
-            </div>
+
+        {/* ── Skeleton loaders ── */}
+        {isLoading && [0, 1, 2, 3].map((i) => (
+          <div key={i} className="list-item" style={{ opacity: 0.6 }}>
+            <div className="animate-pulse bg-white/5 h-16 w-full rounded-xl" />
           </div>
         ))}
+
+        {/* ── Live API rows ── */}
+        {!isLoading && apis.map((api, i) => {
+          const isPositive = api.trend >= 0;
+          const trendColor = isPositive ? '#4ade80' : '#f43f5e';
+          const trendArrow = isPositive ? '↗' : '↘';
+          const trendLabel = `${isPositive ? '+' : ''}${api.trend.toFixed(1)}%`;
+
+          return (
+            <div key={api.id} className="list-item">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                <div style={{
+                  width: 24, height: 24, borderRadius: 6,
+                  background: 'rgba(255,255,255,0.05)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, color: 'var(--text-muted)', flexShrink: 0
+                }}>
+                  {i + 1}
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{api.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{api.provider}</div>
+                </div>
+              </div>
+
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}>
+                  {formatHits(api.totalRequests)} hits
+                </div>
+                <div style={{
+                  fontSize: 11,
+                  color: trendColor,
+                  display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2
+                }}>
+                  {trendArrow} {trendLabel}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* ── Empty state ── */}
+        {!isLoading && apis.length === 0 && (
+          <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
+            No active API data available.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -325,52 +480,46 @@ export const GatewayStatsWidget = () => {
 export const LiveGatewayFeedWidget = () => {
   const [logs, setLogs] = useState<{ id: string; timestamp: string; status: number; method: string; path: string; latency: number; msg?: string }[]>([]);
   const [isPaused, setIsPaused] = useState(false);
-  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchFeed = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/platform/activity-feed', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          // Assume feed is returned ordered newest first
+          setLogs(json.feed || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch activity feed', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchFeed();
+  }, []);
 
   useEffect(() => {
     if (isPaused) return;
-    
-    const endpoints = [
-      { method: 'GET', path: '/api/v1/users' },
-      { method: 'POST', path: '/api/v1/payments' },
-      { method: 'GET', path: '/api/v2/products' },
-      { method: 'PUT', path: '/api/v1/settings' },
-      { method: 'DELETE', path: '/api/v1/cache' },
-      { method: 'GET', path: '/api/v1/analytics/pulse' },
-      { method: 'POST', path: '/api/v1/auth/exchange' }
-    ];
 
-    const interval = setInterval(() => {
-      const ep = endpoints[Math.floor(Math.random() * endpoints.length)];
-      const isError = Math.random() > 0.85;
-      const isRateLimit = Math.random() > 0.95;
-      
-      let status = 200;
-      if (isRateLimit) status = 429;
-      else if (isError) status = 500;
-      else if (ep.method === 'POST') status = 201;
+    const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+    const socket = io('/admin/platform', {
+      auth: { token },
+      transports: ['websocket']
+    });
 
-      const newLog = {
-        id: Math.random().toString(36).substring(7),
-        timestamp: new Date().toISOString().split('T')[1].substring(0, 12),
-        status,
-        method: ep.method,
-        path: ep.path,
-        latency: Math.floor(Math.random() * 150) + 10,
-        msg: isRateLimit ? 'RATE LIMITED' : (isError ? 'INTERNAL ERROR' : '')
-      };
+    socket.on('new-system-event', (eventLog) => {
+      setLogs(prev => [eventLog, ...prev.slice(0, 49)]); // Prepend new log
+    });
 
-      setLogs(prev => [...prev.slice(-49), newLog]);
-    }, Math.random() * 500 + 150);
-
-    return () => clearInterval(interval);
+    return () => {
+      socket.disconnect();
+    };
   }, [isPaused]);
-
-  useEffect(() => {
-    if (!isPaused && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs, isPaused]);
 
   const getStatusColor = (status: number) => {
     if (status >= 500) return '#ef4444';
@@ -397,23 +546,34 @@ export const LiveGatewayFeedWidget = () => {
           </button>
         </div>
       </div>
-      <div className="terminal-body" ref={scrollRef}>
-        {logs.length === 0 && <div style={{ color: 'var(--text-muted)', padding: 16 }}>Waiting for incoming traffic...</div>}
-        {logs.map((log) => (
-          <div key={log.id} className="terminal-log-line group">
-            <span style={{ color: 'var(--text-muted)', marginRight: 12, minWidth: 100, display: 'inline-block' }}>[{log.timestamp}]</span>
-            <span style={{ color: getStatusColor(log.status), fontWeight: 700, width: 45, display: 'inline-block' }}>{log.status}</span>
-            <span style={{ color: '#a78bfa', fontWeight: 600, width: 60, display: 'inline-block' }}>{log.method}</span>
-            <span style={{ color: '#e2e8f0', flex: 1 }}>{log.path}</span>
-            {log.msg && <span style={{ color: getStatusColor(log.status), marginLeft: 12 }}>- {log.msg}</span>}
-            {!log.msg && <span style={{ color: 'var(--text-secondary)', marginLeft: 12 }}>- {log.latency}ms</span>}
-            
-            <button className="payload-btn">
-              <Eye size={14} />
-              Payload
-            </button>
-          </div>
-        ))}
+      <div className="terminal-body">
+        {isLoading && (
+           <div className="w-full h-full bg-white/5 rounded animate-[pulse_2s_ease-in-out_infinite]" />
+        )}
+        {!isLoading && logs.length === 0 && <div style={{ color: 'var(--text-muted)', padding: 16 }}>Waiting for incoming traffic...</div>}
+        <AnimatePresence initial={false}>
+          {!isLoading && logs.map((log) => (
+            <motion.div 
+              key={log.id} 
+              className="terminal-log-line group"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              layout
+            >
+              <span style={{ color: 'var(--text-muted)', marginRight: 12, minWidth: 100, display: 'inline-block' }}>[{log.timestamp}]</span>
+              <span style={{ color: getStatusColor(log.status), fontWeight: 700, width: 45, display: 'inline-block' }}>{log.status}</span>
+              <span style={{ color: '#a78bfa', fontWeight: 600, width: 60, display: 'inline-block' }}>{log.method}</span>
+              <span style={{ color: '#e2e8f0', flex: 1 }}>{log.path}</span>
+              {log.msg && <span style={{ color: getStatusColor(log.status), marginLeft: 12 }}>- {log.msg}</span>}
+              {!log.msg && <span style={{ color: 'var(--text-secondary)', marginLeft: 12 }}>- {log.latency}ms</span>}
+              
+              <button className="payload-btn">
+                <Eye size={14} />
+                Payload
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   );

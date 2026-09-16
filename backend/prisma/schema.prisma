@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  timestamp      DateTime @default(now())
+  adminId        String
+  actionType     String
+  targetResource String
+  ipAddress      String
+  details        Json
+}
+
+enum ApiStatus {
+  ACTIVE
+  DEPRECATED
+  TRIPPED
+}
+
+model ApiRoute {
+  id             String    @id @default(uuid())
+  endpointPath   String
+  status         ApiStatus @default(ACTIVE)
+  currentVersion String
+  canaryWeight   Int       @default(0)
+}
+
+enum TransactionType {
+  CHARGE
+  REFUND
+  DISPUTE
+}
+
+model FinancialTransaction {
+  id        String          @id @default(uuid())
+  userId    String
+  amount    Decimal
+  type      TransactionType
+  status    String
+  createdAt DateTime        @default(now())
+}

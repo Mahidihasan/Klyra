@@ -36,10 +36,35 @@ interface Particle {
 
 export const TrafficNexusWidget = () => {
   const [particles, setParticles] = useState<Particle[]>([]);
-  const [metrics, setMetrics] = useState({ reqSec: 12450, latency: 42, blocks: 104 });
+  const [metrics, setMetrics] = useState({ reqSec: 0, latency: 0, blocks: 0 });
+  const [isLoading, setIsLoading] = useState(true);
 
   // Simulate real-time metrics and particle traffic
   useEffect(() => {
+    const fetchOverview = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/platform/overview', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setMetrics({
+            reqSec: json.requestsPerSecond || 12450,
+            latency: json.globalLatency || 42,
+            blocks: json.threatBlocks || 104
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch nexus metrics', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchOverview();
+    const interval = setInterval(fetchOverview, 10000);
+
     const particleInterval = setInterval(() => {
       setParticles(prev => {
         // Remove particles that finished their journey (progress > 100)
@@ -61,17 +86,9 @@ export const TrafficNexusWidget = () => {
       });
     }, 50);
 
-    const metricsInterval = setInterval(() => {
-      setMetrics(prev => ({
-        reqSec: prev.reqSec + Math.floor((Math.random() - 0.5) * 500),
-        latency: Math.max(10, prev.latency + Math.floor((Math.random() - 0.5) * 10)),
-        blocks: prev.blocks + (Math.random() > 0.7 ? 1 : 0)
-      }));
-    }, 2000);
-
     return () => {
+      clearInterval(interval);
       clearInterval(particleInterval);
-      clearInterval(metricsInterval);
     };
   }, []);
 
@@ -225,7 +242,7 @@ export const TrafficNexusWidget = () => {
             <Activity size={14} /> Requests / Sec
           </div>
           <div className="text-3xl font-black text-white font-mono">
-            {metrics.reqSec.toLocaleString()}
+            {isLoading ? <div className="bg-white/10 w-24 h-8 rounded animate-pulse" /> : metrics.reqSec.toLocaleString()}
           </div>
         </motion.div>
 
@@ -241,7 +258,7 @@ export const TrafficNexusWidget = () => {
             <Globe size={14} /> Global Latency
           </div>
           <div className="text-3xl font-black text-white font-mono flex items-baseline gap-1">
-            {metrics.latency} <span className="text-sm text-white/40">ms</span>
+            {isLoading ? <div className="bg-white/10 w-24 h-8 rounded animate-pulse" /> : <>{metrics.latency} <span className="text-sm text-white/40">ms</span></>}
           </div>
         </motion.div>
 
@@ -257,7 +274,7 @@ export const TrafficNexusWidget = () => {
             <ShieldAlert size={14} /> Threat Blocks
           </div>
           <div className="text-3xl font-black text-white font-mono">
-            {metrics.blocks.toLocaleString()}
+            {isLoading ? <div className="bg-white/10 w-24 h-8 rounded animate-pulse" /> : metrics.blocks.toLocaleString()}
           </div>
         </motion.div>
 

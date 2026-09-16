@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Terminal, Pause, Play, Trash2, Copy, Check, ChevronDown, ChevronRight, Activity, Wifi } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { io } from 'socket.io-client';
 
-// ─── Types & Mock Data ────────────────────────────────────────────────────────
+// ─── Types & Data ────────────────────────────────────────────────────────
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -18,47 +19,6 @@ interface PayloadLog {
   body: any;
   bodySize: string;
 }
-
-const generateMockLog = (): PayloadLog => {
-  const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-  const paths = ['/api/v1/weather', '/api/v2/auth/verify', '/webhooks/stripe', '/api/v1/users', '/graphql'];
-  const statuses = [200, 200, 200, 201, 400, 401, 403, 404, 500, 502, 503];
-  
-  const method = methods[Math.floor(Math.random() * methods.length)];
-  const status = statuses[Math.floor(Math.random() * statuses.length)];
-  
-  let body: any = null;
-  if (method === 'POST' || method === 'PUT') {
-    body = {
-      user: { id: `usr_${Math.random().toString(36).substring(7)}`, email: 'test@example.com' },
-      options: { forceSync: true, maxRetries: 3 },
-      metadata: { source: 'dashboard_ui' }
-    };
-  }
-
-  return {
-    id: `log_${Math.random().toString(36).substring(7)}`,
-    timestamp: new Date().toISOString(),
-    method,
-    path: paths[Math.floor(Math.random() * paths.length)],
-    status,
-    latency: Math.floor(Math.random() * 500) + 10,
-    headers: {
-      'host': 'api.klyra.io',
-      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-      'x-forwarded-for': `192.168.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-      'authorization': 'Bearer sk_live_***',
-      'content-type': 'application/json'
-    },
-    queryParams: {
-      'limit': '50',
-      'offset': '0',
-      'filter': 'active'
-    },
-    body,
-    bodySize: `${Math.floor(Math.random() * 50) + 1}kb`
-  };
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -152,16 +112,32 @@ export const LivePayloadInspector = () => {
   useEffect(() => {
     if (isPaused) return;
 
-    const interval = setInterval(() => {
+    const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+    
+    // Connect to the secure admin namespace
+    const socket = io('/admin/live-logs', {
+      auth: { token }
+    });
+
+    socket.on('connect', () => {
+      console.log('[LivePayloadInspector] Connected to secure uplink');
+    });
+
+    socket.on('new-api-log', (newLog: PayloadLog) => {
       setLogs(prev => {
-        const newLog = generateMockLog();
         const newLogs = [newLog, ...prev]; // Prepend for sliding down
         if (newLogs.length > 50) newLogs.pop();
         return newLogs;
       });
-    }, 1500);
+    });
 
-    return () => clearInterval(interval);
+    socket.on('connect_error', (err) => {
+      console.error('[LivePayloadInspector] Uplink error:', err.message);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, [isPaused]);
 
   // Resizable drag logic

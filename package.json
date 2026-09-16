@@ -4,10 +4,10 @@
   "private": true,
   "description": "A comprehensive API marketplace platform",
   "scripts": {
-    "dev": "concurrently \"pnpm --filter backend dev\" \"pnpm --filter frontend dev\"",
-    "build": "pnpm --filter backend build && pnpm --filter frontend build",
-    "lint": "pnpm --filter backend lint && pnpm --filter frontend lint",
-    "test": "pnpm --filter backend test && pnpm --filter frontend test",
+    "dev": "concurrently \"pnpm --filter ./backend dev\" \"pnpm --filter ./frontend dev\"",
+    "build": "pnpm --filter ./backend build && pnpm --filter ./frontend build",
+    "lint": "pnpm --filter ./backend lint && pnpm --filter ./frontend lint",
+    "test": "pnpm --filter ./backend test && pnpm --filter ./frontend test",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md}\"",
     "prepare": "husky install"

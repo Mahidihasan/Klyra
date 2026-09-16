@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, RefreshCw, RotateCcw, Eye, EyeOff, Plus, Check, Terminal, ExternalLink } from 'lucide-react';
+import { RefreshCw, RotateCcw, Eye, EyeOff, Plus, Check, Terminal, ExternalLink } from 'lucide-react';
 import { DeploymentRecord } from '../types';
+import { DrawerShell } from './DrawerShell';
 
 interface DeploymentDrawerProps {
   deployment: DeploymentRecord | null;
@@ -23,34 +24,22 @@ export const DeploymentDrawer: React.FC<DeploymentDrawerProps> = ({
   if (!deployment) return null;
 
   return (
-    <div className="kly-drawer-overlay" onClick={onClose}>
-      <div className="kly-drawer-panel" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{
-          padding: '16px 20px', borderBottom: '1px solid var(--kly-border-subtle)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-        }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="kly-mono" style={{ fontSize: 16, fontWeight: 700, color: '#c4b5fd' }}>
-                Deployment {deployment.id}
-              </span>
-              <span className={`kly-badge ${deployment.status === 'healthy' ? 'kly-badge-healthy' : 'kly-badge-deploying'}`}>
-                {deployment.status}
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--kly-text-dim)', marginTop: 4 }}>
-              {deployment.environment} · {deployment.version} · {deployment.region} · {deployment.deployedAt}
-            </div>
-          </div>
-          <button className="kly-btn-icon" onClick={onClose}><X size={15} /></button>
-        </div>
-
-        {/* Action Bar */}
-        <div style={{
-          padding: '10px 20px', background: 'rgba(255,255,255,0.02)',
-          borderBottom: '1px solid var(--kly-border-subtle)', display: 'flex', alignItems: 'center', gap: 8
-        }}>
+    <DrawerShell
+      open={!!deployment}
+      onClose={onClose}
+      storageKey="deployment"
+      ariaLabel="Deployment details"
+      title={
+        <>
+          <span className="kly-mono" style={{ color: '#c4b5fd' }}>Deployment {deployment.id}</span>
+          <span className={`kly-badge ${deployment.status === 'healthy' ? 'kly-badge-healthy' : 'kly-badge-deploying'}`}>
+            {deployment.status}
+          </span>
+        </>
+      }
+      subtitle={<>{deployment.environment} · {deployment.version} · {deployment.region} · {deployment.deployedAt}</>}
+      toolbar={
+        <>
           <button className="kly-btn kly-btn-primary" onClick={() => onRedeploy(deployment)}>
             <RefreshCw size={13} />
             <span>Redeploy</span>
@@ -69,10 +58,12 @@ export const DeploymentDrawer: React.FC<DeploymentDrawerProps> = ({
             <ExternalLink size={13} />
             <span>Open Target URL</span>
           </a>
-        </div>
+        </>
+      }
+    >
 
         {/* Tab Navigation */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--kly-border-subtle)', padding: '0 20px' }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--kly-border-subtle)', padding: '0', margin: '-6px 0 14px' }}>
           {(['logs', 'env', 'overview'] as const).map((t) => (
             <button
               key={t}
@@ -91,7 +82,7 @@ export const DeploymentDrawer: React.FC<DeploymentDrawerProps> = ({
         </div>
 
         {/* Body Content */}
-        <div style={{ padding: 20, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: -4 }}>
           {activeTab === 'logs' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -193,7 +184,6 @@ export const DeploymentDrawer: React.FC<DeploymentDrawerProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DrawerShell>
   );
 };

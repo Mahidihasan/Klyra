@@ -3,7 +3,8 @@ import {
   ArrowLeft, ChevronDown, Check, Copy, FlaskConical, Rocket,
   MoreHorizontal, FileText, RefreshCw, Pause, Play, ShieldAlert,
   Layers, Code, Server, GitBranch, DollarSign, Users, Key,
-  BarChart3, LineChart, Terminal, Activity, Settings, ExternalLink, Sparkles
+  BarChart3, LineChart, Terminal, Activity, Settings, ExternalLink, Sparkles,
+  History, Layers3
 } from 'lucide-react';
 import { ProviderProject, ProjectTab } from '../../../types/apibuild';
 import { ExtendedVersion } from '../types';
@@ -24,6 +25,12 @@ interface HeaderCommandBarProps {
   onPauseToggle: () => void;
   onOpenOpenApiImport: () => void;
   onShowToast: (msg: string) => void;
+  /** Environment context (UI-scoped selector). */
+  environment: string;
+  onSelectEnvironment: (env: string) => void;
+  onOpenOperations: () => void;
+  onOpenAudit: () => void;
+  operationsCount: number;
 }
 
 const TAB_CONFIG: { id: ProjectTab; label: string; icon: any }[] = [
@@ -38,7 +45,14 @@ const TAB_CONFIG: { id: ProjectTab; label: string; icon: any }[] = [
   { id: 'analytics', label: 'Analytics', icon: LineChart },
   { id: 'logs', label: 'Logs', icon: Terminal },
   { id: 'monitoring', label: 'Monitoring', icon: ShieldAlert },
+  { id: 'audit', label: 'Audit', icon: History },
   { id: 'settings', label: 'Settings', icon: Settings },
+];
+
+const ENVIRONMENTS: { id: string; label: string; color: string; dot: string }[] = [
+  { id: 'development', label: 'Development', color: '#38bdf8', dot: '#38bdf8' },
+  { id: 'staging', label: 'Staging', color: '#f59e0b', dot: '#f59e0b' },
+  { id: 'production', label: 'Production', color: '#a855f7', dot: '#a855f7' },
 ];
 
 export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
@@ -56,7 +70,12 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
   onTriggerRedeploy,
   onPauseToggle,
   onOpenOpenApiImport,
-  onShowToast
+  onShowToast,
+  environment,
+  onSelectEnvironment,
+  onOpenOperations,
+  onOpenAudit,
+  operationsCount
 }) => {
   const [showVersionMenu, setShowVersionMenu] = useState(false);
   const [showDeployMenu, setShowDeployMenu] = useState(false);
@@ -69,6 +88,45 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
   const moreRef = useRef<HTMLDivElement>(null);
   const projRef = useRef<HTMLDivElement>(null);
 
+  // Tab strip interaction: vertical mouse-wheel over the strip scrolls it
+  // horizontally with a short eased "glide" (RAF lerp), gradient fades mark
+  // overflow on both edges, and the active tab auto-centers when it changes.
+  const tabsRef = useRef<HTMLElement | null>(null);
+  const tabsScrollTarget = useRef(0);
+  const tabsRafRef = useRef<number | null>(null);
+  const [tabsCanLeft, setTabsCanLeft] = useState(false);
+  const [tabsCanRight, setTabsCanRight] = useState(false);
+
+  const tabsGlideStep = () => {
+    const el = tabsRef.current;
+    if (!el) { tabsRafRef.current = null; return; }
+    const diff = tabsScrollTarget.current - el.scrollLeft;
+    if (Math.abs(diff) < 1) {
+      el.scrollLeft = tabsScrollTarget.current;
+      tabsRafRef.current = null;
+      return;
+    }
+    el.scrollLeft += diff * 0.2;
+    tabsRafRef.current = requestAnimationFrame(tabsGlideStep);
+  };
+
+  const glideTabsTo = (target: number) => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    tabsScrollTarget.current = Math.max(0, Math.min(max, target));
+    if (tabsRafRef.current == null) tabsRafRef.current = requestAnimationFrame(tabsGlideStep);
+  };
+
+  const updateTabFades = () => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setTabsCanLeft(el.scrollLeft > 2);
+    setTabsCanRight(el.scrollLeft < max - 2);
+  };
+
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (versionRef.current && !versionRef.current.contains(e.target as Node)) setShowVersionMenu(false);
@@ -79,6 +137,56 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // Wheel-to-horizontal glide scroll on the tab strip. Attached natively with
+  // passive: false so preventDefault works (React wheel events are passive).
+  // At either end of the strip the wheel is released to scroll the page.
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 0) return;
+      const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      const atStart = el.scrollLeft <= 0 && delta < 0;
+      const atEnd = el.scrollLeft >= max - 1 && delta > 0;
+      if (atStart || atEnd) return;
+      e.preventDefault();
+      glideTabsTo(tabsScrollTarget.current + delta);
+    };
+    const onScroll = () => {
+      // Keep the glide target in sync with manual scrolls; never fight a running glide.
+      if (tabsRafRef.current == null) tabsScrollTarget.current = el.scrollLeft;
+      updateTabFades();
+    };
+    const onResize = () => { updateTabFades(); glideTabsTo(el.scrollLeft); };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+    updateTabFades();
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      if (tabsRafRef.current != null) cancelAnimationFrame(tabsRafRef.current);
+      tabsRafRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-center the active tab whenever it changes.
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const active = el.querySelector<HTMLElement>('.kly-nav-tab-btn.active');
+    if (active) {
+      const btnLeft = active.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft;
+      glideTabsTo(btnLeft - (el.clientWidth - active.offsetWidth) / 2);
+    }
+    updateTabFades();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
 
   const handleCopyGateway = async () => {
     try {
@@ -155,11 +263,38 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
             {project.status === 'healthy' || project.status === 'published' ? 'Operational' : project.status === 'deploying' ? 'Deploying' : 'Paused'}
           </span>
 
-          {/* Meta Pills */}
-          <div className="kly-meta-pills">
-            <span className="kly-badge kly-badge-pill" style={{ textTransform: 'capitalize' }}>
-              {project.environment}
-            </span>
+          {/* Environment context — segmented, persistent selector (UI-scoped until the
+              backend env-scoped config API lands — see docs/control-plane.md) */}
+          <div
+            role="group" aria-label="Environment context"
+            title="Environment context — UI-scoped selector"
+            style={{
+              display: 'inline-flex', borderRadius: 6, padding: 2,
+              background: 'rgba(255,255,255,0.04)', border: '1px solid var(--kly-border-subtle)',
+            }}
+          >
+            {ENVIRONMENTS.map((env) => {
+              const active = environment === env.id;
+              return (
+                <button
+                  key={env.id}
+                  onClick={() => onSelectEnvironment(env.id)}
+                  aria-pressed={active}
+                  title={`${env.label} context`}
+                  style={{
+                    background: active ? `${env.color}18` : 'transparent',
+                    border: 'none', borderRadius: 4, padding: '2px 9px',
+                    color: active ? env.color : 'var(--kly-text-dim)',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                  }}
+                >
+                  <span className="kly-pulse-dot" style={{ background: env.dot, width: 6, height: 6 }} />
+                  {env.label}
+                </button>
+              );
+            })}
+          </div>
 
             {/* Global Version Selector */}
             <div style={{ position: 'relative' }} ref={versionRef}>
@@ -230,11 +365,33 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
             <span className="kly-badge kly-badge-pill" style={{ color: 'var(--kly-text-dim)' }}>
               {project.category}
             </span>
-          </div>
         </div>
 
         {/* Right: Quick Action Buttons */}
         <div className="kly-cmd-actions">
+          <button
+            className="kly-btn kly-btn-ghost"
+            onClick={onOpenOperations}
+            title="View backend operations (deploys, rollbacks, publishes)"
+            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Layers3 size={13} color={operationsCount > 0 ? '#38bdf8' : 'var(--kly-text-dim)'} />
+            <span>Ops</span>
+            {operationsCount > 0 && (
+              <span
+                aria-label={`${operationsCount} running operations`}
+                style={{
+                  position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, borderRadius: 8,
+                  background: '#38bdf8', color: '#0b1220', fontSize: 9, fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 3px', boxShadow: '0 0 8px rgba(56,189,248,0.5)',
+                }}
+              >
+                {operationsCount}
+              </span>
+            )}
+          </button>
+
           <button className="kly-btn kly-btn-secondary" onClick={onOpenDocs} title="View interactive API Reference">
             <FileText size={13} />
             <span>Docs</span>
@@ -361,23 +518,27 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
         </div>
       </div>
 
-      {/* Nav Tabs Bar */}
-      <nav className="kly-nav-tabs-bar">
-        {TAB_CONFIG.map((t) => {
-          const Icon = t.icon;
-          const isActive = activeTab === t.id;
-          return (
-            <button
-              key={t.id}
-              className={`kly-nav-tab-btn ${isActive ? 'active' : ''}`}
-              onClick={() => onSelectTab(t.id)}
-            >
-              <Icon size={13} />
-              <span>{t.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+      {/* Nav Tabs Bar — wheel-glide scrolling, edge fades, active-tab auto-centering */}
+      <div className="kly-nav-tabs-wrap">
+        <nav className="kly-nav-tabs-bar" ref={tabsRef}>
+          {TAB_CONFIG.map((t) => {
+            const Icon = t.icon;
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                className={`kly-nav-tab-btn ${isActive ? 'active' : ''}`}
+                onClick={() => onSelectTab(t.id)}
+              >
+                <Icon size={12} />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <span className={`kly-nav-fade kly-nav-fade-left ${tabsCanLeft ? 'visible' : ''}`} aria-hidden="true" />
+        <span className={`kly-nav-fade kly-nav-fade-right ${tabsCanRight ? 'visible' : ''}`} aria-hidden="true" />
+      </div>
     </header>
   );
 };

@@ -18,6 +18,7 @@ import { RepositoriesPage } from './pages/Repositories/index';
 import { AdminLayout } from './layouts/AdminLayout/AdminLayout';
 // Admin pages are now strictly isolated inside AdminLayout
 import { ImpersonationBanner } from './components/ImpersonationBanner';
+import { ProfilePage } from './pages/Profile';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -235,6 +236,11 @@ function AppContent() {
     setCollections((prev) => [newCol, ...prev]);
   };
 
+  const handleOpenProfile = () => {
+    setIsMobileSidebarOpen(false);
+    setActiveTab('profile');
+  };
+
   // 1. Check if user opened Demo Inbox (dedicated window or view param)
   const isDemoInboxRoute =
     typeof window !== 'undefined' &&
@@ -305,6 +311,7 @@ function AppContent() {
           <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}>
           </div>
           <ApiBuildPage
+            onBack={() => setActiveTab('home')}
             onOpenPlayground={() => {
               setPlaygroundContext({ repoId: activeApiProject?.id || '', repoName: activeApiProject?.name || 'API Project' });
               setActiveTab('playground');
@@ -349,6 +356,7 @@ function AppContent() {
             setSearchQuery={setSearchQuery}
             onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
             onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
+            onOpenProfile={handleOpenProfile}
             onOpenLogin={() => {
               setAuthModalMode('login');
               setShowAuthModal(true);
@@ -546,6 +554,10 @@ function AppContent() {
                       </div>
                     </section>
                   </div>
+                </main>
+              ) : activeTab === 'profile' ? (
+                <main className="content-page-wrapper">
+                  <ProfilePage />
                 </main>
               ) : activeTab === 'billing' ? (
                 <main className="content-page-wrapper">

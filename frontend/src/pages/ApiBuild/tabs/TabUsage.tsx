@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BarChart3, Download, Filter, Calendar } from 'lucide-react';
+import { BarChart3, Download, Filter, Calendar, Activity, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { ProviderProject, ApiConsumer } from '../../../types/apibuild';
 import { DetailedEndpoint } from '../types';
 
@@ -18,11 +18,19 @@ export const TabUsage: React.FC<TabUsageProps> = ({
 
   const totalReqs = project.requests;
   const bandwidthGb = (totalReqs * 0.0000042).toFixed(2);
+  const rangeLabel = timeRange === '24h' ? 'last 24 hours' : timeRange === '7d' ? 'last 7 days' : 'last 30 days';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Usage KPIs */}
-      <div className="kly-metric-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+      <div className="kly-card kly-ops-control-bar">
+        <div><span className="kly-eyebrow"><Activity size={12} /> Usage command center</span><strong>Traffic and quota posture for {rangeLabel}</strong><small>Use the same window for exports, endpoint comparisons, and consumer reviews.</small></div>
+        <div className="kly-table-toolbar-controls">
+          <label className="kly-control-label"><Calendar size={13} /> Window<select className="kly-select kly-select-compact" value={timeRange} onChange={(event) => setTimeRange(event.target.value as '24h' | '7d' | '30d')}><option value="24h">24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></select></label>
+          <button className="kly-btn kly-btn-secondary" onClick={() => onShowToast(`Usage report export started for ${rangeLabel}`)}><Download size={12} /> Export report</button>
+        </div>
+      </div>
+      <div className="kly-metric-strip" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
         <div className="kly-metric-box">
           <div className="kly-metric-label">Total Ingress Requests</div>
           <div className="kly-metric-val">{project.requestsLabel.split(' ')[0]}</div>
@@ -43,6 +51,8 @@ export const TabUsage: React.FC<TabUsageProps> = ({
           <div className="kly-metric-val">4,210</div>
           <div className="kly-metric-trend kly-trend-down">0.34% of volume</div>
         </div>
+        <div className="kly-metric-box"><div className="kly-metric-label">Policy posture</div><div className="kly-metric-val"><ShieldCheck size={18} color="#34d399" /> Healthy</div><div className="kly-metric-trend kly-trend-up">No quota breaches</div></div>
+        <div className="kly-metric-box"><div className="kly-metric-label">Error budget watch</div><div className="kly-metric-val"><AlertTriangle size={18} color="#fbbf24" /> 0.34%</div><div className="kly-metric-trend kly-trend-neutral">Within service target</div></div>
       </div>
 
       {/* Breakdowns Grid */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   DndContext, 
   DragOverlay, 
@@ -22,6 +22,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, CheckCircle2, XCircle, Zap, Box } from 'lucide-react';
 import { ApiReviewPane } from './ApiReviewPane';
+import toast, { Toaster } from 'react-hot-toast';
 
 type ApiStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
@@ -156,21 +157,97 @@ const Column = ({ id, title, icon: Icon, colorClass, apis, onReview }: any) => {
       </div>
       
       <div ref={setNodeRef} className="flex-1 p-3 flex flex-col gap-3 overflow-y-auto">
-        <SortableContext items={apis.map((a: any) => a.id)} strategy={verticalListSortingStrategy}>
-          {apis.map((api: any) => (
-            <SortableCard key={api.id} api={api} onClick={() => onReview(api)} />
-          ))}
-        </SortableContext>
+        {apis.length === 0 ? (
+          <>
+            <SortableCardSkeleton />
+            <SortableCardSkeleton />
+            <SortableCardSkeleton />
+          </>
+        ) : (
+          <SortableContext items={apis.map((a: any) => a.id)} strategy={verticalListSortingStrategy}>
+            {apis.map((api: any) => (
+              <SortableCard key={api.id} api={api} onClick={() => onReview(api)} />
+            ))}
+          </SortableContext>
+        )}
       </div>
     </div>
   );
 };
 
+const SortableCardSkeleton = () => (
+  <div className="relative p-4 rounded-xl backdrop-blur-md bg-white/5 border border-white/10 shadow-inner overflow-hidden mb-3 last:mb-0">
+    <div className="flex items-start justify-between mb-3">
+      <div className="flex items-center gap-3 w-full">
+        <div className="w-8 h-8 rounded-full bg-white/5 border border-white/10 overflow-hidden relative shrink-0">
+           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+        </div>
+        <div className="flex flex-col gap-1.5 w-full">
+          <div className="w-24 h-3 bg-white/10 rounded overflow-hidden relative">
+             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+          </div>
+          <div className="w-12 h-2 bg-white/5 rounded overflow-hidden relative">
+             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+          </div>
+        </div>
+      </div>
+      <div className="w-16 h-4 rounded-full bg-white/5 overflow-hidden relative shrink-0">
+         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+      </div>
+    </div>
+    <div className="w-full h-8 bg-white/5 rounded mb-3 overflow-hidden relative">
+       <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+    </div>
+    <div className="flex items-center justify-between mt-auto">
+      <div className="w-16 h-2 bg-white/5 rounded overflow-hidden relative">
+         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+      </div>
+    </div>
+  </div>
+);
+
 export const ApprovalQueue = () => {
-  const [apis, setApis] = useState<ApiRequest[]>(INITIAL_DATA);
+  const [apis, setApis] = useState<ApiRequest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [reviewingApi, setReviewingApi] = useState<ApiRequest | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeColumnId, setActiveColumnId] = useState<ApiStatus | null>(null);
+  
+  const originalStatusRef = useRef<ApiStatus | null>(null);
+
+  useEffect(() => {
+    const fetchApis = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/apis/queue', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.ok) {
+          const json = await res.json();
+          // Assuming backend returns an array of mapped ApiRequests, or Prisma models
+          const data = json.data || json;
+          const mapped: ApiRequest[] = Array.isArray(data) ? data.map((api: any) => ({
+            id: api.id,
+            name: api.endpointPath || api.name || 'Unknown Route',
+            provider: 'Internal API',
+            version: api.currentVersion || api.version || '1.0.0',
+            submitted: 'Just now',
+            status: api.status === 'ACTIVE' ? 'APPROVED' : (api.status === 'DEPRECATED' ? 'REJECTED' : (api.status === 'TRIPPED' ? 'PENDING' : api.status || 'PENDING')),
+            description: api.description || `Traffic canary weight: ${api.canaryWeight || 0}%`
+          })) : [];
+          setApis(mapped.length > 0 ? mapped : INITIAL_DATA);
+        } else {
+          setApis(INITIAL_DATA); // Fallback to mock on error
+        }
+      } catch (err) {
+        setApis(INITIAL_DATA);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchApis();
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -185,6 +262,10 @@ export const ApprovalQueue = () => {
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
+    const activeApi = apis.find(a => a.id === event.active.id);
+    if (activeApi) {
+      originalStatusRef.current = activeApi.status;
+    }
   };
 
   const handleDragOver = (event: DragOverEvent) => {
@@ -232,13 +313,55 @@ export const ApprovalQueue = () => {
     });
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     setActiveId(null);
     setTimeout(() => setActiveColumnId(null), 1000); // Remove glow after 1s
+
+    const draggedId = event.active.id as string;
+    const finalApi = apis.find(a => a.id === draggedId);
+    
+    if (finalApi && originalStatusRef.current && finalApi.status !== originalStatusRef.current) {
+      const newStatus = finalApi.status;
+      const originalStatus = originalStatusRef.current;
+      
+      if (newStatus === 'APPROVED' || newStatus === 'REJECTED') {
+        const action = newStatus === 'APPROVED' ? 'APPROVE' : 'REJECT';
+        
+        const moderatePromise = (async () => {
+          const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+          const res = await fetch(`/api/v1/admin/apis/${draggedId}/moderate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ action })
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Server rejected moderation');
+          }
+          return await res.json();
+        })();
+
+        toast.promise(moderatePromise, {
+          loading: `Applying ${newStatus} status...`,
+          success: `API ${newStatus} Successfully`,
+          error: (err) => {
+            // Revert state on failure
+            setApis(prev => prev.map(a => a.id === draggedId ? { ...a, status: originalStatus } : a));
+            return `Moderation Failed: ${err.message}`;
+          }
+        }, { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+      }
+    }
+    
+    originalStatusRef.current = null;
   };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      <Toaster position="bottom-right" />
       <motion.div 
         className="flex flex-col h-full transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] origin-left"
         style={{ 

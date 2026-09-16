@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ProviderProject, SourceConfig } from '../../types/apibuild';
 import { apiBuildService } from '../../services/apiBuild';
 import { ProjectsDashboard } from './ProjectsDashboard';
@@ -10,40 +10,60 @@ import { StepDeploy } from './Wizard5';
 import { StepProduct } from './Wizard6';
 import { StepPricing } from './Wizard7';
 import { StepPublish, PublishSuccess } from './Wizard8';
-import { WorkspaceRedesign } from './WorkspaceRedesign';
+import { WorkspaceRedesignWithDraft } from './WorkspaceRedesignWithDraft';
 import { useApiBuild, ApiBuildState } from './state';
 import './styles.css';
 import './styles2.css';
 import './styles-professional.css';
 
-export const ApiBuildPage: React.FC<{ onOpenPlayground: () => void }> = ({ onOpenPlayground }) => {
+export const ApiBuildPage: React.FC<{ onOpenPlayground: () => void; onBack?: () => void }> = ({ onOpenPlayground, onBack }) => {
   const s = useApiBuild(onOpenPlayground);
   const { active } = s;
+
+  // Guard so the deploy operation is started exactly once per entry.
+  const deployStartedFor = useRef<string | null>(null);
 
   useEffect(() => {
     if (s.view !== 'deploy' || !active) return;
     if (active.deployment.kind === 'external') return;
+    if (deployStartedFor.current === active.id) return;
+    deployStartedFor.current = active.id;
+
+    // Real deploy via the durable operation resource — the wizard phase is
+    // driven from backend progress instead of a client-side fake timer.
     s.setPhase(0);
-    const t = setInterval(() => s.setPhase((p: number) => {
-      if (p >= 3) {
-        clearInterval(t);
-        apiBuildService.update(active.id, {
-          status: 'healthy',
-          deployment: { ...active.deployment, status: 'healthy', lastHealthCheck: 'just now', log: [...active.deployment.log, 'Build complete', 'Deployment healthy'] },
-        } as Partial<ProviderProject>);
-        s.refresh();
-        return p;
-      }
-      return p + 1;
-    }), 900);
-    return () => clearInterval(t);
+    apiBuildService.createOperation(active.id, {
+      type: 'deploy',
+      environment: active.environment,
+      payload: { version: active.version, strategy: 'rolling' },
+      reason: 'Initial deployment from the setup flow',
+    }).then((op) => {
+      const timer = setInterval(async () => {
+        try {
+          const live = await apiBuildService.getOperation(active.id, op.id);
+          if (!live) return;
+          const progress = live.progress;
+          s.setPhase(progress < 33 ? 1 : progress < 66 ? 2 : 3);
+          if (live.state === 'succeeded' || live.state === 'failed') {
+            clearInterval(timer);
+            await s.refresh();
+            if (live.state === 'failed') s.setBusy(true);
+          }
+        } catch {
+          // Backend unreachable during setup — keep the wizard visible; the
+          // durable operation row persists and can be retried from the workspace.
+        }
+      }, 1000);
+      return () => clearInterval(timer);
+    }).catch(() => s.setBusy(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.view]);
 
-  return <ApiBuildRouter s={s} />;
+  return <ApiBuildRouter s={s} onBack={onBack} />;
 };
 
 async function submitSource(s: ApiBuildState, chosen: SourceConfig) {
-  const created = apiBuildService.create(s.draft);
+  const created = await apiBuildService.create(s.draft);
   s.setBusy(true); s.setDetecting(true); s.setManual(false); s.setView('detect');
   const det = await apiBuildService.detect(chosen);
   const base = chosen.baseUrl?.trim() || det.baseUrl;
@@ -78,16 +98,16 @@ async function retryDetection(s: ApiBuildState, active?: ProviderProject | null)
   s.setDetection(det); s.setDetecting(false); s.refresh();
 }
 
-function ApiBuildRouter({ s }: { s: ApiBuildState }) {
+function ApiBuildRouter({ s, onBack }: { s: ApiBuildState; onBack?: () => void }) {
   const { view, projects, active } = s;
   const openDashboard = () => { s.setActiveId(null); s.setView('dash'); };
   const openProj = (p: ProviderProject) => { s.setActiveId(p.id); s.setTab('overview'); s.setView('workspace'); };
 
-  if (view === 'dash') return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} />;
+  if (view === 'dash') return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} onBack={onBack} />;
   if (view === 'new') return <StepNewProject init={s.draft} onBack={openDashboard} onNext={(d) => { s.setDraft(d); s.setView('source'); }} />;
   if (view === 'source') return <StepSource init={s.source} busy={s.busy} onBack={() => s.setView('new')} onNext={(v) => { s.setSource(v); submitSource(s, v); }} />;
-  if (view === 'detect') return <StepDetect loading={s.detecting} detection={s.detection} manualMode={s.manual} setManualMode={s.setManual} onBack={() => s.setView('source')} onRetry={() => retryDetection(s, apiBuildService.get(active?.id || ''))} onNext={() => s.setView('configure')} />;
-  if (!active) return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} />;
+  if (view === 'detect') return <StepDetect loading={s.detecting} detection={s.detection} manualMode={s.manual} setManualMode={s.setManual} onBack={() => s.setView('source')} onRetry={() => retryDetection(s, active)} onNext={() => s.setView('configure')} />;
+  if (!active) return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} onBack={onBack} />;
   if (view === 'configure') return <StepConfigure project={active} onBack={() => s.setView('detect')} onNext={(c) => {
     apiBuildService.update(active.id, {
       name: c.apiName, version: c.version, baseUrl: c.baseUrl, authKind: c.authKind,
@@ -103,13 +123,34 @@ function ApiBuildRouter({ s }: { s: ApiBuildState }) {
   if (view === 'product') return <StepProduct project={active} onBack={() => s.setView('deploy')} onPlayground={s.onPlayground} onNext={() => s.setView('pricing')} />;
   if (view === 'pricing') return <StepPricing plans={active.plans} onBack={() => s.setView('product')} onNext={(plans) => { apiBuildService.update(active.id, { plans } as Partial<ProviderProject>); s.refresh(); s.setView('publish'); }} />;
   if (view === 'publish') return <StepPublish project={active} busy={s.busy} onBack={() => s.setView('pricing')} onPublish={(vis, l) => {
+    // Publish is a durable operation: the backend flips visibility/status and
+    // writes audit events. The UI waits for terminal state before advancing.
+    if (s.busy) return;
     s.setBusy(true);
-    setTimeout(() => { apiBuildService.update(active.id, { published: true, status: 'published', visibility: vis, name: l.name, description: l.description } as Partial<ProviderProject>); s.setBusy(false); s.refresh(); s.setView('success'); }, 900);
+    apiBuildService.createOperation(active.id, {
+      type: 'publish',
+      payload: { visibility: vis, listingName: l.name, listingDescription: l.description },
+      reason: 'Publish to marketplace',
+    }).then((op) => {
+      const timer = setInterval(async () => {
+        try {
+          const live = await apiBuildService.getOperation(active.id, op.id);
+          if (!live) return;
+          if (live.state === 'succeeded' || live.state === 'failed') {
+            clearInterval(timer);
+            await s.refresh();
+            s.setBusy(false);
+            if (live.state === 'succeeded') s.setView('success');
+            else s.setView('publish');
+          }
+        } catch { /* keep waiting — identical retry semantics as deployment */ }
+      }, 800);
+    }).catch(() => s.setBusy(false));
   }} />;
   if (view === 'success') return <PublishSuccess project={active} onView={() => { s.setTab('overview'); s.setView('workspace'); }} onPlayground={s.onPlayground} onManage={() => { s.setTab('overview'); s.setView('workspace'); }} />;
 
   return (
-    <WorkspaceRedesign
+    <WorkspaceRedesignWithDraft
       project={active}
       projectsList={projects}
       tab={s.tab}

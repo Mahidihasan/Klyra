@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Search, Filter, MoreVertical, X, Plus, Copy, Eye, Ban, Trash2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { Search, Filter, MoreVertical, X, Plus, Copy, Eye, Ban, Trash2, KeyRound } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import toast, { Toaster } from 'react-hot-toast';
 import { 
   AdminUserRow, 
   UserRoleValue, 
@@ -13,40 +14,44 @@ import { InfiniteMatrixTable, ColumnDef } from '../../components/DataTable/Infin
 import { FloatingActionBar } from '../../components/DataTable/FloatingActionBar';
 import './AdminUsers.css';
 
-// ------------------------------------------------------------------
-// Mock Data Generator for Frontend Demonstration
-// ------------------------------------------------------------------
-const generateMockUsers = (): AdminUserRow[] => {
-  const roles: UserRoleValue[] = ['USER', 'PROVIDER', 'MODERATOR', 'ADMIN'];
-  const statuses: UserStatusFilter[] = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'PENDING'];
-  const tiers: UserSubscriptionTier[] = ['FREE', 'PRO', 'ENTERPRISE'];
-  
-  const users: AdminUserRow[] = [];
-  for (let i = 1; i <= 10000; i++) {
-    users.push({
-      id: `usr_mock_${Math.random().toString(36).substring(7)}`,
-      name: `User ${i}`,
-      email: `user${i}@example.com`,
-      avatarUrl: null,
-      role: roles[Math.floor(Math.random() * roles.length)],
-      status: statuses[Math.floor(Math.random() * statuses.length)] as any,
-      subscriptionTier: tiers[Math.floor(Math.random() * tiers.length)],
-      isPendingVerification: false,
-      apisOwned: Math.floor(Math.random() * 5),
-      apisSubscribed: Math.floor(Math.random() * 20),
-      joinedAt: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
-      lastLoginAt: new Date(Date.now() - Math.random() * 1000000000).toISOString()
-    });
-  }
-  return users;
-};
+// Toast style constants
+const TOAST_STYLE = { background: '#18181b', color: '#fff', border: '1px solid #27272a' };
 
 // ------------------------------------------------------------------
 // Main Component
 // ------------------------------------------------------------------
 export const AdminUsers = () => {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
-  
+  const [isLoading, setIsLoading] = useState(true);
+  // id of user whose Suspend button is being held — for friction confirmation
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const getToken = () =>
+    localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+
+  // ── Real data fetch ────────────────────────────────────────────────
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/admin/users?limit=100&sort=joined&direction=desc', {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        // listUsers returns { users, total, page, limit }
+        setUsers(json.data?.users || json.data || []);
+      }
+    } catch (err) {
+      console.error('[AdminUsers] fetch failed:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   
@@ -67,12 +72,7 @@ export const AdminUsers = () => {
     return () => document.removeEventListener('click', handleClick);
   }, []);
 
-  // Initialization
-  useEffect(() => {
-    setUsers(generateMockUsers());
-  }, []);
-
-  // Debounce search
+  // ── Debounce search ──────────────────────────────────────────────
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
@@ -93,10 +93,28 @@ export const AdminUsers = () => {
     });
   }, [users, debouncedSearch, roleFilter, statusFilter, tierFilter]);
 
-  // Handlers for Drawer actions
-  const handleUpdateStatus = (id: string, newStatus: string) => {
-    setUsers((prev: AdminUserRow[]) => prev.map(u => u.id === id ? { ...u, status: newStatus as any } : u));
-    if (selectedUser?.id === id) setSelectedUser((prev: AdminUserRow | null) => prev ? { ...prev, status: newStatus as any } : null);
+  // ── Status mutation — wired to PATCH /api/v1/admin/users/:id/status ──
+  const handleUpdateStatus = async (id: string, newStatus: string) => {
+    // Optimistic update
+    setUsers((prev) => prev.map(u => u.id === id ? { ...u, status: newStatus as any } : u));
+    if (selectedUser?.id === id) setSelectedUser((prev) => prev ? { ...prev, status: newStatus as any } : null);
+
+    try {
+      const res = await fetch(`/api/v1/admin/users/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({ status: newStatus, reason: `Status changed to ${newStatus} by admin` })
+      });
+      if (!res.ok) throw new Error('Failed to update status');
+      toast.success(`User status set to ${newStatus}`, { style: TOAST_STYLE });
+    } catch (err: any) {
+      // Revert on failure
+      toast.error(err.message || 'Status update failed', { style: TOAST_STYLE });
+      fetchUsers();
+    }
   };
 
   const handleUpdateRole = (id: string, newRole: string) => {
@@ -107,6 +125,38 @@ export const AdminUsers = () => {
   const handleUpdateTier = (id: string, newTier: string) => {
     setUsers((prev: AdminUserRow[]) => prev.map(u => u.id === id ? { ...u, subscriptionTier: newTier as any } : u));
     if (selectedUser?.id === id) setSelectedUser((prev: AdminUserRow | null) => prev ? { ...prev, subscriptionTier: newTier as any } : null);
+  };
+
+  // ── Reset API Key — wired to POST /api/v1/admin/users/:id/reset-key ──
+  const handleResetKey = async (userId: string) => {
+    const promise = fetch(`/api/v1/admin/users/${userId}/reset-key`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${getToken()}` }
+    }).then(async (res) => {
+      if (!res.ok) throw new Error('Key reset failed');
+      const json = await res.json();
+      return json.data?.keyPrefix;
+    });
+
+    toast.promise(promise, {
+      loading: 'Revoking all keys & generating new one…',
+      success: (prefix) => `New key issued: ${prefix}`,
+      error: 'Failed to reset API key',
+    }, { style: TOAST_STYLE });
+  };
+
+  // ── Framer Motion hold-to-suspend helpers ──────────────────────────
+  const startSuspendHold = (userId: string) => {
+    setConfirmingId(userId);
+    confirmTimerRef.current = setTimeout(() => {
+      handleUpdateStatus(userId, 'SUSPENDED');
+      setConfirmingId(null);
+    }, 1500); // 1.5s hold fires the action
+  };
+
+  const cancelSuspendHold = () => {
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    setConfirmingId(null);
   };
 
   const handleSendEmail = (subject: string, message: string) => {
@@ -201,6 +251,7 @@ export const AdminUsers = () => {
 
   return (
     <div className="admin-users-container">
+      <Toaster position="bottom-right" />
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-semibold text-white tracking-tight mb-1">Users</h1>
@@ -286,20 +337,32 @@ export const AdminUsers = () => {
           pointerEvents: selectedUser ? 'none' : 'auto'
         }}
       >
-        <InfiniteMatrixTable
-          data={filteredUsers}
-          columns={columns}
-          selectedRowIds={selectedRowIds}
-          onSelectionChange={setSelectedRowIds}
-          onCellSave={handleCellSave}
-          getRowId={(row) => row.id}
-          rowHeight={64}
-          onRowClick={(row) => setSelectedUser(row)}
-          onContextMenu={(e, row) => {
-            e.preventDefault();
-            setContextMenu({ x: e.clientX, y: e.clientY, user: row });
-          }}
-        />
+        {/* ── Skeleton rows while loading ── */}
+        {isLoading && (
+          <div className="flex flex-col gap-2 mt-4">
+            {[0,1,2,3,4,5,6,7].map((i) => (
+              <div key={i} className="animate-pulse bg-white/5 h-12 w-full rounded-lg" style={{ opacity: 1 - i * 0.1 }} />
+            ))}
+          </div>
+        )}
+
+        {/* ── Real table ── */}
+        {!isLoading && (
+          <InfiniteMatrixTable
+            data={filteredUsers}
+            columns={columns}
+            selectedRowIds={selectedRowIds}
+            onSelectionChange={setSelectedRowIds}
+            onCellSave={handleCellSave}
+            getRowId={(row) => row.id}
+            rowHeight={64}
+            onRowClick={(row) => setSelectedUser(row)}
+            onContextMenu={(e, row) => {
+              e.preventDefault();
+              setContextMenu({ x: e.clientX, y: e.clientY, user: row });
+            }}
+          />
+        )}
       </div>
 
       <FloatingActionBar
@@ -342,11 +405,33 @@ export const AdminUsers = () => {
             >
               <Eye size={14} /> View Details
             </button>
+            {/* Hold-to-Suspend button with Framer Motion fill animation */}
+            <div className="relative overflow-hidden rounded">
+              <button 
+                className="relative z-10 w-full flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-amber-400 hover:text-amber-300 transition-colors text-left select-none"
+                onMouseDown={() => { startSuspendHold(contextMenu.user.id); }}
+                onMouseUp={cancelSuspendHold}
+                onMouseLeave={cancelSuspendHold}
+                onTouchStart={() => startSuspendHold(contextMenu.user.id)}
+                onTouchEnd={cancelSuspendHold}
+              >
+                <Ban size={14} />
+                <span>{confirmingId === contextMenu.user.id ? 'Hold to confirm…' : 'Suspend User'}</span>
+              </button>
+              {confirmingId === contextMenu.user.id && (
+                <motion.div
+                  className="absolute inset-0 bg-amber-500/20 origin-left"
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: 1.5, ease: 'linear' }}
+                />
+              )}
+            </div>
             <button 
-              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 transition-colors text-left"
-              onClick={() => { handleUpdateStatus(contextMenu.user.id, 'SUSPENDED'); setContextMenu(null); }}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-sky-400 hover:bg-sky-500/10 hover:text-sky-300 transition-colors text-left"
+              onClick={() => { handleResetKey(contextMenu.user.id); setContextMenu(null); }}
             >
-              <Ban size={14} /> Suspend User
+              <KeyRound size={14} /> Reset API Key
             </button>
             <div className="h-[1px] bg-white/5 my-1" />
             <button 

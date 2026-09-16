@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
-import { X, Copy, Check, FlaskConical, Terminal, AlertTriangle, ShieldCheck, Clock, Activity, ExternalLink } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Copy, Check, FlaskConical, Terminal, ShieldCheck, Clock, Activity, Save, ToggleRight } from 'lucide-react';
 import { DetailedEndpoint } from '../types';
+import { DrawerShell } from './DrawerShell';
 
 interface EndpointDrawerProps {
   endpoint: DetailedEndpoint | null;
   onClose: () => void;
   onOpenPlayground: (ep: DetailedEndpoint) => void;
   onViewLogs: (path: string) => void;
+  onUpdateEndpoint: (endpointId: string, patch: Partial<DetailedEndpoint>) => void;
   onShowToast: (msg: string) => void;
 }
 
@@ -15,12 +17,34 @@ export const EndpointDrawer: React.FC<EndpointDrawerProps> = ({
   onClose,
   onOpenPlayground,
   onViewLogs,
+  onUpdateEndpoint,
   onShowToast
 }) => {
   const [copiedCurl, setCopiedCurl] = useState(false);
-  const [activeTab, setActiveTab] = useState<'params' | 'body' | 'responses' | 'metrics'>('params');
+  const [activeTab, setActiveTab] = useState<'params' | 'body' | 'responses' | 'metrics' | 'policy'>('params');
+  const [mockMode, setMockMode] = useState(false);
+  const [fallbackEnabled, setFallbackEnabled] = useState(false);
+  const [routeRateLimit, setRouteRateLimit] = useState(0);
+  const [fallbackResponse, setFallbackResponse] = useState(`{
+  "status": "temporarily_unavailable"
+}`);
+
+  useEffect(() => {
+    if (!endpoint) return;
+    setMockMode(Boolean(endpoint.mockMode));
+    setFallbackEnabled(Boolean(endpoint.fallbackEnabled));
+    setRouteRateLimit(endpoint.rateLimitPerMin);
+    setFallbackResponse(endpoint.fallbackResponse || `{
+  "status": "temporarily_unavailable"
+}`);
+  }, [endpoint]);
 
   if (!endpoint) return null;
+
+  const savePolicy = () => {
+    onUpdateEndpoint(endpoint.id, { mockMode, fallbackEnabled, fallbackResponse, rateLimitPerMin: routeRateLimit });
+    onShowToast(`${endpoint.method} ${endpoint.path} policy saved`);
+  };
 
   const curlExample = `curl -X ${endpoint.method} "https://api.klyra.com/kickon-ass${endpoint.path}" \\
   -H "Authorization: Bearer kly_live_your_key_here" \\
@@ -38,37 +62,27 @@ export const EndpointDrawer: React.FC<EndpointDrawerProps> = ({
   };
 
   return (
-    <div className="kly-drawer-overlay" onClick={onClose}>
-      <div className="kly-drawer-panel" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{
-          padding: '16px 20px', borderBottom: '1px solid var(--kly-border-subtle)',
-          display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12
-        }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span className={`kly-method-tag kly-method-${endpoint.method}`}>{endpoint.method}</span>
-              <span className="kly-ep-path" style={{ fontSize: 16 }}>{endpoint.path}</span>
-              <span style={{
-                fontSize: 11, padding: '2px 8px', borderRadius: 999,
-                background: endpoint.isHealthy ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
-                color: endpoint.isHealthy ? '#34d399' : '#fbbf24', fontWeight: 600
-              }}>
-                {endpoint.isHealthy ? 'Healthy' : 'Degraded'}
-              </span>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--kly-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
-              {endpoint.summary}
-            </p>
-          </div>
-          <button className="kly-btn-icon" onClick={onClose}><X size={15} /></button>
-        </div>
-
-        {/* Quick Toolbar */}
-        <div style={{
-          padding: '10px 20px', background: 'rgba(255,255,255,0.02)',
-          borderBottom: '1px solid var(--kly-border-subtle)', display: 'flex', alignItems: 'center', gap: 8
-        }}>
+    <DrawerShell
+      open={!!endpoint}
+      onClose={onClose}
+      storageKey="endpoint"
+      ariaLabel="Endpoint details"
+      title={
+        <>
+          <span className={`kly-method-tag kly-method-${endpoint.method}`}>{endpoint.method}</span>
+          <span className="kly-ep-path">{endpoint.path}</span>
+          <span style={{
+            fontSize: 11, padding: '2px 8px', borderRadius: 999,
+            background: endpoint.isHealthy ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
+            color: endpoint.isHealthy ? '#34d399' : '#fbbf24', fontWeight: 600
+          }}>
+            {endpoint.isHealthy ? 'Healthy' : 'Degraded'}
+          </span>
+        </>
+      }
+      subtitle={endpoint.summary}
+      toolbar={
+        <>
           <button className="kly-btn kly-btn-secondary" onClick={() => onOpenPlayground(endpoint)}>
             <FlaskConical size={13} color="#a855f7" />
             <span>Test in Playground</span>
@@ -81,13 +95,15 @@ export const EndpointDrawer: React.FC<EndpointDrawerProps> = ({
             <Terminal size={13} />
             <span>Inspect Logs</span>
           </button>
-        </div>
+        </>
+      }
+    >
 
         {/* Tabs */}
         <div style={{
-          display: 'flex', borderBottom: '1px solid var(--kly-border-subtle)', padding: '0 20px'
+          display: 'flex', borderBottom: '1px solid var(--kly-border-subtle)', padding: '0', margin: '-6px 0 14px'
         }}>
-          {(['params', 'body', 'responses', 'metrics'] as const).map((t) => (
+          {(['params', 'body', 'responses', 'metrics', 'policy'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
@@ -99,13 +115,13 @@ export const EndpointDrawer: React.FC<EndpointDrawerProps> = ({
                 textTransform: 'capitalize'
               }}
             >
-              {t === 'params' ? 'Parameters' : t === 'body' ? 'Request Body' : t === 'responses' ? 'Responses' : 'Live Metrics'}
+              {t === 'params' ? 'Parameters' : t === 'body' ? 'Request Body' : t === 'responses' ? 'Responses' : t === 'metrics' ? 'Live Metrics' : 'Route Policy'}
             </button>
           ))}
         </div>
 
         {/* Body Content */}
-        <div style={{ padding: 20, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {activeTab === 'params' && (
             <div>
               <h4 style={{ fontSize: 13, marginBottom: 10, color: 'var(--kly-text-muted)' }}>Parameters & Headers</h4>
@@ -220,8 +236,18 @@ export const EndpointDrawer: React.FC<EndpointDrawerProps> = ({
               </div>
             </div>
           )}
+
+          {activeTab === 'policy' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="kly-policy-callout"><ToggleRight size={17} color="#a78bfa" /><div><strong>Per-route runtime controls</strong><p>Apply a safe response policy without changing the upstream contract.</p></div></div>
+              <label className="kly-policy-toggle"><span><b>Mock mode</b><small>Return the configured response and do not call upstream.</small></span><input type="checkbox" checked={mockMode} onChange={(event) => setMockMode(event.target.checked)} /></label>
+              <label className="kly-policy-toggle"><span><b>Fallback response</b><small>Serve the response when the upstream exceeds its timeout.</small></span><input type="checkbox" checked={fallbackEnabled} onChange={(event) => setFallbackEnabled(event.target.checked)} /></label>
+              <div className="kly-input-group"><label className="kly-label">Route rate limit (requests/minute)</label><input className="kly-input" type="number" min={1} value={routeRateLimit || endpoint.rateLimitPerMin} onChange={(event) => setRouteRateLimit(Number(event.target.value))} /></div>
+              <div className="kly-input-group"><label className="kly-label">Fallback JSON response</label><textarea className="kly-textarea kly-mono" rows={7} value={fallbackResponse} onChange={(event) => setFallbackResponse(event.target.value)} /></div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="kly-btn kly-btn-primary" onClick={savePolicy}><Save size={13} /> Save route policy</button></div>
+            </div>
+          )}
         </div>
-      </div>
-    </div>
+      </DrawerShell>
   );
 };

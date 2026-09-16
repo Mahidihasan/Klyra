@@ -149,7 +149,8 @@ CREATE TYPE billing_interval AS ENUM (
 
 CREATE TYPE verification_type AS ENUM (
     'VERIFY_EMAIL',
-    'RESET_PASSWORD'
+    'RESET_PASSWORD',
+    'REACTIVATE_ACCOUNT'
 );
 
 CREATE TYPE doc_content_type AS ENUM (
@@ -214,6 +215,7 @@ CREATE TABLE user_sessions (
     ip_address          INET,
     expires_at          TIMESTAMPTZ NOT NULL,
     revoked_at          TIMESTAMPTZ,
+    last_active_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT user_sessions_refresh_token_unique UNIQUE (refresh_token_hash)
 );

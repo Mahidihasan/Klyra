@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BarChart3, DollarSign, Activity, Globe } from 'lucide-react';
+import { BarChart3, DollarSign, Activity, Globe, RefreshCw, Download, CheckCircle2 } from 'lucide-react';
 import { ProviderProject } from '../../../types/apibuild';
 
 interface TabAnalyticsProps {
@@ -9,6 +9,8 @@ interface TabAnalyticsProps {
 export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
   const [mode, setMode] = useState<'tech' | 'biz'>('tech');
   const [range, setRange] = useState<'24h' | '7d' | '30d'>('7d');
+  const [compare, setCompare] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const traffic = range === '24h' ? [42, 67, 54, 82, 60, 74, 91, 69] : range === '7d' ? [55, 76, 62, 88, 71, 93, 79] : [48, 58, 52, 67, 72, 63, 81, 76, 92, 84];
 
   return (
@@ -33,6 +35,15 @@ export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
         </div>
 
         <div className="kly-realtime-label"><span className="kly-pulse-dot" /> Updated from edge telemetry</div>
+      </div>
+
+      <div className="kly-card kly-analytics-control-strip">
+        <div><span className="kly-eyebrow"><CheckCircle2 size={12} /> Decision workspace</span><strong>{mode === 'tech' ? 'Reliability and performance signals' : 'Revenue and customer health signals'}</strong><small>Compare trends before promoting releases or changing commercial policy.</small></div>
+        <div className="kly-table-toolbar-controls">
+          <label className="kly-check-control"><input type="checkbox" checked={compare} onChange={(event) => setCompare(event.target.checked)} /> Compare previous period</label>
+          <button className={`kly-btn ${autoRefresh ? 'kly-btn-secondary' : 'kly-btn-ghost'}`} onClick={() => setAutoRefresh((current) => !current)}><RefreshCw size={12} /> {autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}</button>
+          <button className="kly-btn kly-btn-secondary" onClick={() => setAutoRefresh(true)}><Download size={12} /> Export snapshot</button>
+        </div>
       </div>
 
       {mode === 'tech' ? (

@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { RealTimeTrafficWidget, ActiveTasksWidget, GatewayStatsWidget, LiveGatewayFeedWidget, AiInsightsWidget } from './components/DashboardWidgets';
 import { TrafficNexusWidget } from './components/TrafficNexusWidget';
 import { SpotlightCard } from './components/SpotlightCard';
-import { GripHorizontal, CheckCircle, FileText, Settings } from 'lucide-react';
+import { GripHorizontal, CheckCircle, FileText, Settings, Download, AlertTriangle } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 import './AdminOverview.css';
 
 const WIDGET_REGISTRY = {
@@ -60,8 +61,75 @@ export const AdminOverview = () => {
     setDraggedIdx(null);
   };
 
+  const handleAcknowledgeAlerts = async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch('/api/v1/admin/platform/acknowledge-alerts', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to acknowledge alerts');
+      const data = await res.json();
+      toast.success(data.message || 'Alerts acknowledged', { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+    } catch (err: any) {
+      toast.error(err.message, { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+    }
+  };
+
+  const handleExportCsv = async () => {
+    const exportPromise = (async () => {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch('/api/v1/admin/platform/export-metrics', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to export data');
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(new Blob([blob]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `klyra_metrics.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    })();
+
+    toast.promise(exportPromise, {
+      loading: 'Compiling report...',
+      success: 'CSV Exported Successfully',
+      error: 'Export Failed'
+    }, { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+  };
+
+  const [isMaintenance, setIsMaintenance] = useState(false);
+
+  const handleToggleMaintenance = async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch('/api/v1/admin/platform/toggle-maintenance', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!res.ok) throw new Error('Failed to update settings');
+      const data = await res.json();
+      setIsMaintenance(data.isActive);
+      
+      const statusText = data.isActive ? 'MAINTENANCE MODE ACTIVE' : 'Maintenance Mode Disabled';
+      toast.success(statusText, { 
+        style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' },
+        iconTheme: { primary: data.isActive ? '#f59e0b' : '#10b981', secondary: '#fff' }
+      });
+    } catch (err: any) {
+      toast.error(err.message, { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+    }
+  };
+
   return (
     <div className="dashboard-container">
+      <Toaster position="bottom-right" />
       <div className="dashboard-header" style={{ marginBottom: 40, letterSpacing: '-0.02em' }}>
         <h1 style={{ 
           fontSize: 32, 
@@ -99,17 +167,17 @@ export const AdminOverview = () => {
         ))}
       </div>
       <div className="quick-action-dock">
-        <button className="dock-btn">
+        <button className="dock-btn" onClick={handleAcknowledgeAlerts} title="Acknowledge Alerts">
           <CheckCircle size={20} style={{ minWidth: 20 }} />
-          <span>Approve APIs</span>
+          <span>Acknowledge Alerts</span>
         </button>
-        <button className="dock-btn">
-          <FileText size={20} style={{ minWidth: 20 }} />
-          <span>View Reports</span>
+        <button className="dock-btn" onClick={handleExportCsv} title="Export CSV">
+          <Download size={20} style={{ minWidth: 20 }} />
+          <span>Export Metrics CSV</span>
         </button>
-        <button className="dock-btn">
-          <Settings size={20} style={{ minWidth: 20 }} />
-          <span>Settings</span>
+        <button className="dock-btn" onClick={handleToggleMaintenance} style={{ color: isMaintenance ? '#f59e0b' : undefined }} title="Toggle Maintenance Mode">
+          <AlertTriangle size={20} style={{ minWidth: 20, color: isMaintenance ? '#f59e0b' : undefined }} />
+          <span>{isMaintenance ? 'Maintenance Active' : 'Toggle Maintenance'}</span>
         </button>
       </div>
     </div>

@@ -22,13 +22,13 @@ export const WizardChrome: React.FC<{ step: number; total: number; labels: strin
 
 export const StepNewProject: React.FC<{ init: CreateProjectInput; onNext: (v: CreateProjectInput) => void; onBack: () => void }> = ({ init, onNext, onBack }) => {
   const [value, setValue] = useState<CreateProjectInput>(init);
-  const [categories, setCategories] = useState(() => apiBuildService.getCategories());
+  const [categories, setCategories] = useState<string[]>([]);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [categoryName, setCategoryName] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  useEffect(() => { void apiBuildService.hydrateCategories().then((items) => items && setCategories(items)); }, []);
+  useEffect(() => { void apiBuildService.getCategories().then(setCategories); }, []);
   const update = (patch: Partial<CreateProjectInput>) => { setError(''); setValue((previous) => ({ ...previous, ...patch })); };
   const addCategory = async () => {
     const name = categoryName.trim();

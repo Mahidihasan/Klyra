@@ -439,4 +439,46 @@ router.post('/:id/subscription/override', async (req: Request, res: Response) =>
   }
 });
 
+// =================== POST /users/:id/reset-key ====================
+// Revokes all existing API keys for the user and issues a fresh one.
+// This is a high-friction, admin-only action logged in audit_logs.
+router.post('/:id/reset-key', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+
+    const userId = req.params.id;
+
+    // 1. Revoke all existing active keys for this user
+    await (await import('../../services/database.service')).pool.query(
+      `UPDATE api_keys
+         SET status = 'revoked', is_active = false, revoked_at = NOW()
+       WHERE user_id = $1 AND is_active = true`,
+      [userId],
+    );
+
+    // 2. Create a fresh key named "Admin Reset Key"
+    const { ApiKeysService } = await import('../api-keys/api-keys.service');
+    const { apiKey, secret } = await ApiKeysService.create(userId, { name: 'Admin Reset Key' });
+
+    // 3. Audit the admin action
+    await (await import('../../services/database.service')).pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'ADMIN_KEY_RESET', 'api_keys', $2, $3::jsonb)`,
+      [actor.id, apiKey.id, JSON.stringify({ targetUserId: userId, resetBy: actor.id })],
+    );
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      success: true,
+      data: {
+        keyPrefix: apiKey.keyPrefix,
+        message: `All previous API keys revoked. New key issued with prefix ${apiKey.keyPrefix}`,
+      },
+    });
+  } catch (err) {
+    return handleError(res, 'POST /users/:id/reset-key', err);
+  }
+});
+
 export default router;

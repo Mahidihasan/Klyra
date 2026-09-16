@@ -19,6 +19,8 @@ import { adminMarketplaceRouter } from './admin.marketplace.routes';
 import { adminRevenueRouter } from './admin.revenue.routes';
 import { adminSubscriptionsRouter } from './admin.subscriptions.routes';
 import { adminUsageRouter } from './admin.usage.routes';
+import { PlatformController } from './controllers/PlatformController';
+import { QueueController } from './controllers/QueueController';
 
 const router = Router();
 
@@ -98,6 +100,14 @@ router.use('/usage', adminUsageRouter);
 router.use('/activity', adminActivityRouter);
 
 // ============ Platform Overview (everything the screen needs) ============
+router.post('/platform/acknowledge-alerts', PlatformController.acknowledgeAlerts);
+router.get('/platform/export-metrics', PlatformController.exportMetrics);
+router.post('/platform/toggle-maintenance', PlatformController.toggleMaintenance);
+router.get('/platform/top-apis', PlatformController.getTopApis);
+
+// ============ Job Queue (/api/v1/admin/queue/...) ============
+router.get('/queue/active-tasks', QueueController.getActiveTasks);
+
 // GET /api/v1/admin/overview/stats?range=24h
 router.get('/overview/stats', async (req: Request, res: Response) => {
   try {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Code, Server, GitBranch, Key, Users, DollarSign, Terminal, Activity, ArrowRight, Settings, FlaskConical } from 'lucide-react';
+import { Search, Code, Server, GitBranch, Key, Users, DollarSign, Terminal, Activity, ArrowRight, Settings, FlaskConical, Rocket, Layers3, History } from 'lucide-react';
 import { DetailedEndpoint } from '../types';
 import { ProjectTab, ProviderProject } from '../../../types/apibuild';
 
@@ -11,6 +11,9 @@ interface ProjectCommandPaletteProps {
   onSelectTab: (t: ProjectTab) => void;
   onSelectEndpoint: (ep: DetailedEndpoint) => void;
   onOpenPlayground: () => void;
+  onDeploy: () => void;
+  onOpenOperations: () => void;
+  onOpenAudit: () => void;
 }
 
 export const ProjectCommandPalette: React.FC<ProjectCommandPaletteProps> = ({
@@ -20,7 +23,10 @@ export const ProjectCommandPalette: React.FC<ProjectCommandPaletteProps> = ({
   endpoints,
   onSelectTab,
   onSelectEndpoint,
-  onOpenPlayground
+  onOpenPlayground,
+  onDeploy,
+  onOpenOperations,
+  onOpenAudit
 }) => {
   const [q, setQ] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -120,6 +126,44 @@ export const ProjectCommandPalette: React.FC<ProjectCommandPaletteProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Key size={14} color="#fbbf24" />
                   <span>Manage API Keys</span>
+                </div>
+                <ArrowRight size={12} color="var(--kly-text-dim)" />
+              </button>
+
+              {/* Control Plane quick actions */}
+              <div style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, color: 'var(--kly-text-dim)', textTransform: 'uppercase', marginTop: 4 }}>
+                Control Plane
+              </div>
+              <button
+                className="kly-btn-ghost"
+                onClick={() => { onDeploy(); onClose(); }}
+                style={{ width: '100%', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 6, fontSize: 13 }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Rocket size={14} color="#10b981" />
+                  <span>Deploy Current Release</span>
+                </div>
+                <ArrowRight size={12} color="var(--kly-text-dim)" />
+              </button>
+              <button
+                className="kly-btn-ghost"
+                onClick={() => { onOpenOperations(); onClose(); }}
+                style={{ width: '100%', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 6, fontSize: 13 }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Layers3 size={14} color="#38bdf8" />
+                  <span>View Operations</span>
+                </div>
+                <ArrowRight size={12} color="var(--kly-text-dim)" />
+              </button>
+              <button
+                className="kly-btn-ghost"
+                onClick={() => { onOpenAudit(); onClose(); }}
+                style={{ width: '100%', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 6, fontSize: 13 }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <History size={14} color="#c4b5fd" />
+                  <span>View Audit History</span>
                 </div>
                 <ArrowRight size={12} color="var(--kly-text-dim)" />
               </button>

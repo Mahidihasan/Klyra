@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { CreateProjectInput, DetectionResult, ProjectTab, ProviderProject, SourceConfig } from '../../types/apibuild';
 import { apiBuildService } from '../../services/apiBuild';
+import { DUMMY_PROJECT } from './dummyApi';
 
 export type BuildView = 'dash' | 'new' | 'source' | 'detect' | 'configure' | 'deploy' | 'product' | 'pricing' | 'publish' | 'success' | 'workspace';
 
 export function useApiBuild(onPlayground: () => void) {
-  const [projects, setProjects] = useState<ProviderProject[]>(() => apiBuildService.list());
+  // The backend is the single source of truth — start empty and hydrate.
+  const [projects, setProjects] = useState<ProviderProject[]>([]);
   const [view, setView] = useState<BuildView>('dash');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [tab, setTab] = useState<ProjectTab>('overview');
@@ -17,12 +19,20 @@ export function useApiBuild(onPlayground: () => void) {
   const [manual, setManual] = useState(false);
   const [phase, setPhase] = useState(0);
   const active = projects.find((p) => p.id === activeId) || null;
-  const refresh = () => setProjects(apiBuildService.list());
+
+  /** Re-fetches the project list from the backend. */
+  const refresh = async (): Promise<ProviderProject[]> => {
+    const remote = await apiBuildService.hydrate();
+    const next = remote.length ? remote : [DUMMY_PROJECT];
+    setProjects(next);
+    return next;
+  };
+
   useEffect(() => {
-    let mounted = true;
-    void apiBuildService.hydrate().then((remote) => { if (mounted && remote) setProjects(remote); });
-    return () => { mounted = false; };
+    void refresh().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   return { projects, view, setView, activeId, setActiveId, tab, setTab, draft, setDraft, source, setSource, busy, setBusy, detecting, setDetecting, detection, setDetection, manual, setManual, phase, setPhase, active, refresh, onPlayground };
 }
 export type ApiBuildState = ReturnType<typeof useApiBuild>;

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Key, ShieldCheck, DollarSign, RefreshCw, Trash2, Ban, Mail, Check, AlertCircle } from 'lucide-react';
+import { Key, ShieldCheck, DollarSign, RefreshCw, Trash2, Ban, Mail, Check, AlertCircle } from 'lucide-react';
 import { ApiConsumer, ProviderApiKey } from '../../../types/apibuild';
+import { DrawerShell } from './DrawerShell';
 
 interface ConsumerDrawerProps {
   consumer: ApiConsumer | null;
@@ -31,32 +32,22 @@ export const ConsumerDrawer: React.FC<ConsumerDrawerProps> = ({
   const quotaPct = Math.min(Math.round((consumer.requests / quotaLimit) * 100), 100);
 
   return (
-    <div className="kly-drawer-overlay" onClick={onClose}>
-      <div className="kly-drawer-panel" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{
-          padding: '16px 20px', borderBottom: '1px solid var(--kly-border-subtle)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-        }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 16, fontWeight: 700 }}>{consumer.name}</span>
-              <span className={`kly-badge ${consumer.status === 'active' ? 'kly-badge-healthy' : 'kly-badge-deploying'}`}>
-                {consumer.status}
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--kly-text-dim)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Mail size={12} /> {consumer.email} · Joined {consumer.joinedAt}
-            </div>
-          </div>
-          <button className="kly-btn-icon" onClick={onClose}><X size={15} /></button>
-        </div>
-
-        {/* Action Bar */}
-        <div style={{
-          padding: '10px 20px', background: 'rgba(255,255,255,0.02)',
-          borderBottom: '1px solid var(--kly-border-subtle)', display: 'flex', alignItems: 'center', gap: 8
-        }}>
+    <DrawerShell
+      open={!!consumer}
+      onClose={onClose}
+      storageKey="consumer"
+      ariaLabel="Consumer details"
+      title={
+        <>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>{consumer.name}</span>
+          <span className={`kly-badge ${consumer.status === 'active' ? 'kly-badge-healthy' : 'kly-badge-deploying'}`}>
+            {consumer.status}
+          </span>
+        </>
+      }
+      subtitle={<><Mail size={11} /> {consumer.email} · Joined {consumer.joinedAt}</>}
+      toolbar={
+        <>
           <button
             className="kly-btn kly-btn-secondary"
             onClick={() => {
@@ -76,10 +67,12 @@ export const ConsumerDrawer: React.FC<ConsumerDrawerProps> = ({
             <Ban size={13} />
             <span>Suspend Access</span>
           </button>
-        </div>
+        </>
+      }
+    >
 
         {/* Content Body */}
-        <div style={{ padding: 20, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Quota & Usage Bar */}
           <div className="kly-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -167,7 +160,6 @@ export const ConsumerDrawer: React.FC<ConsumerDrawerProps> = ({
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </DrawerShell>
   );
 };

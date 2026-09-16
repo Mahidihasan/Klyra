@@ -86,3 +86,172 @@ export async function detectUpstream(baseInput: string, explicitSpecUrl = ''): P
   }
   return blank(baseUrl, { reachable: true, reason: direct ? `No OpenAPI specification found at ${direct}.` : `No OpenAPI or Swagger specification discovered under ${baseUrl}.` });
 }
+
+/* -------------------------------------------------------------------------- *
+ * extractOperations — converts a detection payload into DetailedEndpointRow   *
+ * records ready for relational import. Path parameters are inferred from the  *
+ * real route shape; richer shapes come from extractOperationsFromSpec.        *
+ * -------------------------------------------------------------------------- */
+export interface ImportableEndpoint {
+  id: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  path: string;
+  summary: string;
+  description: string;
+  category: string;
+  authRequired: boolean;
+  rateLimitPerMin: number;
+  status: 'active' | 'beta' | 'deprecated';
+  parameters: { name: string; in: string; type: string; required: boolean; description: string; example?: string }[];
+  requestBody: { contentType: string; schema: string; sampleBody: string } | null;
+  responses: { statusCode: number; description: string; schema: string; sampleBody: string }[];
+  specUrl?: string;
+}
+
+function inferCategory(path: string): string {
+  const segment = path.split('/').filter(Boolean)[0]?.toLowerCase() ?? '';
+  if (['generate', 'image', 'render', 'completion', 'chat', 'embedding'].some((k) => segment.includes(k))) return 'Generation';
+  if (['user', 'account', 'auth', 'session'].some((k) => segment.includes(k))) return 'Users';
+  if (['payment', 'refund', 'invoice', 'billing'].some((k) => segment.includes(k))) return 'Billing';
+  if (['upload', 'file', 'asset', 'media'].some((k) => segment.includes(k))) return 'Media';
+  return 'General';
+}
+
+function inferPathParams(path: string): ImportableEndpoint['parameters'] {
+  return [...path.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((m) => ({
+    name: m[1],
+    in: 'path',
+    type: 'string',
+    required: true,
+    description: `Path parameter ${m[1]}`,
+  }));
+}
+
+export function extractOperations(specUrl: string, detected: DetectedEndpoint[]): ImportableEndpoint[] {
+  const methodOf = (m: string): ImportableEndpoint['method'] =>
+    (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(m) ? m as ImportableEndpoint['method'] : 'GET');
+  return detected.map((ep, index) => ({
+    id: `ep-${index + 1}-${ep.method.toLowerCase()}-${ep.path.replace(/[^a-z0-9]+/gi, '-').slice(0, 48)}`,
+    method: methodOf(ep.method),
+    path: ep.path,
+    summary: ep.description || `${ep.method} ${ep.path}`,
+    description: ep.description || '',
+    category: inferCategory(ep.path),
+    authRequired: true,
+    rateLimitPerMin: 100,
+    status: 'active' as const,
+    parameters: inferPathParams(ep.path),
+    requestBody: ['POST', 'PUT', 'PATCH'].includes(ep.method)
+      ? { contentType: 'application/json', schema: '', sampleBody: '{\n  "example": "value"\n}' }
+      : null,
+    responses: [
+      { statusCode: 200, description: 'Successful response', schema: '', sampleBody: '' },
+      { statusCode: 429, description: 'Rate limit exceeded', schema: '', sampleBody: '' },
+    ],
+    specUrl,
+  }));
+}
+const SAMPLE_VALUES: Record<string, unknown> = { string: 'example', integer: 1, number: 1, boolean: true };
+
+function schemaType(node: Record<string, unknown>): string {
+  const t = node.type;
+  if (typeof t === 'string') return t;
+  if (Array.isArray(t)) return String(t[0] ?? 'string');
+  if (node.properties) return 'object';
+  return 'string';
+}
+
+function sampleFromSchema(node: unknown, depth = 0): string {
+  if (depth > 4 || !node || typeof node !== 'object') return JSON.stringify('example');
+  const schema = node as Record<string, unknown>;
+  if (schema.example !== undefined) return JSON.stringify(schema.example);
+  if (schema.default !== undefined) return JSON.stringify(schema.default);
+  if (schema.enum && Array.isArray(schema.enum) && schema.enum.length) return JSON.stringify(schema.enum[0]);
+  if (Array.isArray(schema.items)) return '[]';
+  if (schema.items) return `[${sampleFromSchema(schema.items, depth + 1)}]`;
+  if (schema.properties && typeof schema.properties === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(schema.properties as Record<string, unknown>)) {
+      out[key] = depth === 0 ? JSON.parse(sampleFromSchema(child, depth + 1)) : sampleFromSchema(child, depth + 1);
+    }
+    return JSON.stringify(out);
+  }
+  return JSON.stringify(SAMPLE_VALUES[schemaType(schema)] ?? 'example');
+}
+
+/** Spec-aware variant: re-fetches the detected spec document and pulls real
+ *  parameter, request-body and response shapes from it. */
+export async function extractOperationsFromSpec(specUrl: string, detected: DetectedEndpoint[]): Promise<ImportableEndpoint[]> {
+  const rows = extractOperations(specUrl, detected);
+  if (!specUrl) return rows;
+  const result = await getText(specUrl);
+  if (!result.ok) return rows;
+  const doc = parseDocument(result.text);
+  if (!doc || !(doc.paths && typeof doc.paths === 'object')) return rows;
+  const paths = doc.paths as Record<string, unknown>;
+
+  return rows.map((row) => {
+    const opMap = paths[row.path];
+    if (!opMap || typeof opMap !== 'object') return row;
+    const operation = (opMap as Record<string, unknown>)[row.method.toLowerCase()];
+    if (!operation || typeof operation !== 'object') return row;
+    const op = operation as Record<string, unknown>;
+
+    // Parameters — real ones from the document.
+    const parameters: ImportableEndpoint['parameters'] = [...row.parameters];
+    if (Array.isArray(op.parameters)) {
+      for (const p of op.parameters) {
+        if (!p || typeof p !== 'object') continue;
+        const param = p as Record<string, unknown>;
+        if (parameters.some((existing) => existing.name === param.name && existing.in === param.in)) continue;
+        const schema = param.schema && typeof param.schema === 'object' ? param.schema as Record<string, unknown> : {};
+        parameters.push({
+          name: String(param.name ?? 'param'),
+          in: String(param.in ?? 'query'),
+          type: String(schema.type ?? param.type ?? 'string'),
+          required: param.required === true,
+          description: String(param.description ?? ''),
+          example: schema.example !== undefined ? String(schema.example) : undefined,
+        });
+      }
+    }
+    row.parameters = parameters;
+
+    // Request body — from requestBody.content (OpenAPI 3) or parameters (Swagger 2).
+    if (row.requestBody && op.requestBody && typeof op.requestBody === 'object') {
+      const rb = op.requestBody as Record<string, unknown>;
+      const content = rb.content && typeof rb.content === 'object' ? rb.content as Record<string, unknown> : {};
+      const [contentType, media] = Object.entries(content)[0] ?? ['application/json', undefined];
+      const schema = media && typeof media === 'object' ? (media as Record<string, unknown>).schema : null;
+      let sampleBody = row.requestBody.sampleBody;
+      if (schema) { try { sampleBody = JSON.stringify(JSON.parse(sampleFromSchema(schema)), null, 2); } catch { sampleBody = row.requestBody.sampleBody; } }
+      row.requestBody = {
+        contentType: String(contentType),
+        schema: schema ? JSON.stringify(schema, null, 2) : '',
+        sampleBody,
+      };
+    }
+
+    // Responses — real status codes and sample payloads.
+    if (op.responses && typeof op.responses === 'object') {
+      const responses: ImportableEndpoint['responses'] = [];
+      for (const [code, value] of Object.entries(op.responses as Record<string, unknown>)) {
+        if (!value || typeof value !== 'object') continue;
+        const resp = value as Record<string, unknown>;
+        const content = resp.content && typeof resp.content === 'object' ? resp.content as Record<string, unknown> : {};
+        const [, media] = Object.entries(content)[0] ?? ['', undefined];
+        const schema = media && typeof media === 'object' ? (media as Record<string, unknown>).schema : null;
+        let sampleBody = '';
+        if (schema) { try { sampleBody = JSON.stringify(JSON.parse(sampleFromSchema(schema)), null, 2); } catch { sampleBody = ''; } }
+        responses.push({
+          statusCode: Number(code) || 200,
+          description: String(resp.description ?? ''),
+          schema: schema ? JSON.stringify(schema) : '',
+          sampleBody,
+        });
+      }
+      if (responses.length) row.responses = responses;
+    }
+    return row;
+  });
+}

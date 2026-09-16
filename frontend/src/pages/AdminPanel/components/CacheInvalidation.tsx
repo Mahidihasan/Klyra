@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Database, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { motion, useAnimation } from 'framer-motion';
+import toast, { Toaster } from 'react-hot-toast';
 
 // ─── Anomaly Radar Visualization ──────────────────────────────────────────────
 
@@ -163,6 +164,14 @@ export const CacheInvalidation = () => {
 
   return (
     <div className="flex flex-col gap-6 w-full h-full">
+      <Toaster 
+        position="bottom-right" 
+        toastOptions={{ 
+          style: { background: '#18181b', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' },
+          success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
+          error: { iconTheme: { primary: '#f43f5e', secondary: '#fff' } }
+        }} 
+      />
       
       <div className="flex items-center gap-3 shrink-0">
         <Database size={20} className="text-blue-400" />
@@ -211,7 +220,30 @@ export const CacheInvalidation = () => {
 
             {/* Tactile Button (Takes full width at the bottom) */}
             <div className="w-full mt-auto z-10">
-              <HazardPurgeButton onExecute={() => console.log('Reactor Core Purged')} />
+              <HazardPurgeButton onExecute={async () => {
+                const purgePromise = (async () => {
+                  const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+                  const res = await fetch('/api/v1/admin/engine/cache/global-purge', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ flushAll: true })
+                  });
+                  if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Server rejected flush command');
+                  }
+                  return await res.json();
+                })();
+
+                toast.promise(purgePromise, {
+                  loading: 'Executing nuclear flush...',
+                  success: 'Reactor Core Purged',
+                  error: (err) => `Purge Failed: ${err.message}`
+                });
+              }} />
             </div>
             
           </div>

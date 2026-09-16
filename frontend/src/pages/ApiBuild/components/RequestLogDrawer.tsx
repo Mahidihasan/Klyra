@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Terminal, ExternalLink, Activity } from 'lucide-react';
+import { Copy, Check, Terminal, ExternalLink, Activity } from 'lucide-react';
 import { ExtendedLogEntry } from '../types';
+import { DrawerShell } from './DrawerShell';
 
 interface RequestLogDrawerProps {
   log: ExtendedLogEntry | null;
@@ -30,40 +31,36 @@ export const RequestLogDrawer: React.FC<RequestLogDrawerProps> = ({
   };
 
   return (
-    <div className="kly-drawer-overlay" onClick={onClose}>
-      <div className="kly-drawer-panel" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{
-          padding: '16px 20px', borderBottom: '1px solid var(--kly-border-subtle)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-        }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className={`kly-method-tag kly-method-${log.method}`}>{log.method}</span>
-              <span className="kly-ep-path" style={{ fontSize: 15 }}>{log.path}</span>
-              <span style={{
-                fontFamily: 'var(--kly-font-mono)', fontSize: 11, fontWeight: 700,
-                padding: '2px 8px', borderRadius: 4,
-                background: log.statusCode < 300 ? 'rgba(16,185,129,0.15)' : log.statusCode < 500 ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)',
-                color: log.statusCode < 300 ? '#34d399' : log.statusCode < 500 ? '#fbbf24' : '#fb7185'
-              }}>
-                {log.statusCode}
-              </span>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--kly-text-dim)', marginTop: 4 }}>
-              ID: {log.id} · {log.timestamp} · {log.latencyMs}ms · {log.region}
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button className="kly-btn-icon" onClick={handleCopyJson} title="Copy log JSON">
-              {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
-            </button>
-            <button className="kly-btn-icon" onClick={onClose}><X size={15} /></button>
-          </div>
-        </div>
+    <DrawerShell
+      open={!!log}
+      onClose={onClose}
+      storageKey="request-log"
+      ariaLabel="Request log details"
+      title={
+        <>
+          <span className={`kly-method-tag kly-method-${log.method}`}>{log.method}</span>
+          <span className="kly-ep-path">{log.path}</span>
+          <span style={{
+            fontFamily: 'var(--kly-font-mono)', fontSize: 11, fontWeight: 700,
+            padding: '2px 8px', borderRadius: 4,
+            background: log.statusCode < 300 ? 'rgba(16,185,129,0.15)' : log.statusCode < 500 ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)',
+            color: log.statusCode < 300 ? '#34d399' : log.statusCode < 500 ? '#fbbf24' : '#fb7185'
+          }}>
+            {log.statusCode}
+          </span>
+        </>
+      }
+      subtitle={<>{log.id} · {log.timestamp} · {log.latencyMs}ms · {log.region}</>}
+      toolbar={
+        <button className="kly-btn kly-btn-secondary" onClick={handleCopyJson} title="Copy log JSON">
+          {copied ? <Check size={13} color="#10b981" /> : <Copy size={13} />}
+          <span>{copied ? 'Copied' : 'Copy JSON'}</span>
+        </button>
+      }
+    >
 
         {/* Tab switcher */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--kly-border-subtle)', padding: '0 20px' }}>
+        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--kly-border-subtle)', padding: '0', margin: '-6px 0 14px' }}>
           {(['overview', 'request', 'response', 'trace'] as const).map((t) => (
             <button
               key={t}
@@ -184,7 +181,6 @@ export const RequestLogDrawer: React.FC<RequestLogDrawerProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DrawerShell>
   );
 };

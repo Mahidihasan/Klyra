@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Snowflake, ShieldAlert, CheckCircle2, AlertOctagon } from 'lucide-react';
 import { motion, animate, useMotionValue, useTransform } from 'framer-motion';
+import toast, { Toaster } from 'react-hot-toast';
 
 // ─── Slide-to-Freeze Slider Component ────────────────────────────────────────
 
@@ -93,6 +94,14 @@ const SlideToFreeze = ({ onExecute }: { onExecute: () => void }) => {
 export const ActionBoard = () => {
   return (
     <div className="flex flex-col gap-6">
+      <Toaster 
+        position="bottom-right" 
+        toastOptions={{ 
+          style: { background: '#18181b', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' },
+          success: { iconTheme: { primary: '#06b6d4', secondary: '#fff' } }, // Cyan to match theme
+          error: { iconTheme: { primary: '#f43f5e', secondary: '#fff' } }
+        }} 
+      />
       
       <div className="flex items-center gap-3 shrink-0">
         <AlertOctagon size={20} className="text-cyan-400" />
@@ -128,7 +137,30 @@ export const ActionBoard = () => {
 
         {/* ── Slide-to-Freeze Mechanism (Right) ── */}
         <div className="w-full xl:w-auto shrink-0 z-10 flex xl:justify-end">
-          <SlideToFreeze onExecute={() => console.log('Assets Frozen via Slider')} />
+          <SlideToFreeze onExecute={async () => {
+            const freezePromise = (async () => {
+              const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+              const res = await fetch('/api/v1/admin/financials/resolve-dispute', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ disputeId: 'global-freeze', resolutionStatus: 'FROZEN' })
+              });
+              if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Server rejected freeze command');
+              }
+              return await res.json();
+            })();
+
+            toast.promise(freezePromise, {
+              loading: 'Initiating asset freeze...',
+              success: 'All Assets Frozen',
+              error: (err) => `Freeze Failed: ${err.message}`
+            });
+          }} />
         </div>
 
       </div>

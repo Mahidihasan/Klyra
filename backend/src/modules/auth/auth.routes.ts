@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { AuthService } from './auth.service';
+import { AccountDeactivationError, AuthService, PasswordChangeError } from './auth.service';
 import { EmailService } from './email.service';
 import { OtpError } from './otp.service';
 import { EmailDeliveryError } from './email.service';
 import { authLimiter, resendLimiter } from './auth.rate-limiter';
 import { requireAuth } from './auth.middleware';
-import { pool } from '../../services/database.service';
+import { avatarUpload } from '../../utils/fileUpload';
 
 const router = Router();
 
@@ -85,7 +85,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     const result = await AuthService.login(email, password, !!rememberMe, ip, userAgent);
     res.json(result);
   } catch (err: any) {
-    const status = err.code === 'EMAIL_NOT_VERIFIED' ? 403 : err.message?.includes('locked') ? 423 : 401;
+    const status = err.code === 'EMAIL_NOT_VERIFIED' || err.code === 'ACCOUNT_INACTIVE' ? 403 : err.message?.includes('locked') ? 423 : 401;
     res.status(status).json({
       error: err.message || 'Login failed.',
       code: err.code || 'LOGIN_ERROR',
@@ -155,6 +155,85 @@ router.post('/reset-password', authLimiter, async (req: Request, res: Response) 
   }
 });
 
+router.post('/verify-totp', authLimiter, async (req: Request, res: Response) => {
+  try { res.json(await AuthService.verifyLoginTotp(req.body?.tempToken, req.body?.code, getClientIp(req), getUserAgent(req))); }
+  catch (err: any) { res.status(400).json({ error: err.message || 'Authenticator verification failed.' }); }
+});
+
+// 8b. CHANGE PASSWORD (authenticated)
+router.put('/change-password', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    const result = await AuthService.changePassword(
+      req.user!.sub,
+      currentPassword,
+      newPassword,
+      req.user!.sessionId,
+    );
+    res.json(result);
+  } catch (err: any) {
+    if (err instanceof PasswordChangeError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: 'Unable to change password.' });
+  }
+});
+
+router.post('/security/totp/setup', requireAuth, authLimiter, async (req, res) => {
+  try { res.json(await AuthService.startTotpSetup(req.user!.sub)); } catch (err: any) { res.status(400).json({ error: err.message || 'Unable to start authenticator setup.' }); }
+});
+router.post('/security/totp/confirm', requireAuth, authLimiter, async (req, res) => {
+  try { res.json(await AuthService.confirmTotpSetup(req.user!.sub, req.body?.code)); } catch (err: any) { res.status(400).json({ error: err.message || 'Unable to confirm authenticator setup.' }); }
+});
+router.post('/security/totp/disable', requireAuth, authLimiter, async (req, res) => {
+  try { res.json(await AuthService.disableTotp(req.user!.sub, req.body?.currentPassword, req.body?.code)); } catch (err: any) { res.status(400).json({ error: err.message || 'Unable to disable authenticator app 2FA.' }); }
+});
+router.get('/security/sessions', requireAuth, async (req, res) => {
+  try { res.json({ sessions: await AuthService.listSecuritySessions(req.user!.sub, req.user!.sessionId) }); } catch (err: any) { res.status(500).json({ error: err.message || 'Unable to load sessions.' }); }
+});
+router.delete('/security/sessions/:sessionId', requireAuth, async (req, res) => {
+  try { res.json(await AuthService.revokeSecuritySession(req.user!.sub, req.params.sessionId, req.user!.sessionId)); } catch (err: any) { res.status(404).json({ error: err.message || 'Unable to revoke session.' }); }
+});
+router.post('/security/sessions/revoke-others', requireAuth, async (req, res) => {
+  try { res.json(await AuthService.revokeOtherSecuritySessions(req.user!.sub, req.user!.sessionId)); } catch (err: any) { res.status(500).json({ error: err.message || 'Unable to revoke sessions.' }); }
+});
+
+// 8c. DEACTIVATE ACCOUNT (authenticated, password re-authentication required)
+router.post('/account/deactivate', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await AuthService.deactivateAccount(req.user!.sub, req.body?.currentPassword);
+    res.json(result);
+  } catch (err: any) {
+    if (err instanceof AccountDeactivationError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: 'Unable to deactivate account.' });
+  }
+});
+
+// 8d. ACCOUNT REACTIVATION (public, email-OTP ownership proof)
+router.post('/account/reactivation/request', resendLimiter, async (req: Request, res: Response) => {
+  try {
+    const result = await AuthService.requestAccountReactivation(req.body?.email);
+    res.json(result);
+  } catch {
+    // Keep this endpoint enumeration-safe even for unexpected failures.
+    res.json({ success: true, message: 'If an eligible inactive account exists for this email address, a verification code has been sent.' });
+  }
+});
+
+router.post('/account/reactivation/confirm', authLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body || {};
+    const result = await AuthService.confirmAccountReactivation(email, otp);
+    res.json(result);
+  } catch (err: any) {
+    sendAuthError(res, err, 'Unable to reactivate this account.');
+  }
+});
+
 // 9. REFRESH TOKEN
 router.post('/refresh-token', async (req: Request, res: Response) => {
   try {
@@ -170,18 +249,75 @@ router.post('/refresh-token', async (req: Request, res: Response) => {
 router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.sub;
-    const userRes = await pool.query(
-      `SELECT id, email, name, role, email_verified_at, status, avatar_url, created_at
-       FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [userId]
-    );
-
-    const user = userRes.rows[0];
+    const user = await AuthService.getProfile(userId!);
     if (!user) return res.status(404).json({ error: 'User not found.' });
 
     res.json({ user });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to fetch user profile.' });
+  }
+});
+
+// 10b. PROFILE READ / UPDATE
+// Profile lives under the established /api/auth base rather than the stale
+// documented /api/v1/users surface.
+router.get('/profile', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = await AuthService.getProfile(req.user!.sub);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    res.json({ user });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch profile.' });
+  }
+});
+
+router.put('/profile', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = await AuthService.updateProfile(req.user!.sub, req.body || {});
+    res.json({ user, message: 'Profile updated successfully.' });
+  } catch (err: any) {
+    const status = err.message === 'User not found.' ? 404 : 400;
+    res.status(status).json({ error: err.message || 'Failed to update profile.' });
+  }
+});
+
+router.put('/profile/preferences', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = await AuthService.updatePreferences(req.user!.sub, req.body || {});
+    res.json({ user, message: 'Preferences saved successfully.' });
+  } catch (err: any) {
+    const status = err.message === 'User not found.' ? 404 : 400;
+    res.status(status).json({ error: err.message || 'Failed to save preferences.' });
+  }
+});
+
+router.post('/profile/avatar', requireAuth, (req: Request, res: Response) => {
+  avatarUpload.single('avatar')(req, res, async (err: any) => {
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE'
+        ? 'Avatar must be 3 MB or smaller.'
+        : err.message || 'Unable to upload avatar.';
+      return res.status(400).json({ error: message });
+    }
+    if (!req.file) return res.status(400).json({ error: 'Select an avatar image to upload.' });
+
+    try {
+      const user = await AuthService.updateAvatar(req.user!.sub, req.file);
+      res.json({ user, message: 'Profile picture updated successfully.' });
+    } catch (error: any) {
+      const status = error.message === 'User not found.' ? 404 : 500;
+      res.status(status).json({ error: error.message || 'Unable to upload avatar.' });
+    }
+  });
+});
+
+router.delete('/profile/avatar', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = await AuthService.removeAvatar(req.user!.sub);
+    res.json({ user, message: 'Profile picture removed successfully.' });
+  } catch (error: any) {
+    const status = error.message === 'User not found.' ? 404 : 500;
+    res.status(status).json({ error: error.message || 'Unable to remove avatar.' });
   }
 });
 

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Server, Activity, ServerCrash, AlignRight } from 'lucide-react';
+import { Server, Activity, ServerCrash, AlignRight, Rocket, Loader2 } from 'lucide-react';
 import { motion, animate, useMotionValue } from 'framer-motion';
+import toast, { Toaster } from 'react-hot-toast';
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -56,8 +57,7 @@ const MassiveHardwareSwitch = ({ isClosed, onToggle }: { isClosed: boolean; onTo
 
 // ─── Mixing Board Slider ────────────────────────────────────────────
 
-const MixingBoardSlider = ({ route }: { route: typeof TRAFFIC_ROUTES[0] }) => {
-  const [val, setVal] = useState(route.initial);
+const MixingBoardSlider = ({ route, val, setVal }: { route: typeof TRAFFIC_ROUTES[0], val: number, setVal: (val: number) => void }) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
@@ -141,13 +141,84 @@ const MixingBoardSlider = ({ route }: { route: typeof TRAFFIC_ROUTES[0] }) => {
 
 // ─── Exported: Circuit Breakers (Tactical Rail) ─────────────────────────────────
 
-export const CircuitBreakers = () => {
-  const [breakers, setBreakers] = useState<Breaker[]>(INITIAL_BREAKERS);
+const BreakerSkeleton = () => (
+  <div className="flex flex-row justify-between items-center gap-4 p-5 rounded-xl border border-white/5 bg-black/40 overflow-hidden">
+    <div className="flex flex-col flex-1 min-w-0 gap-2">
+      <div className="w-32 h-4 bg-white/10 rounded overflow-hidden relative">
+         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+      </div>
+      <div className="w-48 h-3 bg-white/5 rounded overflow-hidden relative">
+         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+      </div>
+    </div>
+    <div className="shrink-0 flex items-center justify-center">
+      <div className="w-[80px] h-[40px] rounded-full bg-white/5 border border-white/10 overflow-hidden relative">
+         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+      </div>
+    </div>
+  </div>
+);
 
-  const toggleBreaker = (id: string) => {
-    setBreakers(prev => prev.map(b => 
-      b.id === id ? { ...b, isClosed: !b.isClosed } : b
-    ));
+export const CircuitBreakers = () => {
+  const [breakers, setBreakers] = useState<Breaker[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/engine/health', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.ok) {
+          const json = await res.json();
+          // Map backend engine status to Circuit Breakers
+          const mapped: Breaker[] = [
+            { id: 'db', name: 'Primary Database', desc: `PostgreSQL Cluster (${json.components.database.latencyMs}ms)`, isClosed: json.components.database.status === 'up' },
+            { id: 'redis', name: 'Cache Layer', desc: `Redis Edge Nodes (${json.components.redis.latencyMs}ms)`, isClosed: json.components.redis.status === 'up' },
+            { id: 'b_1', name: 'Auth Gateway', desc: 'OAuth & Token Issuance', isClosed: true },
+            { id: 'b_2', name: 'Stripe Webhooks', desc: 'Billing & Invoice Events', isClosed: true }
+          ];
+          setBreakers(mapped);
+        }
+      } catch (err) {
+        console.error('Failed to fetch engine health', err);
+        setBreakers(INITIAL_BREAKERS); // Fallback
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHealth();
+  }, []);
+
+  const toggleBreaker = async (id: string, currentIsClosed: boolean) => {
+    // 1. Optimistic Update
+    setBreakers(prev => prev.map(b => b.id === id ? { ...b, isClosed: !currentIsClosed } : b));
+    
+    // 2. API Call
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch(`/api/v1/admin/engine/circuit-breakers/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: currentIsClosed ? 'TRIPPED' : 'ACTIVE' }) // If it was closed, we are tripping it
+      });
+
+      if (!res.ok) {
+        throw new Error('Server rejected toggle');
+      }
+      
+      const newStatus = currentIsClosed ? 'TRIPPED (OPEN)' : 'ACTIVE (CLOSED)';
+      toast.success(`Circuit Breaker ${newStatus}`, { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+    } catch (err) {
+      // 3. Fallback on error
+      setBreakers(prev => prev.map(b => b.id === id ? { ...b, isClosed: currentIsClosed } : b));
+      toast.error('Failed to toggle circuit breaker');
+    }
   };
 
   return (
@@ -161,25 +232,34 @@ export const CircuitBreakers = () => {
       </div>
 
       <div className="flex flex-col gap-4 w-full">
-        {breakers.map((b) => (
-          <div key={b.id} className="flex flex-row justify-between items-center gap-4 p-5 rounded-xl border border-white/5 bg-black/40">
-            <div className="flex flex-col flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-1">
-                <span className="text-[15px] font-bold text-white whitespace-normal break-words">{b.name}</span>
-                {!b.isClosed && (
-                  <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 shrink-0">
-                    <ServerCrash size={10} /> Tripped
-                  </span>
-                )}
+        {loading ? (
+          <>
+            <BreakerSkeleton />
+            <BreakerSkeleton />
+            <BreakerSkeleton />
+            <BreakerSkeleton />
+          </>
+        ) : (
+          breakers.map((b) => (
+            <div key={b.id} className="flex flex-row justify-between items-center gap-4 p-5 rounded-xl border border-white/5 bg-black/40">
+              <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex items-center gap-3 mb-1">
+                  <span className="text-[15px] font-bold text-white whitespace-normal break-words">{b.name}</span>
+                  {!b.isClosed && (
+                    <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 shrink-0">
+                      <ServerCrash size={10} /> Tripped
+                    </span>
+                  )}
+                </div>
+                <div className="text-[12px] text-white/40 font-mono whitespace-normal break-words">{b.desc}</div>
               </div>
-              <div className="text-[12px] text-white/40 font-mono whitespace-normal break-words">{b.desc}</div>
+              
+              <div className="shrink-0 flex items-center justify-center">
+                <MassiveHardwareSwitch isClosed={b.isClosed} onToggle={() => toggleBreaker(b.id, b.isClosed)} />
+              </div>
             </div>
-            
-            <div className="shrink-0 flex items-center justify-center">
-              <MassiveHardwareSwitch isClosed={b.isClosed} onToggle={() => toggleBreaker(b.id)} />
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
@@ -188,8 +268,35 @@ export const CircuitBreakers = () => {
 // ─── Exported: Traffic Shaping (Mixing Board) ───────────────────────────────────
 
 export const TrafficShaping = () => {
+  const [routes, setRoutes] = useState(TRAFFIC_ROUTES);
+
+  const handleDeploy = async () => {
+    const deployPromise = (async () => {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch('/api/v1/admin/engine/traffic-shaping', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ rules: routes })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Server rejected routing rules');
+      }
+      return await res.json();
+    })();
+
+    toast.promise(deployPromise, {
+      loading: 'Deploying routing rules...',
+      success: 'Traffic Rules Deployed',
+      error: 'Deploy Failed'
+    }, { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+  };
+
   return (
-    <div className="flex flex-col gap-6 w-full h-full">
+    <div className="flex flex-col gap-6 w-full h-full relative">
       <div className="flex items-center gap-3 shrink-0">
         <AlignRight size={20} className="text-purple-400" />
         <div>
@@ -198,10 +305,24 @@ export const TrafficShaping = () => {
         </div>
       </div>
 
-      <div className="bg-zinc-950/50 backdrop-blur-3xl border border-white/5 rounded-2xl p-8 flex flex-col gap-10 flex-1">
-        {TRAFFIC_ROUTES.map(route => (
-          <MixingBoardSlider key={route.id} route={route} />
+      <div className="bg-zinc-950/50 backdrop-blur-3xl border border-white/5 rounded-2xl p-8 flex flex-col gap-10 flex-1 relative overflow-hidden">
+        {routes.map(route => (
+          <MixingBoardSlider 
+            key={route.id} 
+            route={route} 
+            val={route.initial} 
+            setVal={(newVal) => setRoutes(prev => prev.map(r => r.id === route.id ? { ...r, initial: newVal } : r))} 
+          />
         ))}
+
+        <div className="mt-auto pt-6 border-t border-white/5 w-full flex justify-end">
+          <button 
+            onClick={handleDeploy}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-purple-600/20 text-purple-400 font-bold tracking-widest text-[13px] uppercase border border-purple-500/30 hover:bg-purple-600/30 hover:border-purple-400/50 transition-all active:scale-95 shadow-[0_0_15px_rgba(168,85,247,0.15)]"
+          >
+            <Rocket size={16} /> Deploy Routing Rules
+          </button>
+        </div>
       </div>
     </div>
   );

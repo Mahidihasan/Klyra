@@ -1,4 +1,4 @@
-import React, { useState, MouseEvent } from 'react';
+import React, { useState, MouseEvent, useEffect } from 'react';
 import { ShieldAlert, CheckCircle2, Search, ArrowRightLeft, CreditCard } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -14,15 +14,39 @@ interface Transaction {
   stripeId: string;
 }
 
-const TRANSACTIONS: Transaction[] = [
-  { id: 'tx_1', type: 'PAYMENT', amount: 4599.00, currency: 'USD', user: 'corp_alpha', timestamp: '2026-09-16 14:02:11', stripeId: 'ch_3Nkx...' },
-  { id: 'tx_2', type: 'SUSPICIOUS', amount: 12500.00, currency: 'USD', user: 'anon_77x', timestamp: '2026-09-16 13:54:02', stripeId: 'ch_9Plm...' },
-  { id: 'tx_3', type: 'PAYMENT', amount: 299.00, currency: 'USD', user: 'dev_studio', timestamp: '2026-09-16 13:10:45', stripeId: 'ch_4Qqz...' },
-  { id: 'tx_4', type: 'CHARGEBACK', amount: -4599.00, currency: 'USD', user: 'corp_alpha', timestamp: '2026-09-16 12:44:19', stripeId: 'ch_3Nkx...' },
-  { id: 'tx_5', type: 'REFUND', amount: -50.00, currency: 'USD', user: 'indie_dev', timestamp: '2026-09-16 11:20:00', stripeId: 'ch_1Aab...' },
-];
-
 // ─── Cursor-Aware Row Component ───────────────────────────────────────────────
+
+const LedgerRowSkeleton = () => (
+  <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between p-4 border-b border-white/5 last:border-0 group overflow-hidden">
+    {/* ── Left: Entity Info ── */}
+    <div className="relative z-10 flex items-center gap-4 w-full md:w-auto mb-3 md:mb-0">
+      <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 border bg-white/5 border-white/10 overflow-hidden relative">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite] -translate-x-full hover:translate-x-full" style={{ animationName: 'shimmer' }} />
+      </div>
+      <div className="flex flex-col min-w-0 pr-4 gap-1.5">
+        <div className="w-24 h-3.5 bg-white/10 rounded overflow-hidden relative">
+           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+        </div>
+        <div className="w-32 h-2.5 bg-white/5 rounded overflow-hidden relative">
+           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+        </div>
+      </div>
+    </div>
+
+    {/* ── Middle: Badges & Timestamp ── */}
+    <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-8 w-full md:w-auto">
+      <div className="shrink-0 w-28 h-6 bg-white/5 rounded-md border border-white/5 overflow-hidden relative">
+         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+      </div>
+      <div className="w-40 h-3 bg-white/5 rounded overflow-hidden relative">
+         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+      </div>
+      <div className="shrink-0 text-right w-32 h-4 bg-white/10 rounded overflow-hidden relative ml-auto">
+         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.5s_infinite]" />
+      </div>
+    </div>
+  </div>
+);
 
 const LedgerRow = ({ tx }: { tx: Transaction }) => {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -118,6 +142,42 @@ const LedgerRow = ({ tx }: { tx: Transaction }) => {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const SpatialLedger = () => {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchDisputes = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/financials/disputes', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.ok) {
+          const json = await res.json();
+          // Map Prisma models to frontend UI structure
+          const mapped: Transaction[] = json.data.map((tx: any) => ({
+            id: tx.id,
+            type: tx.type === 'DISPUTE' ? 'CHARGEBACK' : tx.type, // Map DISPUTE to CHARGEBACK for UI
+            amount: parseFloat(tx.amount || 0),
+            currency: 'USD',
+            user: tx.userId,
+            timestamp: new Date(tx.createdAt).toISOString().replace('T', ' ').substring(0, 19),
+            stripeId: `pi_${tx.id.substring(0, 8)}...`
+          }));
+          setTransactions(mapped);
+        } else {
+          console.error('Failed to fetch disputes');
+        }
+      } catch (err) {
+        console.error('Fetch error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchDisputes();
+  }, []);
+
   return (
     <div className="relative w-full h-full flex flex-col min-h-[500px]">
       
@@ -165,9 +225,18 @@ export const SpatialLedger = () => {
 
         {/* Transactions List */}
         <div className="relative z-10 flex-1 overflow-y-auto custom-scrollbar">
-          {TRANSACTIONS.map((tx) => (
-            <LedgerRow key={tx.id} tx={tx} />
-          ))}
+          {loading ? (
+            <>
+              <LedgerRowSkeleton />
+              <LedgerRowSkeleton />
+              <LedgerRowSkeleton />
+              <LedgerRowSkeleton />
+            </>
+          ) : (
+            transactions.map((tx) => (
+              <LedgerRow key={tx.id} tx={tx} />
+            ))
+          )}
           {/* Fading bottom edge */}
           <div className="h-6 w-full" />
         </div>
