@@ -12,6 +12,7 @@ import { UserDrawer } from './components/UserDrawer';
 import { EmailModal } from './components/EmailModal';
 import { InfiniteMatrixTable, ColumnDef } from '../../components/DataTable/InfiniteMatrixTable';
 import { FloatingActionBar } from '../../components/DataTable/FloatingActionBar';
+import { AddUserModal } from './components/AddUserModal';
 import './AdminUsers.css';
 
 // Toast style constants
@@ -63,6 +64,7 @@ export const AdminUsers = () => {
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [emailUserTarget, setEmailUserTarget] = useState<AdminUserRow | null>(null);
+  const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, user: AdminUserRow } | null>(null);
 
@@ -117,9 +119,34 @@ export const AdminUsers = () => {
     }
   };
 
-  const handleUpdateRole = (id: string, newRole: string) => {
-    setUsers((prev: AdminUserRow[]) => prev.map(u => u.id === id ? { ...u, role: newRole as any } : u));
-    if (selectedUser?.id === id) setSelectedUser((prev: AdminUserRow | null) => prev ? { ...prev, role: newRole as any } : null);
+  // ── Role mutation — wired to PATCH /api/v1/admin/users/:id/role ──
+  const handleUpdateRole = async (id: string, newRole: string) => {
+    // Optimistic update
+    setUsers((prev) => prev.map(u => u.id === id ? { ...u, role: newRole as any } : u));
+    if (selectedUser?.id === id) setSelectedUser((prev) => prev ? { ...prev, role: newRole as any } : null);
+
+    try {
+      const res = await fetch(`/api/v1/admin/users/${id}/role`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({ role: newRole.toUpperCase() })
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const err: any = new Error(errorData.error || errorData.message || 'Failed to update role');
+        err.response = { data: errorData };
+        throw err;
+      }
+      toast.success(`Role updated to ${newRole}`, { style: TOAST_STYLE });
+    } catch (error: any) {
+      const backendError = error.response?.data?.error || error.response?.data?.message || error.message || "Unknown error";
+      console.error("FULL ERROR OBJECT:", error.response);
+      toast.error(`Error: ${backendError}`, { style: TOAST_STYLE });
+      fetchUsers();
+    }
   };
 
   const handleUpdateTier = (id: string, newTier: string) => {
@@ -152,6 +179,34 @@ export const AdminUsers = () => {
       handleUpdateStatus(userId, 'SUSPENDED');
       setConfirmingId(null);
     }, 1500); // 1.5s hold fires the action
+  };
+
+  // ── Add User — wired to POST /api/v1/admin/users ──
+  const handleAddUser = async (data: any) => {
+    try {
+      const res = await fetch(`/api/v1/admin/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const err: any = new Error(errorData.error || errorData.message || 'Failed to create user');
+        err.response = { data: errorData };
+        throw err;
+      }
+      toast.success('User created successfully', { style: TOAST_STYLE });
+      setIsAddUserModalOpen(false);
+      fetchUsers();
+    } catch (error: any) {
+      const backendError = error.response?.data?.error || error.response?.data?.message || error.message || "Unknown error";
+      console.error("FULL ERROR OBJECT:", error.response);
+      toast.error(`Error: ${backendError}`, { style: TOAST_STYLE });
+      throw error;
+    }
   };
 
   const cancelSuspendHold = () => {
@@ -257,7 +312,10 @@ export const AdminUsers = () => {
           <h1 className="text-2xl font-semibold text-white tracking-tight mb-1">Users</h1>
           <p className="text-sm text-white/50">Manage access, roles, and platform activity.</p>
         </div>
-        <button className="h-9 px-4 rounded-full bg-white text-black font-semibold text-sm hover:bg-white/90 transition-colors shadow-lg shadow-white/10 flex items-center gap-2">
+        <button 
+          onClick={() => setIsAddUserModalOpen(true)}
+          className="h-9 px-4 rounded-full bg-white text-black font-semibold text-sm hover:bg-white/90 transition-colors shadow-lg shadow-white/10 flex items-center gap-2"
+        >
           <Plus size={16} /> Add User
         </button>
       </div>
@@ -460,6 +518,13 @@ export const AdminUsers = () => {
           user={emailUserTarget} 
           onClose={() => { setIsEmailModalOpen(false); setEmailUserTarget(null); }} 
           onSend={handleSendEmail} 
+        />
+      )}
+      {/* Add User Modal */}
+      {isAddUserModalOpen && (
+        <AddUserModal 
+          onClose={() => setIsAddUserModalOpen(false)}
+          onAdd={handleAddUser}
         />
       )}
     </div>

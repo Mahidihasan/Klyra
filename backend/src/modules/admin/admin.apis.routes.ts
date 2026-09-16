@@ -11,6 +11,9 @@ import { listApis, moderateApi } from './admin.apis.service';
 import { getMockReports } from './admin.moderation.mock';
 import { PolicyActor } from './admin.users.policy';
 import { GuardrailError, DatabaseUnavailableError } from './admin.users.service';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 const router = Router({ mergeParams: true });
 
@@ -109,14 +112,82 @@ function handleError(res: Response, label: string, err: unknown) {
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const query = parseListQuery(req, res);
-    if (!query) return;
-
-    const data = await listApis(query);
+    const apis = await prisma.apis.findMany({
+      include: {
+        users: true,
+        categories: true,
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+    });
+    
     res.setHeader('Cache-Control', 'no-store');
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: apis });
   } catch (err) {
     return handleError(res, 'GET /apis', err);
+  }
+});
+
+router.patch('/:id/status', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+
+    const { status } = req.body;
+    if (!status) {
+      return fail(res, 400, 'MISSING_STATUS', 'Status is required');
+    }
+
+    const updatedApi = await prisma.apis.update({
+      where: { id: req.params.id },
+      data: { status }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        user_id: actor.id,
+        action: 'UPDATE',
+        entity_type: 'apis',
+        entity_id: req.params.id,
+        ip_address: req.ip || 'unknown',
+        new_values: { status }
+      }
+    });
+
+    return res.json({ success: true, data: updatedApi });
+  } catch (err) {
+    return handleError(res, 'PATCH /apis/:id/status', err);
+  }
+});
+
+router.post('/api-keys/:id/revoke', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+
+    const updatedKey = await prisma.api_keys.update({
+      where: { id: req.params.id },
+      data: { 
+        status: 'REVOKED',
+        is_active: false,
+        revoked_at: new Date()
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        user_id: actor.id,
+        action: 'UPDATE',
+        entity_type: 'api_keys',
+        entity_id: req.params.id,
+        ip_address: req.ip || 'unknown',
+        new_values: { status: 'REVOKED' }
+      }
+    });
+
+    return res.json({ success: true, data: updatedKey });
+  } catch (err) {
+    return handleError(res, 'POST /api-keys/:id/revoke', err);
   }
 });
 

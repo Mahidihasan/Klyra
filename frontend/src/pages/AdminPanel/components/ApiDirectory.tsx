@@ -1,20 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Filter, MoreHorizontal, Pencil, ArrowUpRight, FolderEdit, PauseCircle, Download } from 'lucide-react';
+import { Search, Filter, MoreHorizontal, Pencil, ArrowUpRight, FolderEdit, PauseCircle, Download, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FloatingActionBar } from '../../../components/DataTable/FloatingActionBar';
 
 const generateTrafficData = () => Array.from({ length: 7 }).map(() => Math.floor(Math.random() * 100));
-
-const INITIAL_CATALOG = Array.from({ length: 30 }).map((_, i) => ({
-  id: `api_${i}`,
-  name: `Production API Service ${i + 1}`,
-  version: `1.${i % 5}.0`,
-  provider: `Provider ${String.fromCharCode(65 + (i % 5))}`,
-  status: i % 4 === 0 ? 'Deprecated' : 'Active',
-  category: ['Finance', 'AI', 'Weather', 'Data'][i % 4],
-  calls: Math.floor(Math.random() * 500000) + 10000,
-  trafficTrend: generateTrafficData()
-}));
 
 const Sparkline = ({ data }: { data: number[] }) => {
   const max = Math.max(...data);
@@ -52,13 +41,39 @@ const Sparkline = ({ data }: { data: number[] }) => {
 };
 
 export const ApiDirectory = () => {
-  const [catalog, setCatalog] = useState(INITIAL_CATALOG);
+  const [catalog, setCatalog] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
   // Micro-popover state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editType, setEditType] = useState<'status' | 'category' | null>(null);
   const [popoverPos, setPopoverPos] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+    fetch('/api/v1/admin/apis', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success) {
+          const mapped = res.data.map((api: any) => ({
+            id: api.id,
+            name: api.name,
+            version: api.current_version,
+            provider: api.users?.name || 'Unknown',
+            status: api.status === 'DEPRECATED' || api.status === 'MAINTENANCE' ? 'Deprecated' : 'Active',
+            category: api.categories?.name || 'General',
+            calls: Number(api.total_requests),
+            trafficTrend: generateTrafficData(),
+            _raw: api
+          }));
+          setCatalog(mapped);
+        }
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
 
   const toggleSelectAll = () => {
     if (selected.size === catalog.length) {
@@ -83,9 +98,28 @@ export const ApiDirectory = () => {
     setEditType(type);
   };
 
-  const updateField = (val: string) => {
+  const updateField = async (val: string) => {
     if (!editingId || !editType) return;
+    
+    // Optimistic UI update
     setCatalog(prev => prev.map(api => api.id === editingId ? { ...api, [editType]: val } : api));
+    
+    if (editType === 'status') {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        await fetch(`/api/v1/admin/apis/${editingId}/status`, {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ status: val.toUpperCase() })
+        });
+      } catch (err) {
+        console.error("Failed to update status:", err);
+      }
+    }
+    
     setEditingId(null);
     setEditType(null);
   };
@@ -138,7 +172,24 @@ export const ApiDirectory = () => {
 
           {/* Grid Body */}
           <div className="flex flex-col">
-            {catalog.map(api => {
+            {isLoading ? (
+              <div className="flex flex-col gap-2 p-4">
+                {[0,1,2,3,4].map((i) => (
+                  <div key={i} className="animate-pulse bg-white/5 h-16 w-full rounded-xl" style={{ opacity: 1 - (i * 0.15) }} />
+                ))}
+              </div>
+            ) : catalog.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-32 px-4">
+                <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-6 shadow-2xl shadow-black relative overflow-hidden">
+                  <div className="absolute inset-0 bg-indigo-500/10" />
+                  <Database size={28} className="text-indigo-400/50" />
+                </div>
+                <h3 className="text-xl font-bold text-white tracking-tight mb-2">No APIs Registered</h3>
+                <p className="text-sm text-white/40 max-w-sm text-center leading-relaxed">
+                  The directory is currently empty. Once developers publish their services, they will automatically appear here in the approval queue.
+                </p>
+              </div>
+            ) : catalog.map(api => {
               const isSelected = selected.has(api.id);
               const isStatusActive = api.status === 'Active';
               

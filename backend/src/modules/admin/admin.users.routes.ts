@@ -204,6 +204,74 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// ============================ POST /users ===========================
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    console.log("INCOMING PAYLOAD:", req.body);
+    const actor = requireActor(req, res);
+    if (!actor) return;
+
+    const { name, email, password, role } = req.body ?? {};
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'name, email, password, and role are required' });
+    }
+
+    if (!isUserRole(role)) {
+      return fail(res, 400, 'INVALID_ROLE', 'role must be one of: USER, PROVIDER, MODERATOR, ADMIN');
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    
+    // Hash password with bcrypt
+    const bcrypt = require('bcryptjs');
+    const BCRYPT_ROUNDS = 12;
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+    // Create user in Prisma (using PrismaClient)
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    // Check if user exists
+    const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    if (existing) {
+      return res.status(400).json({ error: 'EMAIL_EXISTS', message: 'An account with this email address already exists.' });
+    }
+
+    // Insert user
+    const user = await prisma.user.create({
+      data: {
+        name: name.trim(),
+        email: cleanEmail,
+        passwordHash: passwordHash,
+        role: role.toUpperCase(),
+        status: 'ACTIVE',
+        isActive: true,
+        metadata: {}
+      }
+    });
+
+    // Audit log
+    await prisma.auditLog.create({
+      data: {
+        user_id: actor.id,
+        action: 'CREATE',
+        entity_type: 'users',
+        entity_id: user.id,
+        ip_address: req.ip || 'unknown',
+        new_values: { name: user.name, email: user.email, role: user.role }
+      }
+    });
+
+    return res.status(201).json({ success: true, data: user });
+  } catch (err) {
+    console.error("🚨 CRITICAL API ERROR:", err);
+    return res.status(500).json({ 
+      error: err instanceof Error ? err.message : String(err), 
+      details: err 
+    });
+  }
+});
+
 // ========================== GET /users/:id ==========================
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -215,7 +283,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// ====================== GET /users/:id/details ======================
+// ===================== GET /users/:id/details ======================
 router.get('/:id/details', async (req: Request, res: Response) => {
   try {
     const data = await getUserDetails(req.params.id);
@@ -223,6 +291,24 @@ router.get('/:id/details', async (req: Request, res: Response) => {
     return res.json({ success: true, data });
   } catch (err) {
     return handleError(res, 'GET /users/:id/details', err);
+  }
+});
+
+// ===================== GET /users/:id/api-keys =====================
+router.get('/:id/api-keys', async (req: Request, res: Response) => {
+  try {
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    const apiKeys = await prisma.api_keys.findMany({
+      where: { user_id: req.params.id, status: 'ACTIVE' },
+      orderBy: { created_at: 'desc' }
+    });
+    
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, data: apiKeys });
+  } catch (err) {
+    return handleError(res, 'GET /users/:id/api-keys', err);
   }
 });
 
@@ -336,24 +422,47 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // ====================== PATCH /users/:id/role =======================
 router.patch('/:id/role', async (req: Request, res: Response) => {
   try {
+    console.log("INCOMING PAYLOAD:", req.body);
     const actor = requireActor(req, res);
     if (!actor) return;
 
-    const { role } = req.body ?? {};
+    let { role } = req.body ?? {};
+    const formattedRole = role ? (typeof role === 'string' ? role.toUpperCase() : role) : undefined;
+    role = formattedRole;
 
     if (!isUserRole(role)) {
-      return fail(
-        res,
-        400,
-        'INVALID_ROLE',
-        'role must be one of: USER, PROVIDER, MODERATOR, ADMIN',
-      );
+      return res.status(400).json({
+        error: 'INVALID_ROLE',
+        message: 'role must be one of: USER, PROVIDER, MODERATOR, ADMIN',
+      });
     }
 
-    const data = await updateUserRole(actor, req.params.id, role, auditContext(req));
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+
+    const data = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { role }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        user_id: actor.id,
+        action: 'UPDATE',
+        entity_type: 'users',
+        entity_id: req.params.id,
+        ip_address: req.ip || 'unknown',
+        new_values: { action: 'USER_ROLE_CHANGED', role }
+      }
+    });
+
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, 'PATCH /users/:id/role', err);
+    console.error("🚨 CRITICAL API ERROR:", err);
+    return res.status(500).json({ 
+      error: err instanceof Error ? err.message : String(err), 
+      details: err 
+    });
   }
 });
 

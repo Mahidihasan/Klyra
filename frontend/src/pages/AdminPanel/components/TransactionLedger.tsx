@@ -1,42 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Download, CornerUpLeft, CheckCircle2, Loader2, X, ReceiptText, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const MOCK_LEDGER = [
-  { 
-    id: 'txn_98a72', user: 'user_dev1', amount: 49.00, status: 'Paid', date: '2026-09-14 08:30:12', method: 'Card •••• 4242',
-    breakdown: [
-      { name: 'Base Platform Fee', amount: 20.00, desc: 'Pro Tier Subscription' },
-      { name: 'Geolocation API', amount: 12.00, desc: '5,420 hits' },
-      { name: 'Weather Data API', amount: 17.00, desc: '1,200 hits' }
-    ]
-  },
-  { 
-    id: 'txn_98a71', user: 'user_x99a', amount: 299.00, status: 'Paid', date: '2026-09-14 07:15:00', method: 'Bank Transfer',
-    breakdown: [
-      { name: 'Base Platform Fee', amount: 299.00, desc: 'Enterprise Tier Subscription' }
-    ]
-  },
-  { 
-    id: 'txn_98a70', user: 'user_fail', amount: 15.00, status: 'Failed', date: '2026-09-13 22:40:11', method: 'Card •••• 5555',
-    breakdown: [
-      { name: 'Base Platform Fee', amount: 15.00, desc: 'Basic Tier Subscription' }
-    ]
-  },
-  { 
-    id: 'txn_98a69', user: 'user_old1', amount: 49.00, status: 'Refunded', date: '2026-09-13 14:20:00', method: 'Card •••• 1234',
-    breakdown: [
-      { name: 'Base Platform Fee', amount: 49.00, desc: 'Pro Tier Subscription' }
-    ]
-  },
-  { 
-    id: 'txn_98a68', user: 'user_x99a', amount: 104.50, status: 'Paid', date: '2026-09-12 09:10:00', method: 'Card •••• 4242',
-    breakdown: [
-      { name: 'Base Platform Fee', amount: 49.00, desc: 'Pro Tier Subscription' },
-      { name: 'DeepSeek Inference API', amount: 55.50, desc: '1,110 tokens' }
-    ]
-  },
-];
+import { toast } from 'react-hot-toast';
 
 const RefundButton = ({ txId }: { txId: string }) => {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
@@ -78,9 +44,72 @@ const RefundButton = ({ txId }: { txId: string }) => {
 };
 
 export const TransactionLedger = () => {
-  const [ledger, setLedger] = useState(MOCK_LEDGER);
+  const [ledger, setLedger] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedTx, setSelectedTx] = useState<typeof MOCK_LEDGER[0] | null>(null);
+  const [selectedTx, setSelectedTx] = useState<any | null>(null);
+
+  useEffect(() => {
+    const fetchPayments = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/finances/metrics', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && data.data.recentPayments) {
+          const formatted = data.data.recentPayments.map((p: any) => ({
+            id: p.id,
+            user: p.user_id,
+            amount: Number(p.amount) || 0,
+            status: p.status === 'SUCCESS' || p.status === 'COMPLETED' ? 'Paid' : p.status === 'FAILED' ? 'Failed' : p.status === 'REFUNDED' ? 'Refunded' : 'Pending',
+            date: new Date(p.created_at).toLocaleString(),
+            method: p.payment_method || 'System Auto',
+            breakdown: [
+              { name: 'Base Platform Fee', amount: Number(p.amount) || 0, desc: p.failure_reason ? `Failed: ${p.failure_reason}` : 'Subscription Charge' }
+            ]
+          }));
+          setLedger(formatted);
+        }
+      } catch (err) {
+        console.error('Failed to fetch ledger', err);
+        toast.error('Failed to load transaction ledger');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchPayments();
+  }, []);
+
+  const handleExportCsv = async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const exportPromise = fetch('/api/v1/admin/finances/export-csv', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(async res => {
+        if (!res.ok) throw new Error('Export failed');
+        return res.blob();
+      });
+
+      toast.promise(exportPromise, {
+        loading: 'Generating CSV...',
+        success: 'CSV Exported successfully!',
+        error: 'Failed to export CSV.'
+      }, { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+
+      const blob = await exportPromise;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'revenue-export.csv';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Export error:', err);
+    }
+  };
 
   const filteredLedger = ledger.filter(tx => tx.id.includes(search) || tx.user.includes(search));
 
@@ -98,7 +127,7 @@ export const TransactionLedger = () => {
             className="bg-black/50 border border-white/10 text-white text-[13px] py-1.5 pl-9 pr-4 rounded-md focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all w-64"
           />
         </div>
-        <button className="flex items-center gap-2 px-4 py-1.5 rounded-md bg-white/5 border border-white/10 text-[13px] font-medium text-white/70 hover:bg-white/10 transition-colors">
+        <button onClick={handleExportCsv} className="flex items-center gap-2 px-4 py-1.5 rounded-md bg-white/5 border border-white/10 text-[13px] font-medium text-white/70 hover:bg-white/10 transition-colors">
           <Download size={14} /> Export CSV
         </button>
       </div>
@@ -117,15 +146,26 @@ export const TransactionLedger = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredLedger.map(tx => (
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={i} className="border-b border-white/5 animate-pulse">
+                  <td className="px-6 py-4"><div className="w-24 h-4 bg-white/10 rounded" /></td>
+                  <td className="px-6 py-4"><div className="w-32 h-4 bg-white/10 rounded" /></td>
+                  <td className="px-6 py-4"><div className="w-20 h-4 bg-white/10 rounded" /></td>
+                  <td className="px-6 py-4"><div className="w-16 h-4 bg-white/10 rounded" /></td>
+                  <td className="px-6 py-4"><div className="w-16 h-4 bg-white/10 rounded ml-auto" /></td>
+                  <td className="px-6 py-4"><div className="w-16 h-6 bg-white/10 rounded-full ml-auto" /></td>
+                </tr>
+              ))
+            ) : filteredLedger.map(tx => (
               <tr 
                 key={tx.id} 
                 onClick={() => setSelectedTx(tx)}
                 className="border-b border-white/5 hover:bg-white/[0.02] cursor-pointer transition-colors group"
               >
-                <td className="px-6 py-4 text-[13px] font-mono text-white/50 group-hover:text-white transition-colors">{tx.id}</td>
+                <td className="px-6 py-4 text-[13px] font-mono text-white/50 group-hover:text-white transition-colors">{tx.id.substring(0, 18)}...</td>
                 <td className="px-6 py-4 text-[13px] text-white/70">{tx.date}</td>
-                <td className="px-6 py-4 text-[13px] font-mono text-indigo-400">{tx.user}</td>
+                <td className="px-6 py-4 text-[13px] font-mono text-indigo-400" title={tx.user}>{tx.user.substring(0, 8)}...</td>
                 <td className="px-6 py-4 text-[13px] text-white/50">{tx.method}</td>
                 <td className="px-6 py-4 text-[14px] font-mono font-bold text-white text-right">
                   ${tx.amount.toFixed(2)}
@@ -219,7 +259,7 @@ export const TransactionLedger = () => {
                     </div>
 
                     <div className="flex flex-col gap-6">
-                      {selectedTx.breakdown.map((item, idx) => (
+                      {(selectedTx.breakdown || []).map((item: any, idx: number) => (
                         <div key={idx} className="flex justify-between items-start">
                           <div className="flex flex-col gap-1">
                             <span className="text-[13px] font-medium text-white/90">{item.name}</span>

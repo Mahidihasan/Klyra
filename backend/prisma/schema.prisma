@@ -7,41 +7,1345 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                    String                    @unique(map: "users_email_unique") @db.Citext
+  passwordHash             String                    @map("password_hash")
+  name                     String                    @db.VarChar(100)
+  role                     user_role                 @default(USER)
+  avatar_url               String?                   @db.VarChar(500)
+  avatar_public_id         String?                   @db.VarChar(200)
+  avatar_metadata          Json?
+  bio                      String?
+  company                  String?                   @db.VarChar(255)
+  website                  String?                   @db.VarChar(500)
+  emailVerifiedAt          DateTime?                 @map("email_verified_at") @db.Timestamptz(6)
+  status                   user_status               @default(ACTIVE)
+  isActive                 Boolean                   @default(true) @map("is_active")
+  two_factor_enabled       Boolean                   @default(false)
+  two_factor_secret        String?
+  last_login_at            DateTime?                 @db.Timestamptz(6)
+  last_login_ip            String?                   @db.Inet
+  metadata                 Json                      @default("{}")
+  createdAt                DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updated_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  deleted_at               DateTime?                 @db.Timestamptz(6)
+  api_analytics            api_analytics[]
+  api_keys                 api_keys[]
+  api_reviews              api_reviews[]
+  apis                     apis[]
+  audit_logs               AuditLog[]
+  collections              collections[]
+  email_verifications      email_verifications[]
+  environments             environments[]
+  invoices                 invoices[]
+  notification_preferences notification_preferences?
+  notifications            notifications[]
+  payments                 payments[]
+  request_history          request_history[]
+  saved_requests           saved_requests[]
+  system_settings          system_settings[]
+  user_sessions            user_sessions[]
+  user_subscriptions       user_subscriptions[]
+
+  @@index([email(ops: raw("gin_trgm_ops"))], map: "idx_users_email_trgm", type: Gin)
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "idx_users_name_trgm", type: Gin)
+  @@map("users")
+}
+
+model klyra_migrations {
+  name       String   @id
+  applied_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("_klyra_migrations")
+}
+
+/// This table is a partition table and requires additional setup for migrations. Visit https://pris.ly/d/partition-tables for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model api_analytics {
+  id             String         @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  api_id         String         @db.Uuid
+  api_key_id     String?        @db.Uuid
+  user_id        String?        @db.Uuid
+  request_method request_method
+  endpoint       String
+  status_code    Int?
+  latency_ms     Int?
+  user_agent     String?
+  ip_address     String?        @db.Inet
+  country_code   String?        @db.Char(2)
+  is_error       Boolean        @default(false)
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  apis           apis           @relation(fields: [api_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  api_keys       api_keys?      @relation(fields: [api_key_id], references: [id], onUpdate: NoAction)
+  users          User?          @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+
+  @@id([id, created_at])
+  @@index([api_id, created_at(sort: Desc)], map: "idx_api_analytics_api_id")
+  @@index([api_key_id, created_at(sort: Desc)], map: "idx_api_analytics_api_key_id")
+  @@index([created_at(sort: Desc)], map: "idx_api_analytics_created_at")
+  @@index([api_id, endpoint, created_at(sort: Desc)], map: "idx_api_analytics_endpoint")
+  @@index([api_id, status_code, created_at(sort: Desc)], map: "idx_api_analytics_status_code")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_api_analytics_user_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model api_analytics_daily {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  api_id                String   @db.Uuid
+  date                  DateTime @db.Date
+  total_requests        BigInt   @default(0)
+  total_errors          BigInt   @default(0)
+  total_latency_ms      BigInt   @default(0)
+  avg_latency_ms        Decimal  @default(0) @db.Decimal(10, 2)
+  unique_users          Int      @default(0)
+  unique_api_keys       Int      @default(0)
+  status_code_breakdown Json     @default("{}")
+  endpoint_breakdown    Json     @default("{}")
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
+  apis                  apis     @relation(fields: [api_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([api_id, date], map: "api_analytics_daily_api_date_unique")
+  @@index([api_id, date(sort: Desc)], map: "idx_api_analytics_daily_api_id")
+  @@index([date(sort: Desc)], map: "idx_api_analytics_daily_date")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_activity {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id         String
+  label              String
+  kind               String             @default("info")
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id, created_at(sort: Desc)], map: "api_build_activity_project_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_alert_rules {
+  id                 String
+  project_id         String
+  name               String
+  metric             String
+  condition          String
+  threshold          Decimal            @db.Decimal
+  unit               String             @default("")
+  duration_sec       Int                @default(300)
+  channels           Json               @default("[\"email\"]")
+  enabled            Boolean            @default(true)
+  last_triggered     DateTime?          @db.Timestamptz(6)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([project_id, id])
+  @@index([project_id], map: "api_build_alert_rules_project_idx")
+}
+
+model api_build_api_keys {
+  id                 String
+  project_id         String
+  label              String
+  prefix             String
+  secret_hash        String
+  consumer           String             @default("")
+  plan               String             @default("Free")
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  last_used          DateTime?          @db.Timestamptz(6)
+  revoked            Boolean            @default(false)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([project_id, id])
+  @@index([project_id], map: "api_build_api_keys_project_idx")
+}
+
+model api_build_categories {
+  name          String   @id
+  slug          String   @unique
+  project_count Int      @default(0)
+  is_custom     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_consumers {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id         String
+  name               String
+  email              String             @default("")
+  plan               String             @default("Free")
+  status             String             @default("active")
+  requests           BigInt             @default(0)
+  joined_at          DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id], map: "api_build_consumers_project_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_deployments {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id         String
+  version            String
+  environment        String
+  source             String
+  branch             String?
+  commit_hash        String?
+  commit_message     String?
+  region             String             @default("auto")
+  status             String             @default("building")
+  url                String             @default("")
+  deployed_at        DateTime           @default(now()) @db.Timestamptz(6)
+  duration_sec       Decimal            @default(0) @db.Decimal
+  author             String             @default("system")
+  logs               Json               @default("[]")
+  env_vars           Json               @default("[]")
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id, deployed_at(sort: Desc)], map: "api_build_deployments_project_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_endpoints {
+  project_id         String
+  id                 String
+  method             String
+  path               String
+  summary            String             @default("")
+  description        String             @default("")
+  category           String             @default("General")
+  auth_required      Boolean            @default(true)
+  rate_limit_per_min Int                @default(100)
+  status             String             @default("active")
+  parameters         Json               @default("[]")
+  request_body       Json?
+  responses          Json               @default("[]")
+  avg_latency_ms     Decimal            @default(0) @db.Decimal
+  p95_latency_ms     Decimal            @default(0) @db.Decimal
+  total_requests     BigInt             @default(0)
+  error_rate         Decimal            @default(0) @db.Decimal
+  is_healthy         Boolean            @default(true)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([project_id, id])
+  @@unique([project_id, method, path])
+  @@index([project_id], map: "api_build_endpoints_project_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_incidents {
+  id                 String
+  project_id         String
+  title              String
+  severity           String
+  status             String             @default("Investigating")
+  started_at         DateTime           @default(now()) @db.Timestamptz(6)
+  resolved_at        DateTime?          @db.Timestamptz(6)
+  affected_endpoints Json               @default("[]")
+  summary            String             @default("")
+  postmortem         String?
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([project_id, id])
+  @@index([project_id, started_at(sort: Desc)], map: "api_build_incidents_project_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_jobs {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id         String
+  type               String
+  status             String             @default("queued")
+  payload            Json               @default("{}")
+  error              String?
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  started_at         DateTime?          @db.Timestamptz(6)
+  completed_at       DateTime?          @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model api_build_logs {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id         String
+  method             String
+  path               String
+  status_code        Int
+  latency_ms         Decimal            @default(0) @db.Decimal
+  consumer_name      String             @default("anonymous")
+  key_prefix         String             @default("")
+  version            String             @default("")
+  region             String             @default("sg-edge")
+  ip_address         String             @default("")
+  request_headers    Json               @default("{}")
+  query_params       Json               @default("{}")
+  request_body       String             @default("")
+  response_headers   Json               @default("{}")
+  response_body      String             @default("")
+  trace              Json               @default("[]")
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id, created_at(sort: Desc)], map: "api_build_logs_project_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_operations {
+  id                 String             @id
+  project_id         String
+  type               String
+  state              String             @default("queued")
+  progress           Int                @default(0)
+  actor              String             @default("system")
+  resource           String?
+  environment        String?
+  payload            Json?
+  logs               Json               @default("[]")
+  warnings           Json               @default("[]")
+  errors             Json               @default("[]")
+  result             Json?
+  request_id         String?
+  reason             String?
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  started_at         DateTime?          @db.Timestamptz(6)
+  finished_at        DateTime?          @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id, created_at(sort: Desc)], map: "api_build_operations_project_idx")
+}
+
+model api_build_plans {
+  project_id         String
+  id                 String
+  name               String
+  requests_per_month BigInt             @default(0)
+  price_monthly      Decimal            @default(0) @db.Decimal
+  rate_limit_per_min Int                @default(0)
+  overage_per_1k     Decimal            @default(0) @db.Decimal
+  trial_days         Int                @default(0)
+  subscribers        Int                @default(0)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([project_id, id])
+  @@unique([project_id, name])
+  @@index([project_id], map: "api_build_plans_project_idx")
+}
+
+model api_build_projects {
+  id                         String                       @id
+  project                    Json
+  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  api_build_activity         api_build_activity[]
+  api_build_alert_rules      api_build_alert_rules[]
+  api_build_api_keys         api_build_api_keys[]
+  api_build_consumers        api_build_consumers[]
+  api_build_deployments      api_build_deployments[]
+  api_build_endpoints        api_build_endpoints[]
+  api_build_incidents        api_build_incidents[]
+  api_build_jobs             api_build_jobs[]
+  api_build_logs             api_build_logs[]
+  api_build_operations       api_build_operations[]
+  api_build_plans            api_build_plans[]
+  api_build_resource_history api_build_resource_history[]
+  api_build_usage            api_build_usage[]
+  api_build_versions         api_build_versions[]
+}
+
+model api_build_resource_history {
+  id                 BigInt             @id @default(autoincrement())
+  project_id         String
+  resource_type      String
+  resource_id        String             @default("")
+  version_no         Int                @default(1)
+  actor              String             @default("system")
+  reason             String?
+  before             Json?
+  after              Json?
+  summary            String?
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id, resource_type, resource_id, version_no(sort: Desc)], map: "api_build_resource_history_idx")
+}
+
+model api_build_usage {
+  project_id         String
+  bucket             DateTime           @db.Timestamptz(6)
+  requests           BigInt             @default(0)
+  success            BigInt             @default(0)
+  client_error       BigInt             @default(0)
+  server_error       BigInt             @default(0)
+  rate_limited       BigInt             @default(0)
+  p95_ms             Decimal            @default(0) @db.Decimal
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([project_id, bucket])
+  @@index([project_id, bucket], map: "api_build_usage_project_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_build_versions {
+  project_id         String
+  id                 String
+  semver             String
+  status             String             @default("draft")
+  notes              String             @default("")
+  endpoints_count    Int                @default(0)
+  is_default         Boolean            @default(false)
+  released_at        DateTime?          @db.Timestamptz(6)
+  changelog          Json               @default("{\"added\": [], \"breaking\": [], \"modified\": [], \"deprecated\": []}")
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  api_build_projects api_build_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([project_id, id])
+  @@unique([project_id, semver])
+  @@index([project_id], map: "api_build_versions_project_idx")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model api_documentation {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  api_id         String           @db.Uuid
+  api_version_id String?          @db.Uuid
+  title          String           @db.VarChar(200)
+  content        String
+  content_type   doc_content_type @default(MARKDOWN)
+  is_published   Boolean          @default(false)
+  created_at     DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime         @default(now()) @db.Timestamptz(6)
+  apis           apis             @relation(fields: [api_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  api_versions   api_versions?    @relation(fields: [api_version_id], references: [id], onUpdate: NoAction)
+
+  @@index([api_id], map: "idx_api_documentation_api_id")
+  @@index([api_version_id], map: "idx_api_documentation_version_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model api_keys {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String            @db.Uuid
+  api_id            String?           @db.Uuid
+  name              String            @db.VarChar(100)
+  key_hash          String            @unique(map: "api_keys_hash_unique")
+  key_prefix        String            @db.VarChar(10)
+  permissions       Json              @default("{}")
+  rate_limit        Int               @default(60)
+  rate_limit_period rate_limit_period @default(MINUTE)
+  expires_at        DateTime?         @db.Timestamptz(6)
+  last_used_at      DateTime?         @db.Timestamptz(6)
+  status            api_key_status    @default(ACTIVE)
+  is_active         Boolean           @default(true)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @default(now()) @db.Timestamptz(6)
+  revoked_at        DateTime?         @db.Timestamptz(6)
+  api_analytics     api_analytics[]
+  apis              apis?             @relation(fields: [api_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users             User              @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  request_history   request_history[]
+
+  @@index([api_id], map: "idx_api_keys_api_id")
+  @@index([user_id], map: "idx_api_keys_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model api_reviews {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String    @db.Uuid
+  api_id      String    @db.Uuid
+  rating      Int
+  title       String?   @db.VarChar(200)
+  content     String?
+  is_verified Boolean   @default(false)
+  is_approved Boolean   @default(false)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @db.Timestamptz(6)
+  deleted_at  DateTime? @db.Timestamptz(6)
+  apis        apis      @relation(fields: [api_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users       User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, api_id], map: "api_reviews_user_api_unique")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model api_versions {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  api_id            String              @db.Uuid
+  version           String              @db.VarChar(20)
+  api_spec          Json?
+  changelog         String?
+  is_deprecated     Boolean             @default(false)
+  is_current        Boolean             @default(false)
+  released_at       DateTime            @default(now()) @db.Timestamptz(6)
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @default(now()) @db.Timestamptz(6)
+  api_documentation api_documentation[]
+  apis              apis                @relation(fields: [api_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([api_id, version], map: "api_versions_api_version_unique")
+  @@index([api_id], map: "idx_api_versions_api_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model apis {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                String                @db.VarChar(200)
+  slug                String                @unique(map: "apis_slug_unique") @db.VarChar(255)
+  description         String
+  current_version     String                @default("1.0.0") @db.VarChar(20)
+  base_url            String                @db.VarChar(500)
+  docs_url            String?               @db.VarChar(500)
+  logo_url            String?               @db.VarChar(500)
+  logo_public_id      String?               @db.VarChar(200)
+  logo_metadata       Json?
+  category_id         String                @db.Uuid
+  owner_id            String                @db.Uuid
+  pricing_model       api_pricing_model     @default(FREE)
+  pricing             Json                  @default("{}")
+  status              api_status            @default(DRAFT)
+  is_public           Boolean               @default(false)
+  api_spec            Json?
+  tags                String[]              @default([])
+  rating              Decimal               @default(0.00) @db.Decimal(3, 2)
+  total_reviews       Int                   @default(0)
+  total_subscribers   Int                   @default(0)
+  total_requests      BigInt                @default(0)
+  last_published_at   DateTime?             @db.Timestamptz(6)
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime              @default(now()) @db.Timestamptz(6)
+  deleted_at          DateTime?             @db.Timestamptz(6)
+  latency_ms          Int?                  @default(120)
+  uptime_percentage   Decimal?              @default(99.95) @db.Decimal(5, 2)
+  trending_score      Float?                @default(0.0)
+  popularity_score    Float?                @default(0.0)
+  highlights          String[]              @default([])
+  api_analytics       api_analytics[]
+  api_analytics_daily api_analytics_daily[]
+  api_documentation   api_documentation[]
+  api_keys            api_keys[]
+  api_reviews         api_reviews[]
+  api_versions        api_versions[]
+  categories          categories            @relation(fields: [category_id], references: [id], onUpdate: NoAction)
+  users               User                  @relation(fields: [owner_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  collections         collections[]
+  request_history     request_history[]
+  saved_requests      saved_requests[]
+  subscription_plans  subscription_plans[]
+  user_subscriptions  user_subscriptions[]
+
+  @@index([description(ops: raw("gin_trgm_ops"))], map: "idx_apis_description_trgm", type: Gin)
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "idx_apis_name_trgm", type: Gin)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model AuditLog {
-  id             String   @id @default(uuid())
-  timestamp      DateTime @default(now())
-  adminId        String
-  actionType     String
-  targetResource String
-  ipAddress      String
-  details        Json
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String?      @db.Uuid
+  action      audit_action
+  entity_type String       @db.VarChar(50)
+  entity_id   String?      @db.Uuid
+  old_values  Json?
+  new_values  Json?
+  ip_address  String?      @db.Inet
+  user_agent  String?
+  created_at  DateTime     @default(now()) @db.Timestamptz(6)
+  users       User?        @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+
+  @@index([action], map: "idx_audit_logs_action")
+  @@index([created_at(sort: Desc)], map: "idx_audit_logs_created_at")
+  @@index([entity_type, entity_id], map: "idx_audit_logs_entity")
+  @@index([user_id], map: "idx_audit_logs_user_id")
+  @@map("audit_logs")
 }
 
-enum ApiStatus {
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model categories {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String       @db.VarChar(100)
+  slug             String       @unique(map: "categories_slug_unique") @db.VarChar(150)
+  description      String?
+  icon_url         String?      @db.VarChar(500)
+  icon_public_id   String?      @db.VarChar(200)
+  icon_metadata    Json?
+  parent_id        String?      @db.Uuid
+  sort_order       Int          @default(0)
+  is_active        Boolean      @default(true)
+  created_at       DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime     @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?    @db.Timestamptz(6)
+  icon_name        String?      @default("Layers") @db.VarChar(50)
+  apis             apis[]
+  categories       categories?  @relation("categoriesTocategories", fields: [parent_id], references: [id], onUpdate: NoAction)
+  other_categories categories[] @relation("categoriesTocategories")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model collections {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String            @db.Uuid
+  api_id          String?           @db.Uuid
+  name            String            @db.VarChar(200)
+  description     String?
+  is_public       Boolean           @default(false)
+  is_favorite     Boolean           @default(false)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  deleted_at      DateTime?         @db.Timestamptz(6)
+  apis            apis?             @relation(fields: [api_id], references: [id], onUpdate: NoAction)
+  users           User              @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  request_history request_history[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model email_verifications {
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String            @db.Uuid
+  token_hash String            @unique(map: "email_verifications_token_unique")
+  type       verification_type @default(VERIFY_EMAIL)
+  expires_at DateTime          @db.Timestamptz(6)
+  used_at    DateTime?         @db.Timestamptz(6)
+  created_at DateTime          @default(now()) @db.Timestamptz(6)
+  attempts   Int               @default(0)
+  users      User              @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([type, expires_at], map: "idx_email_verifications_type_expires")
+  @@index([user_id], map: "idx_email_verifications_user_id")
+  @@index([user_id, type, created_at(sort: Desc)], map: "idx_email_verifications_user_type_created")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model environments {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String           @db.Uuid
+  name       String           @db.VarChar(100)
+  type       environment_type @default(DEVELOPMENT)
+  variables  Json             @default("{}")
+  is_active  Boolean          @default(false)
+  created_at DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at DateTime?        @db.Timestamptz(6)
+  users      User             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model invoices {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id            String              @db.Uuid
+  subscription_id    String?             @db.Uuid
+  invoice_number     String              @unique(map: "invoices_number_unique") @db.VarChar(50)
+  amount             Decimal             @db.Decimal(10, 2)
+  currency           String              @default("USD") @db.Char(3)
+  status             invoice_status      @default(DRAFT)
+  stripe_invoice_id  String?             @db.VarChar(255)
+  pdf_url            String?             @db.VarChar(500)
+  pdf_public_id      String?             @db.VarChar(200)
+  pdf_metadata       Json?
+  due_date           DateTime?           @db.Timestamptz(6)
+  paid_at            DateTime?           @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime            @default(now()) @db.Timestamptz(6)
+  user_subscriptions user_subscriptions? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
+  users              User                @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  payments           payments[]
+
+  @@index([user_id, created_at(sort: Desc)], map: "idx_invoices_created_at")
+  @@index([status], map: "idx_invoices_status")
+  @@index([subscription_id], map: "idx_invoices_subscription_id")
+  @@index([user_id], map: "idx_invoices_user_id")
+}
+
+model kr_activity {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id         String          @db.Uuid
+  actor_id        Int?
+  type            String
+  payload         Json?           @default("{}")
+  created_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  kr_users        kr_users?       @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_repositories kr_repositories @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model kr_branches {
+  repo_id         String          @db.Uuid
+  name            String
+  protected       Boolean         @default(false)
+  created_by      Int?
+  created_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  kr_users        kr_users?       @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_repositories kr_repositories @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([repo_id, name])
+}
+
+model kr_ci_runs {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id         String          @db.Uuid
+  commit_sha      String?
+  branch          String?
+  type            String          @default("build")
+  status          String          @default("pending")
+  log             String?         @default("")
+  summary         String?         @default("")
+  started_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  finished_at     DateTime?       @db.Timestamptz(6)
+  kr_repositories kr_repositories @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model kr_collaborators {
+  repo_id         String          @db.Uuid
+  user_id         Int
+  role            String          @default("developer")
+  created_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  kr_repositories kr_repositories @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kr_users        kr_users        @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([repo_id, user_id])
+}
+
+model kr_deployments {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id         String          @db.Uuid
+  release_id      String?         @db.Uuid
+  environment     String          @default("production")
+  status          String          @default("pending")
+  log             String?         @default("")
+  created_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  finished_at     DateTime?       @db.Timestamptz(6)
+  kr_releases     kr_releases?    @relation(fields: [release_id], references: [id], onUpdate: NoAction)
+  kr_repositories kr_repositories @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model kr_invoices {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           Int
+  subscription_id   String?           @db.Uuid
+  invoice_number    String            @unique
+  amount_cents      Int
+  currency          String            @default("USD") @db.Char(3)
+  status            String            @default("draft")
+  stripe_invoice_id String?
+  pdf_url           String?
+  due_date          DateTime?         @db.Timestamptz(6)
+  paid_at           DateTime?         @db.Timestamptz(6)
+  metadata          Json?
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @default(now()) @db.Timestamptz(6)
+  kr_subscriptions  kr_subscriptions? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
+  kr_users          kr_users          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kr_payments       kr_payments[]
+}
+
+model kr_issue_comments {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  issue_id   String    @db.Uuid
+  author_id  Int
+  body       String
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  kr_users   kr_users  @relation(fields: [author_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_issues  kr_issues @relation(fields: [issue_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model kr_issues {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id           String              @db.Uuid
+  number            Int
+  title             String
+  body              String?             @default("")
+  author_id         Int
+  status            String              @default("open")
+  created_at        DateTime?           @default(now()) @db.Timestamptz(6)
+  closed_at         DateTime?           @db.Timestamptz(6)
+  kr_issue_comments kr_issue_comments[]
+  kr_users          kr_users            @relation(fields: [author_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_repositories   kr_repositories     @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([repo_id, number])
+}
+
+model kr_marketplace_listings {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id         String          @db.Uuid
+  release_id      String?         @db.Uuid
+  name            String
+  tagline         String?         @default("")
+  description     String?         @default("")
+  category        String?         @default("other")
+  pricing_type    String          @default("free")
+  price_cents     Int?            @default(0)
+  docs_url        String?         @default("")
+  requirements    String?         @default("")
+  status          String          @default("draft")
+  created_by      Int?
+  created_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  published_at    DateTime?       @db.Timestamptz(6)
+  kr_users        kr_users?       @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_releases     kr_releases?    @relation(fields: [release_id], references: [id], onUpdate: NoAction)
+  kr_repositories kr_repositories @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kr_plans        kr_plans[]
+}
+
+model kr_payments {
+  id                     String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                Int
+  subscription_id        String?           @db.Uuid
+  invoice_id             String?           @db.Uuid
+  amount_cents           Int
+  currency               String            @default("USD") @db.Char(3)
+  status                 String            @default("pending")
+  stripe_payment_id      String?
+  payment_method         String?
+  payment_method_details Json?
+  failure_reason         String?
+  created_at             DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime          @default(now()) @db.Timestamptz(6)
+  kr_invoices            kr_invoices?      @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  kr_subscriptions       kr_subscriptions? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
+  kr_users               kr_users          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model kr_plans {
+  id                      String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id                 String?                  @db.Uuid
+  listing_id              String?                  @db.Uuid
+  name                    String
+  slug                    String
+  description             String?                  @default("")
+  billing_interval        String                   @default("monthly")
+  price_cents             Int                      @default(0)
+  currency                String                   @default("USD") @db.Char(3)
+  features                Json                     @default("[]")
+  rate_limit              Int?
+  rate_limit_period       String?
+  is_active               Boolean                  @default(true)
+  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  deleted_at              DateTime?                @db.Timestamptz(6)
+  kr_marketplace_listings kr_marketplace_listings? @relation(fields: [listing_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kr_repositories         kr_repositories?         @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kr_subscriptions        kr_subscriptions[]
+
+  @@unique([listing_id, slug])
+}
+
+model kr_pr_comments {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pr_id            String           @db.Uuid
+  author_id        Int
+  body             String
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
+  kr_users         kr_users         @relation(fields: [author_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_pull_requests kr_pull_requests @relation(fields: [pr_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model kr_pr_reviews {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pr_id            String           @db.Uuid
+  reviewer_id      Int
+  state            String
+  body             String?          @default("")
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
+  kr_pull_requests kr_pull_requests @relation(fields: [pr_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kr_users         kr_users         @relation(fields: [reviewer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model kr_pull_requests {
+  id                                            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id                                       String           @db.Uuid
+  number                                        Int
+  title                                         String
+  body                                          String?          @default("")
+  source_branch                                 String
+  target_branch                                 String
+  author_id                                     Int
+  status                                        String           @default("open")
+  reviewers                                     Json?            @default("[]")
+  merged_by                                     Int?
+  merged_at                                     DateTime?        @db.Timestamptz(6)
+  created_at                                    DateTime?        @default(now()) @db.Timestamptz(6)
+  kr_pr_comments                                kr_pr_comments[]
+  kr_pr_reviews                                 kr_pr_reviews[]
+  kr_users_kr_pull_requests_author_idTokr_users kr_users         @relation("kr_pull_requests_author_idTokr_users", fields: [author_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_users_kr_pull_requests_merged_byTokr_users kr_users?        @relation("kr_pull_requests_merged_byTokr_users", fields: [merged_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_repositories                               kr_repositories  @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([repo_id, number])
+}
+
+model kr_releases {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id                 String                    @db.Uuid
+  tag_name                String
+  name                    String
+  notes                   String?                   @default("")
+  prerelease              Boolean                   @default(false)
+  status                  String                    @default("draft")
+  latest                  Boolean                   @default(false)
+  created_by              Int?
+  created_at              DateTime?                 @default(now()) @db.Timestamptz(6)
+  kr_deployments          kr_deployments[]
+  kr_marketplace_listings kr_marketplace_listings[]
+  kr_users                kr_users?                 @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_repositories         kr_repositories           @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model kr_repositories {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                    String                    @unique
+  owner_id                Int
+  description             String?                   @default("")
+  visibility              String                    @default("private")
+  license                 String?                   @default("MIT")
+  language                String?                   @default("TypeScript")
+  framework               String?                   @default("")
+  default_branch          String                    @default("main")
+  deploy_status           String                    @default("not_deployed")
+  detect_json             Json?
+  created_at              DateTime?                 @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime?                 @default(now()) @db.Timestamptz(6)
+  website                 String?                   @default("")
+  topics                  String?                   @default("")
+  kr_activity             kr_activity[]
+  kr_branches             kr_branches[]
+  kr_ci_runs              kr_ci_runs[]
+  kr_collaborators        kr_collaborators[]
+  kr_deployments          kr_deployments[]
+  kr_issues               kr_issues[]
+  kr_marketplace_listings kr_marketplace_listings[]
+  kr_plans                kr_plans[]
+  kr_pull_requests        kr_pull_requests[]
+  kr_releases             kr_releases[]
+  kr_users                kr_users                  @relation(fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_tags                 kr_tags[]
+}
+
+model kr_subscriptions {
+  id                     String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                Int
+  plan_id                String        @db.Uuid
+  status                 String        @default("active")
+  period_start           DateTime      @default(now()) @db.Timestamptz(6)
+  period_end             DateTime?     @db.Timestamptz(6)
+  auto_renew             Boolean       @default(true)
+  stripe_subscription_id String?
+  cancelled_at           DateTime?     @db.Timestamptz(6)
+  created_at             DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime      @default(now()) @db.Timestamptz(6)
+  kr_invoices            kr_invoices[]
+  kr_payments            kr_payments[]
+  kr_plans               kr_plans      @relation(fields: [plan_id], references: [id], onUpdate: NoAction)
+  kr_users               kr_users      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, plan_id])
+}
+
+model kr_tags {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repo_id         String          @db.Uuid
+  name            String
+  commit_sha      String?
+  message         String?         @default("")
+  created_by      Int?
+  created_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  kr_users        kr_users?       @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kr_repositories kr_repositories @relation(fields: [repo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([repo_id, name])
+}
+
+model kr_tokens {
+  token      String    @id
+  user_id    Int
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  kr_users   kr_users  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model kr_users {
+  id                                                    Int                       @id @default(autoincrement())
+  username                                              String                    @unique
+  email                                                 String?                   @unique
+  password_hash                                         String
+  display_name                                          String?
+  avatar_color                                          String?                   @default("#8b5cf6")
+  created_at                                            DateTime?                 @default(now()) @db.Timestamptz(6)
+  kr_activity                                           kr_activity[]
+  kr_branches                                           kr_branches[]
+  kr_collaborators                                      kr_collaborators[]
+  kr_invoices                                           kr_invoices[]
+  kr_issue_comments                                     kr_issue_comments[]
+  kr_issues                                             kr_issues[]
+  kr_marketplace_listings                               kr_marketplace_listings[]
+  kr_payments                                           kr_payments[]
+  kr_pr_comments                                        kr_pr_comments[]
+  kr_pr_reviews                                         kr_pr_reviews[]
+  kr_pull_requests_kr_pull_requests_author_idTokr_users kr_pull_requests[]        @relation("kr_pull_requests_author_idTokr_users")
+  kr_pull_requests_kr_pull_requests_merged_byTokr_users kr_pull_requests[]        @relation("kr_pull_requests_merged_byTokr_users")
+  kr_releases                                           kr_releases[]
+  kr_repositories                                       kr_repositories[]
+  kr_subscriptions                                      kr_subscriptions[]
+  kr_tags                                               kr_tags[]
+  kr_tokens                                             kr_tokens[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notification_preferences {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                 String   @unique(map: "notification_preferences_user_unique") @db.Uuid
+  email_enabled           Boolean  @default(true)
+  in_app_enabled          Boolean  @default(true)
+  push_enabled            Boolean  @default(true)
+  billing_notifications   Boolean  @default(true)
+  system_notifications    Boolean  @default(true)
+  api_notifications       Boolean  @default(true)
+  security_notifications  Boolean  @default(true)
+  marketing_notifications Boolean  @default(false)
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime @default(now()) @db.Timestamptz(6)
+  users                   User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notifications {
+  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String                @db.Uuid
+  type       notification_type     @default(IN_APP)
+  category   notification_category @default(SYSTEM)
+  title      String                @db.VarChar(200)
+  content    String?
+  data       Json                  @default("{}")
+  is_read    Boolean               @default(false)
+  read_at    DateTime?             @db.Timestamptz(6)
+  created_at DateTime              @default(now()) @db.Timestamptz(6)
+  users      User                  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, category], map: "idx_notifications_category")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_notifications_created_at")
+  @@index([user_id], map: "idx_notifications_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payments {
+  id                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String              @db.Uuid
+  subscription_id        String?             @db.Uuid
+  invoice_id             String?             @db.Uuid
+  amount                 Decimal             @db.Decimal(10, 2)
+  currency               String              @default("USD") @db.Char(3)
+  status                 payment_status      @default(PENDING)
+  stripe_payment_id      String?             @db.VarChar(255)
+  payment_method         String?             @db.VarChar(50)
+  payment_method_details Json?
+  failure_reason         String?
+  created_at             DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime            @default(now()) @db.Timestamptz(6)
+  invoices               invoices?           @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  user_subscriptions     user_subscriptions? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
+  users                  User                @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, created_at(sort: Desc)], map: "idx_payments_created_at")
+  @@index([invoice_id], map: "idx_payments_invoice_id")
+  @@index([status], map: "idx_payments_status")
+  @@index([subscription_id], map: "idx_payments_subscription_id")
+  @@index([user_id], map: "idx_payments_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model request_history {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String         @db.Uuid
+  api_id           String?        @db.Uuid
+  api_key_id       String?        @db.Uuid
+  collection_id    String?        @db.Uuid
+  method           request_method
+  url              String
+  headers          Json           @default("{}")
+  query_params     Json           @default("{}")
+  body             Json?
+  response_status  Int?
+  response_body    Json?
+  response_headers Json?
+  latency_ms       Int?
+  error_message    String?
+  created_at       DateTime       @default(now()) @db.Timestamptz(6)
+  apis             apis?          @relation(fields: [api_id], references: [id], onUpdate: NoAction)
+  api_keys         api_keys?      @relation(fields: [api_key_id], references: [id], onUpdate: NoAction)
+  collections      collections?   @relation(fields: [collection_id], references: [id], onUpdate: NoAction)
+  users            User           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([api_id], map: "idx_request_history_api_id")
+  @@index([api_key_id], map: "idx_request_history_api_key_id")
+  @@index([collection_id], map: "idx_request_history_collection_id")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_request_history_created_at")
+  @@index([method], map: "idx_request_history_method")
+  @@index([user_id], map: "idx_request_history_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model saved_requests {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id      String         @db.Uuid
+  api_id       String?        @db.Uuid
+  name         String         @db.VarChar(200)
+  method       request_method
+  url          String
+  headers      Json           @default("{}")
+  query_params Json           @default("{}")
+  body         Json?
+  description  String?
+  created_at   DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime       @default(now()) @db.Timestamptz(6)
+  deleted_at   DateTime?      @db.Timestamptz(6)
+  apis         apis?          @relation(fields: [api_id], references: [id], onUpdate: NoAction)
+  users        User           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model subscription_plans {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  api_id             String               @db.Uuid
+  name               String               @db.VarChar(100)
+  slug               String               @db.VarChar(150)
+  description        String?
+  price              Decimal              @default(0.00) @db.Decimal(10, 2)
+  currency           String               @default("USD") @db.Char(3)
+  billing_interval   billing_interval     @default(MONTHLY)
+  features           Json                 @default("[]")
+  rate_limit         Int?
+  rate_limit_period  rate_limit_period?
+  is_active          Boolean              @default(true)
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime             @default(now()) @db.Timestamptz(6)
+  deleted_at         DateTime?            @db.Timestamptz(6)
+  apis               apis                 @relation(fields: [api_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_subscriptions user_subscriptions[]
+
+  @@unique([api_id, slug], map: "subscription_plans_api_slug_unique")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model system_settings {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String   @unique(map: "system_settings_key_unique") @db.VarChar(100)
+  value       Json
+  description String?
+  is_public   Boolean  @default(false)
+  updated_by  String?  @db.Uuid
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+  users       User?    @relation(fields: [updated_by], references: [id], onUpdate: NoAction)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_sessions {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id            String    @db.Uuid
+  refresh_token_hash String    @unique(map: "user_sessions_refresh_token_unique")
+  user_agent         String?
+  ip_address         String?   @db.Inet
+  expires_at         DateTime  @db.Timestamptz(6)
+  revoked_at         DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  last_active_at     DateTime  @default(now()) @db.Timestamptz(6)
+  users              User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at(sort: Desc)], map: "idx_user_sessions_created_at")
+  @@index([user_id], map: "idx_user_sessions_user_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_subscriptions {
+  id                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String              @db.Uuid
+  api_id                 String              @db.Uuid
+  plan_id                String              @db.Uuid
+  status                 subscription_status @default(ACTIVE)
+  period_start           DateTime            @default(now()) @db.Timestamptz(6)
+  period_end             DateTime?           @db.Timestamptz(6)
+  auto_renew             Boolean             @default(true)
+  stripe_subscription_id String?             @db.VarChar(255)
+  cancelled_at           DateTime?           @db.Timestamptz(6)
+  created_at             DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime            @default(now()) @db.Timestamptz(6)
+  invoices               invoices[]
+  payments               payments[]
+  apis                   apis                @relation(fields: [api_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  subscription_plans     subscription_plans  @relation(fields: [plan_id], references: [id], onUpdate: NoAction)
+  users                  User                @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, api_id], map: "user_subscriptions_user_api_unique")
+  @@index([api_id], map: "idx_user_subscriptions_api_id")
+  @@index([plan_id], map: "idx_user_subscriptions_plan_id")
+  @@index([status], map: "idx_user_subscriptions_status")
+  @@index([user_id], map: "idx_user_subscriptions_user_id")
+}
+
+enum api_key_status {
   ACTIVE
-  DEPRECATED
-  TRIPPED
+  REVOKED
+  EXPIRED
 }
 
-model ApiRoute {
-  id             String    @id @default(uuid())
-  endpointPath   String
-  status         ApiStatus @default(ACTIVE)
-  currentVersion String
-  canaryWeight   Int       @default(0)
+enum api_pricing_model {
+  FREE
+  FREEMIUM
+  PAID
+  ENTERPRISE
 }
 
-enum TransactionType {
-  CHARGE
-  REFUND
-  DISPUTE
+enum api_status {
+  DRAFT
+  PENDING
+  PUBLISHED
+  REJECTED
+  ARCHIVED
 }
 
-model FinancialTransaction {
-  id        String          @id @default(uuid())
-  userId    String
-  amount    Decimal
-  type      TransactionType
-  status    String
-  createdAt DateTime        @default(now())
+enum audit_action {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  IMPORT
+  APPROVE
+  REJECT
+  SUSPEND
+  BAN
+}
+
+enum billing_interval {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+enum doc_content_type {
+  MARKDOWN
+  OPENAPI
+  HTML
+}
+
+enum environment_type {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+  TEST
+}
+
+enum invoice_status {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum notification_category {
+  BILLING
+  SYSTEM
+  API
+  SECURITY
+  MARKETING
+}
+
+enum notification_type {
+  EMAIL
+  IN_APP
+  PUSH
+  WEBHOOK
+}
+
+enum payment_status {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum rate_limit_period {
+  SECOND
+  MINUTE
+  HOUR
+  DAY
+}
+
+enum request_method {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+  HEAD
+  OPTIONS
+}
+
+enum subscription_status {
+  TRIALING
+  ACTIVE
+  PAUSED
+  CANCELLED
+  EXPIRED
+}
+
+enum user_role {
+  USER
+  PROVIDER
+  MODERATOR
+  ADMIN
+}
+
+enum user_status {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum verification_type {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+  REACTIVATE_ACCOUNT
 }

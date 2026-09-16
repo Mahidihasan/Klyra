@@ -36,13 +36,7 @@ interface ApiRequest {
   description: string;
 }
 
-const INITIAL_DATA: ApiRequest[] = [
-  { id: '1', name: 'Global Payment Gateway', provider: 'Stripe Co.', version: '2.1.0', submitted: '2 hours ago', status: 'PENDING', description: 'Unified payment processing API.' },
-  { id: '2', name: 'DeepSeek LLM Inference', provider: 'AI Labs', version: '1.0.0', submitted: '5 hours ago', status: 'PENDING', description: 'Low latency inference.' },
-  { id: '3', name: 'Real-time Flight Data', provider: 'AeroAPI', version: '1.4.2', submitted: '1 day ago', status: 'PENDING', description: 'Live tracking of flights.' },
-  { id: '4', name: 'Weather Forecast Pro', provider: 'MeteoCorp', version: '3.0.1', submitted: '2 days ago', status: 'APPROVED', description: 'High resolution weather data.' },
-  { id: '5', name: 'Legacy Auth V1', provider: 'Internal', version: '1.0.0', submitted: '1 week ago', status: 'REJECTED', description: 'Deprecated authentication method.' },
-];
+
 
 const getAvatarColor = (name: string) => {
   const colors = ['from-indigo-500 to-purple-500', 'from-pink-500 to-rose-500', 'from-emerald-400 to-cyan-400', 'from-amber-400 to-orange-500'];
@@ -138,7 +132,7 @@ const SortableCard = ({ api, onClick, isOverlay = false }: { api: ApiRequest, on
 };
 
 // Column Component
-const Column = ({ id, title, icon: Icon, colorClass, apis, onReview }: any) => {
+const Column = ({ id, title, icon: Icon, colorClass, apis, onReview, isLoading }: any) => {
   const { setNodeRef } = useSortable({
     id,
     data: { type: 'Column', id },
@@ -156,13 +150,20 @@ const Column = ({ id, title, icon: Icon, colorClass, apis, onReview }: any) => {
         </div>
       </div>
       
-      <div ref={setNodeRef} className="flex-1 p-3 flex flex-col gap-3 overflow-y-auto">
-        {apis.length === 0 ? (
+      <div ref={setNodeRef} className="flex-1 p-3 flex flex-col gap-3 overflow-y-auto min-h-[150px]">
+        {isLoading ? (
           <>
             <SortableCardSkeleton />
             <SortableCardSkeleton />
             <SortableCardSkeleton />
           </>
+        ) : apis.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full flex-1 py-12 opacity-60 select-none">
+            <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3 border border-white/5 shadow-inner">
+              <Icon size={20} className="text-white/40" />
+            </div>
+            <p className="text-[13px] font-medium text-white/40">No {title.toLowerCase()}</p>
+          </div>
         ) : (
           <SortableContext items={apis.map((a: any) => a.id)} strategy={verticalListSortingStrategy}>
             {apis.map((api: any) => (
@@ -219,29 +220,33 @@ export const ApprovalQueue = () => {
     const fetchApis = async () => {
       try {
         const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-        const res = await fetch('/api/v1/admin/apis/queue', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const res = await fetch('/api/v1/admin/apis');
         
         if (res.ok) {
           const json = await res.json();
-          // Assuming backend returns an array of mapped ApiRequests, or Prisma models
           const data = json.data || json;
-          const mapped: ApiRequest[] = Array.isArray(data) ? data.map((api: any) => ({
-            id: api.id,
-            name: api.endpointPath || api.name || 'Unknown Route',
-            provider: 'Internal API',
-            version: api.currentVersion || api.version || '1.0.0',
-            submitted: 'Just now',
-            status: api.status === 'ACTIVE' ? 'APPROVED' : (api.status === 'DEPRECATED' ? 'REJECTED' : (api.status === 'TRIPPED' ? 'PENDING' : api.status || 'PENDING')),
-            description: api.description || `Traffic canary weight: ${api.canaryWeight || 0}%`
-          })) : [];
-          setApis(mapped.length > 0 ? mapped : INITIAL_DATA);
+          const mapped: ApiRequest[] = Array.isArray(data) ? data.map((api: any) => {
+            let mappedStatus: ApiStatus = 'PENDING';
+            if (api.status === 'ACTIVE') mappedStatus = 'APPROVED';
+            else if (api.status === 'DEPRECATED' || api.status === 'MAINTENANCE') mappedStatus = 'REJECTED';
+            
+            return {
+              id: api.id,
+              name: api.name || 'Unknown API',
+              provider: api.users?.name || 'Internal',
+              version: api.current_version || '1.0.0',
+              submitted: new Date(api.created_at).toLocaleDateString(),
+              status: mappedStatus,
+              description: api.description || 'No description provided.'
+            };
+          }) : [];
+          setApis(mapped);
         } else {
-          setApis(INITIAL_DATA); // Fallback to mock on error
+          setApis([]);
         }
       } catch (err) {
-        setApis(INITIAL_DATA);
+        setApis([]);
+        toast.error("Failed to load APIs");
       } finally {
         setLoading(false);
       }
@@ -325,21 +330,17 @@ export const ApprovalQueue = () => {
       const originalStatus = originalStatusRef.current;
       
       if (newStatus === 'APPROVED' || newStatus === 'REJECTED') {
-        const action = newStatus === 'APPROVED' ? 'APPROVE' : 'REJECT';
+        const dbStatus = newStatus === 'APPROVED' ? 'ACTIVE' : 'DEPRECATED';
         
         const moderatePromise = (async () => {
-          const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-          const res = await fetch(`/api/v1/admin/apis/${draggedId}/moderate`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ action })
+          const res = await fetch(`/api/v1/admin/apis/${draggedId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: dbStatus })
           });
           if (!res.ok) {
             const err = await res.json();
-            throw new Error(err.error || 'Server rejected moderation');
+            throw new Error(err.error?.message || err.error || 'Server rejected moderation');
           }
           return await res.json();
         })();
@@ -396,6 +397,7 @@ export const ApprovalQueue = () => {
               colorClass="text-amber-400 bg-amber-400/5"
               apis={pending}
               onReview={setReviewingApi}
+              isLoading={loading}
             />
           </div>
           <div className={`flex flex-col min-w-0 transition-all duration-500 rounded-2xl ${activeColumnId === 'APPROVED' ? 'shadow-[0_0_40px_rgba(16,185,129,0.2)]' : ''}`}>
@@ -406,6 +408,7 @@ export const ApprovalQueue = () => {
               colorClass="text-emerald-400 bg-emerald-400/5"
               apis={approved}
               onReview={setReviewingApi}
+              isLoading={loading}
             />
           </div>
           <div className={`flex flex-col min-w-0 transition-all duration-500 rounded-2xl ${activeColumnId === 'REJECTED' ? 'shadow-[0_0_40px_rgba(244,63,94,0.2)]' : ''}`}>
@@ -416,6 +419,7 @@ export const ApprovalQueue = () => {
               colorClass="text-rose-400 bg-rose-400/5"
               apis={rejected}
               onReview={setReviewingApi}
+              isLoading={loading}
             />
           </div>
         </div>

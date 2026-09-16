@@ -99,6 +99,15 @@ router.use('/subscriptions', adminSubscriptionsRouter);
 router.use('/usage', adminUsageRouter);
 router.use('/activity', adminActivityRouter);
 
+import { adminSettingsRouter } from './admin.settings.routes';
+router.use('/settings', adminSettingsRouter);
+
+import { adminSecurityRouter } from './admin.security.routes';
+router.use('/security', adminSecurityRouter);
+
+import { adminFinancesRouter } from './admin.finances.routes';
+router.use('/finances', adminFinancesRouter);
+
 // ============ Platform Overview (everything the screen needs) ============
 router.post('/platform/acknowledge-alerts', PlatformController.acknowledgeAlerts);
 router.get('/platform/export-metrics', PlatformController.exportMetrics);

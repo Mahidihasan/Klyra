@@ -1,51 +1,10 @@
-import React, { useState, useRef } from 'react';
-import { Zap, Save, Archive, Plus, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Zap, Save, Archive, Plus, ShieldCheck, Trash2, DollarSign, Edit3 } from 'lucide-react';
 import { motion } from 'framer-motion';
-
-const INITIAL_PLANS = [
-  { 
-    id: 'free', 
-    name: 'Freemium', 
-    price: 0, 
-    interval: 'month', 
-    limit: '100 req/min', 
-    isPopular: false,
-    features: [
-      { id: 'f1', name: 'Public APIs Access', enabled: true }, 
-      { id: 'f2', name: 'Community Forum Support', enabled: true },
-      { id: 'f3', name: 'Custom Gateway Overrides', enabled: false },
-      { id: 'f4', name: 'Dedicated IP Address', enabled: false }
-    ] 
-  },
-  { 
-    id: 'pro', 
-    name: 'Professional', 
-    price: 49, 
-    interval: 'month', 
-    limit: '5,000 req/min', 
-    isPopular: true,
-    features: [
-      { id: 'p1', name: 'Premium APIs Access', enabled: true }, 
-      { id: 'p2', name: 'Priority Email Support', enabled: true }, 
-      { id: 'p3', name: 'Custom Gateway Overrides', enabled: true },
-      { id: 'p4', name: 'Dedicated IP Address', enabled: false }
-    ] 
-  },
-  { 
-    id: 'ent', 
-    name: 'Enterprise', 
-    price: 299, 
-    interval: 'month', 
-    limit: 'Unlimited', 
-    isPopular: false,
-    features: [
-      { id: 'e1', name: 'All Premium APIs', enabled: true }, 
-      { id: 'e2', name: '24/7 Phone Support & SLA', enabled: true }, 
-      { id: 'e3', name: 'Custom Gateway Overrides', enabled: true },
-      { id: 'e4', name: 'Dedicated IP Address', enabled: true }
-    ] 
-  },
-];
+import { toast } from 'react-hot-toast';
+import { PlanManagerModal } from './PlanManagerModal';
+import { PlanPricingModal } from './PlanPricingModal';
+import { DeletePlanModal } from './DeletePlanModal';
 
 // Magnetic Button Component
 const MagneticButton = ({ children, onClick }: { children: React.ReactNode, onClick: () => void }) => {
@@ -99,16 +58,98 @@ const ToggleSwitch = ({ enabled, onToggle }: { enabled: boolean, onToggle: () =>
 };
 
 export const PlanManager = () => {
-  const [plans, setPlans] = useState(INITIAL_PLANS);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [selectedPlanForPricing, setSelectedPlanForPricing] = useState<any>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [selectedPlanForDelete, setSelectedPlanForDelete] = useState<any>(null);
+  const [selectedPlanForEdit, setSelectedPlanForEdit] = useState<any>(null);
+
+  const fetchPlans = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch('/api/v1/admin/finances/plans', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPlans(data.data.filter((p: any) => p.is_active !== false));
+      }
+    } catch (err) {
+      console.error('Failed to fetch plans', err);
+      toast.error('Failed to load subscription plans');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPlans();
+  }, [fetchPlans]);
 
   const toggleFeature = (planId: string, featureId: string) => {
     setPlans(prev => prev.map(plan => {
       if (plan.id !== planId) return plan;
-      return {
-        ...plan,
-        features: plan.features.map(f => f.id === featureId ? { ...f, enabled: !f.enabled } : f)
-      };
+      
+      let parsedFeatures = plan.features;
+      if (typeof parsedFeatures === 'string') parsedFeatures = JSON.parse(parsedFeatures);
+
+      const newFeatures = (parsedFeatures || []).map((f: any) => 
+        f.id === featureId ? { ...f, enabled: !f.enabled } : f
+      );
+      
+      return { ...plan, features: newFeatures };
     }));
+  };
+
+  const handleSavePlan = async (plan: any) => {
+    const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+    const savePromise = fetch(`/api/v1/admin/finances/plans/${plan.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        features: plan.features
+      })
+    }).then(async res => {
+      if (!res.ok) throw new Error('Save failed');
+      return res.json();
+    });
+
+    toast.promise(savePromise, {
+      loading: 'Saving plan rules...',
+      success: 'Plan updated successfully!',
+      error: 'Failed to update plan.'
+    }, { style: { background: '#18181b', color: '#fff', border: '1px solid #27272a' } });
+  };
+
+  const handleDeletePlan = async () => {
+    if (!selectedPlanForDelete) return;
+    const planId = selectedPlanForDelete.id;
+    
+    const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+    const deletePromise = fetch(`/api/v1/admin/finances/plans/${planId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(async res => {
+      if (!res.ok) throw new Error('Delete failed');
+      return res.json();
+    }).then(res => {
+      if (res.success) {
+        fetchPlans();
+      }
+      return res;
+    });
+
+    toast.promise(deletePromise, {
+      loading: 'Deleting plan...',
+      success: 'Plan successfully removed/archived!',
+      error: 'Failed to delete plan.'
+    }, { style: { background: '#4c0519', color: '#fff', border: '1px solid #9f1239' } });
   };
 
   return (
@@ -122,14 +163,23 @@ export const PlanManager = () => {
           <p className="text-sm text-white/50 mt-1">Design and manage subscription tiers. Toggle features instantly.</p>
         </div>
         
-        <MagneticButton onClick={() => console.log('Draft New Plan')}>
+        <MagneticButton onClick={() => setIsModalOpen(true)}>
           <Plus size={16} /> Draft New Plan
         </MagneticButton>
       </div>
 
       <div className="grid grid-cols-3 gap-8 relative z-10">
-        {plans.map(plan => (
-          <div key={plan.id} className="relative group">
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-[500px] rounded-3xl bg-[#0a0a0f]/60 border border-white/5 animate-pulse" />
+          ))
+        ) : plans.map(plan => {
+          let features = plan.features;
+          if (typeof features === 'string') features = JSON.parse(features);
+          if (!Array.isArray(features)) features = [];
+
+          return (
+            <div key={plan.id} className="relative group">
             
             {/* Glowing Tier Indication (Behind the Card) */}
             {plan.isPopular && (
@@ -150,21 +200,38 @@ export const PlanManager = () => {
               )}
 
               <div className="mb-8">
-                <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-mono font-bold text-white">${plan.price}</span>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xl font-bold text-white">{plan.name}</h3>
+                  <button 
+                    onClick={() => { setSelectedPlanForEdit(plan); setIsModalOpen(true); }}
+                    className="p-1.5 rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+                  >
+                    <Edit3 size={16} />
+                  </button>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  {features.find((f: any) => f.id === 'discount_percent' && f.value > 0) ? (
+                    <>
+                      <span className="text-xl font-mono font-bold text-white/30 line-through">${plan.price}</span>
+                      <span className="text-4xl font-mono font-bold text-emerald-400">
+                        ${(plan.price * (1 - features.find((f: any) => f.id === 'discount_percent').value / 100)).toFixed(2)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-4xl font-mono font-bold text-white">${plan.price}</span>
+                  )}
                   <span className="text-sm text-white/40">/{plan.interval}</span>
                 </div>
               </div>
 
-              <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/5 mb-8">
+              <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/5 mb-8 flex justify-between items-center">
                 <div className="text-[11px] uppercase tracking-wider text-white/40 font-semibold mb-1">Global Rate Limit</div>
                 <div className="font-mono text-indigo-400 font-bold">{plan.limit}</div>
               </div>
               
               {/* Tactile Feature Toggles */}
               <div className="flex-1 flex flex-col gap-5">
-                {plan.features.map(feature => (
+                {features.map((feature: any) => (
                   <div key={feature.id} className="flex items-center justify-between group/feature">
                     <div className={`text-[13px] font-medium transition-colors ${feature.enabled ? 'text-white/90' : 'text-white/30 line-through'}`}>
                       {feature.name}
@@ -177,15 +244,51 @@ export const PlanManager = () => {
                 ))}
               </div>
 
-              <div className="mt-10 pt-6 border-t border-white/5">
-                <button className="w-full py-3 rounded-xl border border-white/10 text-white/50 font-semibold text-sm hover:bg-white/5 hover:text-white transition-colors flex items-center justify-center gap-2">
+              <div className="mt-8 pt-6 border-t border-white/5 flex flex-col gap-3">
+                <button 
+                  onClick={() => handleSavePlan(plan)}
+                  className="w-full py-2.5 rounded-xl border border-white/10 text-white/50 font-semibold text-sm hover:bg-indigo-500/20 hover:text-white hover:border-indigo-500/50 transition-colors flex items-center justify-center gap-2">
                   <ShieldCheck size={16} /> Save Plan Rules
                 </button>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => { setSelectedPlanForPricing(plan); setPricingModalOpen(true); }}
+                    className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/50 font-semibold text-sm hover:bg-emerald-500/20 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors flex items-center justify-center gap-2">
+                    <DollarSign size={16} /> Pricing
+                  </button>
+                  <button 
+                    onClick={() => { setSelectedPlanForDelete(plan); setDeleteModalOpen(true); }}
+                    className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/50 font-semibold text-sm hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/50 transition-colors flex items-center justify-center gap-2">
+                    <Trash2 size={16} /> Delete
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
+
+      <PlanManagerModal 
+        isOpen={isModalOpen} 
+        onClose={() => { setIsModalOpen(false); setSelectedPlanForEdit(null); }} 
+        onPlanCreated={fetchPlans}
+        planToEdit={selectedPlanForEdit}
+      />
+
+      <PlanPricingModal 
+        isOpen={pricingModalOpen}
+        onClose={() => { setPricingModalOpen(false); setSelectedPlanForPricing(null); }}
+        plan={selectedPlanForPricing}
+        onPlanUpdated={fetchPlans}
+      />
+
+      <DeletePlanModal
+        isOpen={deleteModalOpen}
+        onClose={() => { setDeleteModalOpen(false); setSelectedPlanForDelete(null); }}
+        onConfirm={handleDeletePlan}
+        planName={selectedPlanForDelete?.name || ''}
+      />
     </div>
   );
 };

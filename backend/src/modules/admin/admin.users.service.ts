@@ -618,7 +618,7 @@ export async function updateUserRole(
 
     await writeAuditRow(client, {
       actorId: actor.id,
-      action: 'USER_ROLE_CHANGED',
+      action: 'UPDATE',
       entityId: targetId,
       oldValues: { role: target.role },
       newValues: { role: nextRole },

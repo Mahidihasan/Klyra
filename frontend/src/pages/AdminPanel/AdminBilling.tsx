@@ -5,14 +5,14 @@ import { TrendingUp, CreditCard, Activity, DollarSign, ArrowUpRight, ArrowDownRi
 import { motion, useSpring, useTransform } from 'framer-motion';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-const REVENUE_DATA = [
-  { month: 'Jan', mrr: 22000, new: 1200 },
-  { month: 'Feb', mrr: 28000, new: 2100 },
-  { month: 'Mar', mrr: 35000, new: 1800 },
-  { month: 'Apr', mrr: 42000, new: 2800 },
-  { month: 'May', mrr: 48000, new: 3100 },
-  { month: 'Jun', mrr: 52000, new: 2500 },
-  { month: 'Jul', mrr: 58000, new: 4200 },
+const DEFAULT_REVENUE_DATA = [
+  { month: 'Jan', mrr: 0, new: 0 },
+  { month: 'Feb', mrr: 0, new: 0 },
+  { month: 'Mar', mrr: 0, new: 0 },
+  { month: 'Apr', mrr: 0, new: 0 },
+  { month: 'May', mrr: 0, new: 0 },
+  { month: 'Jun', mrr: 0, new: 0 },
+  { month: 'Jul', mrr: 0, new: 0 },
 ];
 
 const RollingNumber = ({ value, prefix = '', suffix = '' }: { value: number, prefix?: string, suffix?: string }) => {
@@ -53,6 +53,28 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export const AdminBilling = () => {
   const [activeView, setActiveView] = useState<'DASHBOARD' | 'PLANS' | 'LEDGER'>('DASHBOARD');
+  const [metrics, setMetrics] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/finances/metrics', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          setMetrics(data.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch metrics', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchMetrics();
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0f] overflow-hidden">
@@ -91,8 +113,11 @@ export const AdminBilling = () => {
             <div className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-t from-[#0a0a0f] via-transparent to-[#0a0a0f]/50" />
             
             <div className="absolute inset-0 z-0 h-[120%] -bottom-[20%]">
+              {isLoading ? (
+                <div className="w-full h-[300px] animate-pulse bg-white/5" />
+              ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={REVENUE_DATA} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                <AreaChart data={metrics?.revenueData || DEFAULT_REVENUE_DATA} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorMrr" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#818cf8" stopOpacity={0.5}/>
@@ -113,6 +138,7 @@ export const AdminBilling = () => {
                   />
                 </AreaChart>
               </ResponsiveContainer>
+              )}
             </div>
 
             {/* Floating Metrics Overlay */}
@@ -122,69 +148,80 @@ export const AdminBilling = () => {
               </h2>
               
               <div className="grid grid-cols-4 gap-6">
-                {/* MRR Card */}
-                <div className="p-6 rounded-2xl bg-[#0a0a0f]/70 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col justify-between h-40">
-                  <div className="flex justify-between items-start">
-                    <span className="text-sm font-semibold text-white/50">Monthly Recurring Revenue</span>
-                    <DollarSign size={16} className="text-white/30" />
-                  </div>
-                  <div>
-                    <div className="text-[40px] font-bold text-white font-mono tracking-tight mb-1">
-                      <RollingNumber value={58000} prefix="$" />
+                {isLoading ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="p-6 rounded-2xl bg-[#0a0a0f]/70 border border-white/5 h-40 animate-pulse flex flex-col justify-between">
+                      <div className="w-1/2 h-4 bg-white/10 rounded" />
+                      <div className="w-3/4 h-10 bg-white/10 rounded" />
                     </div>
-                    <div className="flex items-center gap-1 text-[13px] font-semibold text-emerald-400">
-                      <ArrowUpRight size={14} /> <span>12.5% this month</span>
+                  ))
+                ) : (
+                  <>
+                    {/* MRR Card */}
+                    <div className="p-6 rounded-2xl bg-[#0a0a0f]/70 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col justify-between h-40">
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm font-semibold text-white/50">Monthly Recurring Revenue</span>
+                        <DollarSign size={16} className="text-white/30" />
+                      </div>
+                      <div>
+                        <div className="text-[40px] font-bold text-white font-mono tracking-tight mb-1">
+                          <RollingNumber value={metrics?.totalMRR || 0} prefix="$" />
+                        </div>
+                        <div className="flex items-center gap-1 text-[13px] font-semibold text-emerald-400">
+                          <ArrowUpRight size={14} /> <span>12.5% this month</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* Fees Card */}
-                <div className="p-6 rounded-2xl bg-[#0a0a0f]/70 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col justify-between h-40">
-                  <div className="flex justify-between items-start">
-                    <span className="text-sm font-semibold text-white/50">Platform Fees Collected</span>
-                    <CreditCard size={16} className="text-white/30" />
-                  </div>
-                  <div>
-                    <div className="text-[40px] font-bold text-white font-mono tracking-tight mb-1">
-                      <RollingNumber value={14500} prefix="$" />
+                    {/* Fees Card */}
+                    <div className="p-6 rounded-2xl bg-[#0a0a0f]/70 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col justify-between h-40">
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm font-semibold text-white/50">Platform Fees Collected</span>
+                        <CreditCard size={16} className="text-white/30" />
+                      </div>
+                      <div>
+                        <div className="text-[40px] font-bold text-white font-mono tracking-tight mb-1">
+                          <RollingNumber value={Math.floor((metrics?.totalMRR || 0) * 0.1)} prefix="$" />
+                        </div>
+                        <div className="flex items-center gap-1 text-[13px] font-semibold text-emerald-400">
+                          <ArrowUpRight size={14} /> <span>8.2% this month</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 text-[13px] font-semibold text-emerald-400">
-                      <ArrowUpRight size={14} /> <span>8.2% this month</span>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Active Subscriptions Card */}
-                <div className="p-6 rounded-2xl bg-[#0a0a0f]/70 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col justify-between h-40">
-                  <div className="flex justify-between items-start">
-                    <span className="text-sm font-semibold text-white/50">Active Subscriptions</span>
-                    <Activity size={16} className="text-white/30" />
-                  </div>
-                  <div>
-                    <div className="text-[40px] font-bold text-white font-mono tracking-tight mb-1">
-                      <RollingNumber value={1245} />
+                    {/* Active Subscriptions Card */}
+                    <div className="p-6 rounded-2xl bg-[#0a0a0f]/70 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col justify-between h-40">
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm font-semibold text-white/50">Active Subscriptions</span>
+                        <Activity size={16} className="text-white/30" />
+                      </div>
+                      <div>
+                        <div className="text-[40px] font-bold text-white font-mono tracking-tight mb-1">
+                          <RollingNumber value={metrics?.activeSubscriptions || 0} />
+                        </div>
+                        <div className="flex items-center gap-1 text-[13px] font-semibold text-emerald-400">
+                          <ArrowUpRight size={14} /> <span>+45 net new</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 text-[13px] font-semibold text-emerald-400">
-                      <ArrowUpRight size={14} /> <span>+45 net new</span>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Churn Rate Card */}
-                <div className="p-6 rounded-2xl bg-[#0a0a0f]/70 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col justify-between h-40">
-                  <div className="flex justify-between items-start">
-                    <span className="text-sm font-semibold text-white/50">Churn Rate</span>
-                    <TrendingUp size={16} className="text-white/30" />
-                  </div>
-                  <div>
-                    <div className="text-[40px] font-bold text-white font-mono tracking-tight mb-1">
-                      <RollingNumber value={2.4} suffix="%" />
+                    {/* Churn Rate Card */}
+                    <div className="p-6 rounded-2xl bg-[#0a0a0f]/70 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col justify-between h-40">
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm font-semibold text-white/50">Churn Rate</span>
+                        <TrendingUp size={16} className="text-white/30" />
+                      </div>
+                      <div>
+                        <div className="text-[40px] font-bold text-white font-mono tracking-tight mb-1">
+                          <RollingNumber value={2.4} suffix="%" />
+                        </div>
+                        <div className="flex items-center gap-1 text-[13px] font-semibold text-emerald-400">
+                          <ArrowDownRight size={14} /> <span>Improved by 0.3%</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 text-[13px] font-semibold text-emerald-400">
-                      <ArrowDownRight size={14} /> <span>Improved by 0.3%</span>
-                    </div>
-                  </div>
-                </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

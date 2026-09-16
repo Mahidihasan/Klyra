@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ShieldAlert, Activity, LogIn, Key, Ban, UserCog, CheckCircle, Clock } from 'lucide-react';
 import { AdminUserRow } from '../../../types/adminUsers';
@@ -22,6 +22,34 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [isImpersonating, setIsImpersonating] = useState(false);
+  const [isRoleMenuOpen, setIsRoleMenuOpen] = useState(false);
+  const [apiKeys, setApiKeys] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (user?.id && activeTab === 'security') {
+      fetch(`/api/v1/admin/users/${user.id}/api-keys`)
+        .then(r => r.json())
+        .then(res => {
+          if (res.success) setApiKeys(res.data);
+        });
+    }
+  }, [user?.id, activeTab]);
+
+  const handleRevokeKey = async (keyId: string) => {
+    if (window.confirm("Are you sure you want to permanently revoke this API Key?")) {
+      try {
+        const res = await fetch(`/api/v1/admin/api-keys/${keyId}/revoke`, { method: 'POST' });
+        if (res.ok) {
+          setApiKeys(prev => prev.filter(k => k.id !== keyId));
+          // toast.success("API Key Revoked") could go here if toast is available
+        }
+      } catch (err) {
+        console.error("Failed to revoke key", err);
+      }
+    }
+  };
+
+  const SYSTEM_ROLES = ['USER', 'PROVIDER', 'MODERATOR', 'ADMIN'];
 
   // Helper to generate avatar color from initials
   const getAvatarColor = (name: string) => {
@@ -30,12 +58,31 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
     return colors[charCode % colors.length];
   };
 
-  const handleImpersonate = () => {
+  const handleImpersonate = async () => {
     setIsImpersonating(true);
-    setTimeout(() => {
-      alert(`Initiating God-Mode. Redirecting to ${user?.name}'s dashboard...`);
+    try {
+      const adminToken = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch(`/api/v1/admin/users/${user?.id}/impersonate`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      if (!res.ok) throw new Error('Impersonation failed');
+      
+      const json = await res.json();
+      const newAccessToken = json.data?.accessToken;
+      
+      if (newAccessToken) {
+        localStorage.setItem('admin_token_backup', adminToken as string);
+        localStorage.setItem('klyra_access_token', newAccessToken);
+        localStorage.setItem('klyra_token', newAccessToken);
+        window.location.href = '/dashboard';
+      }
+    } catch (err) {
+      console.error('[Impersonate]', err);
+      alert('Failed to initiate God-Mode. Please try again.');
+    } finally {
       setIsImpersonating(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -95,13 +142,41 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
                   <Ban size={16} />
                   {user.status === 'ACTIVE' ? 'Suspend Account' : 'Activate Account'}
                 </button>
-                <button 
-                  onClick={() => onUpdateRole(user.id, user.role === 'USER' ? 'ADMIN' : 'USER')}
-                  className="flex-1 h-9 bg-white/5 text-white font-semibold text-[13px] rounded-lg flex items-center justify-center gap-2 hover:bg-white/10 transition-all border border-white/5"
-                >
-                  <UserCog size={16} />
-                  Edit Roles
-                </button>
+                <div className="flex-1 relative">
+                  <button 
+                    onClick={() => setIsRoleMenuOpen(!isRoleMenuOpen)}
+                    className="w-full h-9 bg-white/5 text-white font-semibold text-[13px] rounded-lg flex items-center justify-center gap-2 hover:bg-white/10 transition-all border border-white/5"
+                  >
+                    <UserCog size={16} />
+                    {user.role}
+                  </button>
+                  
+                  <AnimatePresence>
+                    {isRoleMenuOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 5, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 5, scale: 0.95 }}
+                        transition={{ duration: 0.1 }}
+                        className="absolute right-0 mt-2 w-40 bg-[#12121a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden py-1"
+                      >
+                        {SYSTEM_ROLES.map((r) => (
+                          <button
+                            key={r}
+                            onClick={() => {
+                              onUpdateRole(user.id, r);
+                              setIsRoleMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium transition-colors text-left ${user.role === r ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/70 hover:text-white hover:bg-white/5'}`}
+                          >
+                            {r}
+                            {user.role === r && <CheckCircle size={14} className="text-indigo-400" />}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
 
               {/* Tabs */}
@@ -171,18 +246,23 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
                         <button className="text-[12px] font-semibold text-indigo-400 hover:text-indigo-300">Generate New Key</button>
                       </div>
                       
-                      {[1, 2].map((key) => (
-                        <div key={key} className="p-5 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between group">
+                      {apiKeys.length === 0 ? (
+                        <div className="text-white/40 text-sm italic">No active API keys found.</div>
+                      ) : apiKeys.map((key) => (
+                        <div key={key.id} className="p-5 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between group">
                           <div className="flex items-center gap-4">
                             <div className="w-10 h-10 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
                               <Key size={18} />
                             </div>
                             <div>
-                              <div className="text-sm font-semibold text-white mb-0.5">Production Key {key}</div>
-                              <div className="text-[12px] font-mono text-white/40">sk_live_...{Math.random().toString(36).substring(7)}</div>
+                              <div className="text-sm font-semibold text-white mb-0.5">{key.name || 'Production Key'}</div>
+                              <div className="text-[12px] font-mono text-white/40">{key.key_prefix}...</div>
                             </div>
                           </div>
-                          <button className="px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 text-[12px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-500 hover:text-white border border-rose-500/20">
+                          <button 
+                            onClick={() => handleRevokeKey(key.id)}
+                            className="px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 text-[12px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-500 hover:text-white border border-rose-500/20"
+                          >
                             Revoke Key
                           </button>
                         </div>
