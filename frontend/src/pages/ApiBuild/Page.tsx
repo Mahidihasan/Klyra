@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { ProviderProject, SourceConfig } from '../../types/apibuild';
+import { PlaygroundOpenPayload } from '../../types/playground';
 import { apiBuildService } from '../../services/apiBuild';
 import { ProjectsDashboard } from './ProjectsDashboard';
 import { StepNewProject } from './Wizard1';
@@ -12,13 +13,30 @@ import { StepPricing } from './Wizard7';
 import { StepPublish, PublishSuccess } from './Wizard8';
 import { WorkspaceRedesignWithDraft } from './WorkspaceRedesignWithDraft';
 import { useApiBuild, ApiBuildState } from './state';
+import { DetailedEndpoint } from './types';
 import './styles.css';
 import './styles2.css';
 import './styles-professional.css';
 
-export const ApiBuildPage: React.FC<{ onOpenPlayground: () => void; onBack?: () => void }> = ({ onOpenPlayground, onBack }) => {
-  const s = useApiBuild(onOpenPlayground);
+export const ApiBuildPage: React.FC<{ onOpenPlayground: (prefill?: PlaygroundOpenPayload) => void; onBack?: () => void }> = ({ onOpenPlayground, onBack }) => {
+  // The playground lives outside this page, so the navigation callback must
+  // carry the API's URL with it. The active project is captured through a ref
+  // (same pattern as AdminApis' listRef) so the wrapper below can always read
+  // the latest gateway/base URL when any "Playground" / "Test in Playground"
+  // button is pressed — with or without a specific endpoint.
+  const activeRef = useRef<ProviderProject | null>(null);
+  const openPlaygroundWithUrl = (ep?: DetailedEndpoint) => {
+    const project = activeRef.current;
+    onOpenPlayground({
+      apiId: project?.id || undefined,
+      apiName: project?.name || undefined,
+      baseUrl: project?.gatewayUrl || project?.baseUrl || undefined,
+      endpoint: ep ? { method: ep.method, path: ep.path } : undefined,
+    });
+  };
+  const s = useApiBuild(openPlaygroundWithUrl);
   const { active } = s;
+  activeRef.current = active || null;
 
   // Guard so the deploy operation is started exactly once per entry.
   const deployStartedFor = useRef<string | null>(null);

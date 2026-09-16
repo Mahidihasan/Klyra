@@ -16,6 +16,7 @@
 //   0008_api_build_control_plane 2026_09_13_001_api_build_control_plane.sql
 //   0009_account_reactivation  2026_09_13_001_account_reactivation.sql
 //   0010_session_activity      2026_09_13_002_session_activity.sql
+//   0011_api_keys_system       2026_09_16_001_api_keys_system.sql
 //
 // The repository (kr_* ) tables self-bootstrap at runtime via
 // repos.db.ensureReposSchema(); this runner reconciles the base + application
@@ -55,6 +56,7 @@ const MIGRATIONS = [
   { name: '0008_api_build_control_plane', file: '2026_09_13_001_api_build_control_plane.sql' },
   { name: '0009_account_reactivation', file: '2026_09_13_001_account_reactivation.sql' },
   { name: '0010_session_activity', file: '2026_09_13_002_session_activity.sql' },
+  { name: '0011_api_keys_system', file: '2026_09_16_001_api_keys_system.sql' },
 ];
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });

@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import { BarChart3, DollarSign, Activity, Globe, RefreshCw, Download, CheckCircle2 } from 'lucide-react';
+import {
+  BarChart3, DollarSign, Activity, Globe, RefreshCw, Download,
+  CheckCircle2, Server, Users, TrendingUp, TrendingDown, Map
+} from 'lucide-react';
 import { ProviderProject } from '../../../types/apibuild';
 
 interface TabAnalyticsProps {
@@ -11,173 +14,261 @@ export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
   const [range, setRange] = useState<'24h' | '7d' | '30d'>('7d');
   const [compare, setCompare] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Simulated traffic for tech chart
   const traffic = range === '24h' ? [42, 67, 54, 82, 60, 74, 91, 69] : range === '7d' ? [55, 76, 62, 88, 71, 93, 79] : [48, 58, 52, 67, 72, 63, 81, 76, 92, 84];
+  const maxTraffic = Math.max(...traffic);
+
+  // Simulated revenue for biz chart
+  const revenueTrend = [12000, 14500, 13800, 16200, 19500, 21000, project.revenue];
+  const maxRevenue = Math.max(...revenueTrend);
 
   return (
-    <div className="kly-page-stack">
-      {/* Mode Switcher */}
-      <div className="kly-tab-toolbar">
-        <div className="kly-seg-ctrl kly-analytics-mode">
+    <div className="kly-analytics-root">
+      {/* Top Controller */}
+      <div className="kly-analytics-controller kly-card">
+        <div className="kly-analytics-mode-switch">
           <button
-            className={`kly-btn ${mode === 'tech' ? 'kly-btn-primary' : 'kly-btn-ghost'}`}
+            className={`kly-analytics-mode-btn ${mode === 'tech' ? 'active' : ''}`}
             onClick={() => setMode('tech')}
           >
-            <Activity size={13} />
-            <span>Technical & Infrastructure Analytics</span>
+            <Activity size={14} /> Technical & Infrastructure
           </button>
           <button
-            className={`kly-btn ${mode === 'biz' ? 'kly-btn-primary' : 'kly-btn-ghost'}`}
+            className={`kly-analytics-mode-btn ${mode === 'biz' ? 'active' : ''}`}
             onClick={() => setMode('biz')}
           >
-            <DollarSign size={13} />
-            <span>Monetization & Business Analytics</span>
+            <DollarSign size={14} /> Monetization & Business
           </button>
         </div>
 
-        <div className="kly-realtime-label"><span className="kly-pulse-dot" /> Updated from edge telemetry</div>
-      </div>
-
-      <div className="kly-card kly-analytics-control-strip">
-        <div><span className="kly-eyebrow"><CheckCircle2 size={12} /> Decision workspace</span><strong>{mode === 'tech' ? 'Reliability and performance signals' : 'Revenue and customer health signals'}</strong><small>Compare trends before promoting releases or changing commercial policy.</small></div>
-        <div className="kly-table-toolbar-controls">
-          <label className="kly-check-control"><input type="checkbox" checked={compare} onChange={(event) => setCompare(event.target.checked)} /> Compare previous period</label>
-          <button className={`kly-btn ${autoRefresh ? 'kly-btn-secondary' : 'kly-btn-ghost'}`} onClick={() => setAutoRefresh((current) => !current)}><RefreshCw size={12} /> {autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}</button>
-          <button className="kly-btn kly-btn-secondary" onClick={() => setAutoRefresh(true)}><Download size={12} /> Export snapshot</button>
+        <div className="kly-analytics-global-controls">
+          <div className="kly-analytics-status">
+            <span className={`kly-pulse-dot ${autoRefresh ? 'active' : 'paused'}`} />
+            {autoRefresh ? 'Live telemetry' : 'Paused'}
+          </div>
+          <div className="kly-analytics-toolbar-divider" />
+          <label className="kly-analytics-checkbox">
+            <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} /> Compare vs prior
+          </label>
+          <button className={`kly-btn-icon ${autoRefresh ? 'active' : ''}`} onClick={() => setAutoRefresh(!autoRefresh)} title="Toggle Auto-refresh">
+            <RefreshCw size={14} />
+          </button>
+          <button className="kly-btn kly-btn-secondary" title="Export Dashboard Data">
+            <Download size={13} /> Export CSV
+          </button>
         </div>
       </div>
 
       {mode === 'tech' ? (
-        <div className="kly-page-stack">
-          {/* Latency percentiles */}
-          <div className="kly-metric-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <div className="kly-metric-box">
-              <div className="kly-metric-label">P50 Median Latency</div>
-              <div className="kly-metric-val">110ms</div>
-              <div className="kly-metric-trend kly-trend-up">Superfast execution</div>
+        <div className="kly-analytics-view tech-view">
+          {/* Tech KPIs */}
+          <div className="kly-analytics-kpi-grid">
+            <div className="kly-analytics-kpi-card">
+              <div className="kly-analytics-kpi-header">
+                <span className="kly-analytics-kpi-title">P50 Latency (Median)</span>
+                <Server size={14} color="var(--kly-text-dim)" />
+              </div>
+              <div className="kly-analytics-kpi-val">110<small>ms</small></div>
+              <div className="kly-analytics-kpi-trend positive"><TrendingDown size={11} /> 12ms faster</div>
             </div>
-            <div className="kly-metric-box">
-              <div className="kly-metric-label">P90 Latency</div>
-              <div className="kly-metric-val">240ms</div>
-              <div className="kly-metric-trend kly-trend-up">Inference queue stable</div>
+            
+            <div className="kly-analytics-kpi-card">
+              <div className="kly-analytics-kpi-header">
+                <span className="kly-analytics-kpi-title">P90 Latency</span>
+                <Server size={14} color="var(--kly-text-dim)" />
+              </div>
+              <div className="kly-analytics-kpi-val">240<small>ms</small></div>
+              <div className="kly-analytics-kpi-trend positive"><TrendingDown size={11} /> 5ms faster</div>
             </div>
-            <div className="kly-metric-box">
-              <div className="kly-metric-label">P95 Latency</div>
-              <div className="kly-metric-val">421ms</div>
-              <div className="kly-metric-trend kly-trend-neutral">Peak model loads</div>
+            
+            <div className="kly-analytics-kpi-card">
+              <div className="kly-analytics-kpi-header">
+                <span className="kly-analytics-kpi-title">P95 Latency</span>
+                <Server size={14} color="var(--kly-text-dim)" />
+              </div>
+              <div className="kly-analytics-kpi-val">421<small>ms</small></div>
+              <div className="kly-analytics-kpi-trend neutral"><Activity size={11} /> Stable</div>
             </div>
-            <div className="kly-metric-box">
-              <div className="kly-metric-label">P99 Tail Latency</div>
-              <div className="kly-metric-val">890ms</div>
-              <div className="kly-metric-trend kly-trend-down">Within 1.5s SLA</div>
+            
+            <div className="kly-analytics-kpi-card">
+              <div className="kly-analytics-kpi-header">
+                <span className="kly-analytics-kpi-title">P99 Latency (Tail)</span>
+                <Server size={14} color="var(--kly-text-dim)" />
+              </div>
+              <div className="kly-analytics-kpi-val">890<small>ms</small></div>
+              <div className="kly-analytics-kpi-trend negative"><TrendingUp size={11} /> 45ms slower</div>
             </div>
           </div>
 
-          <section className="kly-card kly-analytics-chart-card">
-            <div className="kly-card-header">
-              <div>
-                <h4 className="kly-card-title"><BarChart3 size={16} color="var(--kly-primary)" /> Gateway request volume</h4>
-                <p className="kly-card-subtitle">Requests successfully routed through Klyra edge locations.</p>
-              </div>
-              <div className="kly-seg-ctrl">
-                {(['24h', '7d', '30d'] as const).map((item) => <button key={item} className={`kly-seg-btn ${range === item ? 'active' : ''}`} onClick={() => setRange(item)}>{item}</button>)}
-              </div>
-            </div>
-            <div className="kly-analytics-bars" aria-label={`Gateway request volume for ${range}`} role="img">
-              {traffic.map((value, index) => (
-                <div className="kly-analytics-bar-column" key={`${range}-${index}`} title={`${value}k requests`}>
-                  <div className="kly-analytics-bar-value">{value}k</div>
-                  <div className="kly-analytics-bar" style={{ height: `${value}%` }} />
-                  <span>{range === '24h' ? `${index * 3}:00` : range === '7d' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][index] : `D${index + 1}`}</span>
+          <div className="kly-analytics-main-grid">
+            {/* Tech Chart */}
+            <div className="kly-card kly-analytics-chart-panel">
+              <div className="kly-analytics-chart-header">
+                <div>
+                  <h4>Gateway Request Volume</h4>
+                  <p>Inbound traffic routed across global edge nodes.</p>
                 </div>
-              ))}
+                <div className="kly-analytics-time-range">
+                  {(['24h', '7d', '30d'] as const).map((r) => (
+                    <button key={r} className={range === r ? 'active' : ''} onClick={() => setRange(r)}>{r}</button>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="kly-analytics-bars-wrapper">
+                <div className="kly-analytics-bars">
+                  {traffic.map((val, i) => (
+                    <div key={i} className="kly-analytics-bar-col">
+                      <div className="kly-analytics-bar-tooltip">{val}k reqs</div>
+                      <div className="kly-analytics-bar-fill" style={{ height: `${(val / maxTraffic) * 100}%` }}></div>
+                      <span className="kly-analytics-bar-label">
+                        {range === '24h' ? `${i*3}:00` : range === '7d' ? ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i] : `D${i+1}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          </section>
 
-          {/* Regional Geographic Distribution */}
-          <div className="kly-card">
-            <div className="kly-card-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Globe size={15} color="#38bdf8" />
-                <h4 className="kly-card-title">Geographic Request Origin Breakdown</h4>
-              </div>
-            </div>
-
-            <div className="kly-region-grid">
-              <div style={{ padding: '12px', background: '#0e0f18', borderRadius: 6 }}>
-                <div style={{ fontSize: 12, color: 'var(--kly-text-dim)' }}>APAC (Singapore, Tokyo)</div>
-                <div style={{ fontSize: 18, fontWeight: 700, margin: '4px 0' }}>48.4%</div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
-                  <div style={{ height: '100%', width: '48.4%', background: '#8b5cf6', borderRadius: 2 }} />
+            {/* Geo Distribution */}
+            <div className="kly-card kly-analytics-geo-panel">
+              <div className="kly-analytics-chart-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Map size={16} color="#38bdf8" />
+                  <h4>Edge Node Routing Map</h4>
                 </div>
               </div>
-              <div style={{ padding: '12px', background: '#0e0f18', borderRadius: 6 }}>
-                <div style={{ fontSize: 12, color: 'var(--kly-text-dim)' }}>North America (US-East)</div>
-                <div style={{ fontSize: 18, fontWeight: 700, margin: '4px 0' }}>32.1%</div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
-                  <div style={{ height: '100%', width: '32.1%', background: '#38bdf8', borderRadius: 2 }} />
+              
+              <div className="kly-analytics-geo-list">
+                <div className="kly-analytics-geo-item">
+                  <div className="kly-analytics-geo-info">
+                    <span>APAC (Singapore, Tokyo)</span>
+                    <strong>48.4%</strong>
+                  </div>
+                  <div className="kly-analytics-geo-bar"><div style={{ width: '48.4%', background: '#8b5cf6' }}></div></div>
                 </div>
-              </div>
-              <div style={{ padding: '12px', background: '#0e0f18', borderRadius: 6 }}>
-                <div style={{ fontSize: 12, color: 'var(--kly-text-dim)' }}>Europe (Frankfurt, London)</div>
-                <div style={{ fontSize: 18, fontWeight: 700, margin: '4px 0' }}>15.2%</div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
-                  <div style={{ height: '100%', width: '15.2%', background: '#34d399', borderRadius: 2 }} />
+                <div className="kly-analytics-geo-item">
+                  <div className="kly-analytics-geo-info">
+                    <span>North America (US-East)</span>
+                    <strong>32.1%</strong>
+                  </div>
+                  <div className="kly-analytics-geo-bar"><div style={{ width: '32.1%', background: '#38bdf8' }}></div></div>
                 </div>
-              </div>
-              <div style={{ padding: '12px', background: '#0e0f18', borderRadius: 6 }}>
-                <div style={{ fontSize: 12, color: 'var(--kly-text-dim)' }}>Other Regions</div>
-                <div style={{ fontSize: 18, fontWeight: 700, margin: '4px 0' }}>4.3%</div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
-                  <div style={{ height: '100%', width: '4.3%', background: '#f59e0b', borderRadius: 2 }} />
+                <div className="kly-analytics-geo-item">
+                  <div className="kly-analytics-geo-info">
+                    <span>Europe (Frankfurt, London)</span>
+                    <strong>15.2%</strong>
+                  </div>
+                  <div className="kly-analytics-geo-bar"><div style={{ width: '15.2%', background: '#34d399' }}></div></div>
+                </div>
+                <div className="kly-analytics-geo-item">
+                  <div className="kly-analytics-geo-info">
+                    <span>Other Regions</span>
+                    <strong>4.3%</strong>
+                  </div>
+                  <div className="kly-analytics-geo-bar"><div style={{ width: '4.3%', background: '#f59e0b' }}></div></div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       ) : (
-        <div className="kly-page-stack">
+        <div className="kly-analytics-view biz-view">
           {/* Business KPIs */}
-          <div className="kly-metric-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <div className="kly-metric-box">
-              <div className="kly-metric-label">Monthly Recurring Revenue</div>
-              <div className="kly-metric-val">${project.revenue.toLocaleString()}</div>
-              <div className="kly-metric-trend kly-trend-up">↑ 8.7% MoM growth</div>
+          <div className="kly-analytics-kpi-grid">
+            <div className="kly-analytics-kpi-card">
+              <div className="kly-analytics-kpi-header">
+                <span className="kly-analytics-kpi-title">Monthly Recurring Revenue</span>
+                <DollarSign size={14} color="#10b981" />
+              </div>
+              <div className="kly-analytics-kpi-val">${project.revenue.toLocaleString()}</div>
+              <div className="kly-analytics-kpi-trend positive"><TrendingUp size={11} /> 8.7% MoM</div>
             </div>
-            <div className="kly-metric-box">
-              <div className="kly-metric-label">Annual Run Rate (ARR)</div>
-              <div className="kly-metric-val">${(project.revenue * 12).toLocaleString()}</div>
-              <div className="kly-metric-trend kly-trend-up">Target $60K ARR</div>
+            
+            <div className="kly-analytics-kpi-card">
+              <div className="kly-analytics-kpi-header">
+                <span className="kly-analytics-kpi-title">Annual Run Rate (ARR)</span>
+                <DollarSign size={14} color="#10b981" />
+              </div>
+              <div className="kly-analytics-kpi-val">${(project.revenue * 12).toLocaleString()}</div>
+              <div className="kly-analytics-kpi-trend positive"><TrendingUp size={11} /> Target $60K</div>
             </div>
-            <div className="kly-metric-box">
-              <div className="kly-metric-label">Net Revenue Retention</div>
-              <div className="kly-metric-val">108.4%</div>
-              <div className="kly-metric-trend kly-trend-up">Zero churn in paid tiers</div>
+            
+            <div className="kly-analytics-kpi-card">
+              <div className="kly-analytics-kpi-header">
+                <span className="kly-analytics-kpi-title">Net Revenue Retention</span>
+                <Users size={14} color="#8b5cf6" />
+              </div>
+              <div className="kly-analytics-kpi-val">108.4%</div>
+              <div className="kly-analytics-kpi-trend positive"><Activity size={11} /> Zero churn (Paid)</div>
             </div>
-            <div className="kly-metric-box">
-              <div className="kly-metric-label">Paid Conversion Rate</div>
-              <div className="kly-metric-val">18.6%</div>
-              <div className="kly-metric-trend kly-trend-up">Free → Pro conversion</div>
+            
+            <div className="kly-analytics-kpi-card">
+              <div className="kly-analytics-kpi-header">
+                <span className="kly-analytics-kpi-title">Paid Conversion Rate</span>
+                <TrendingUp size={14} color="#38bdf8" />
+              </div>
+              <div className="kly-analytics-kpi-val">18.6%</div>
+              <div className="kly-analytics-kpi-trend positive"><TrendingUp size={11} /> Free → Pro</div>
             </div>
           </div>
 
-          {/* Revenue Breakdown */}
-          <div className="kly-card">
-            <h4 className="kly-card-title" style={{ marginBottom: 12 }}>Monetization Breakdown by Plan Tier</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span>Business Tier ($79/mo · 79 subscribers)</span>
-                <b style={{ color: '#34d399' }}>$6,241 / mo (72.8%)</b>
+          <div className="kly-analytics-main-grid">
+            {/* Revenue Trend Chart */}
+            <div className="kly-card kly-analytics-chart-panel">
+              <div className="kly-analytics-chart-header">
+                <div>
+                  <h4>Revenue Trajectory</h4>
+                  <p>Monthly recognized revenue over time.</p>
+                </div>
               </div>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
-                <div style={{ height: '100%', width: '72.8%', background: '#8b5cf6', borderRadius: 3 }} />
+              
+              <div className="kly-analytics-bars-wrapper" style={{ height: 220 }}>
+                <div className="kly-analytics-bars">
+                  {revenueTrend.map((val, i) => (
+                    <div key={i} className="kly-analytics-bar-col">
+                      <div className="kly-analytics-bar-tooltip">${val.toLocaleString()}</div>
+                      <div className="kly-analytics-bar-fill" style={{ height: `${(val / maxRevenue) * 100}%`, background: 'linear-gradient(to top, rgba(16,185,129,0.2), #10b981)' }}></div>
+                      <span className="kly-analytics-bar-label">Month {i+1}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
+            </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 6 }}>
-                <span>Pro Tier ($19/mo · 372 subscribers)</span>
-                <b style={{ color: '#38bdf8' }}>$7,068 / mo (27.2%)</b>
+            {/* Monetization Breakdown */}
+            <div className="kly-card kly-analytics-geo-panel">
+              <div className="kly-analytics-chart-header">
+                <h4>Monetization by Plan Tier</h4>
               </div>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
-                <div style={{ height: '100%', width: '27.2%', background: '#38bdf8', borderRadius: 3 }} />
+              
+              <div className="kly-analytics-tier-list">
+                <div className="kly-analytics-tier-item">
+                  <div className="kly-analytics-tier-info">
+                    <div>
+                      <strong>Business Tier</strong> <span className="kly-badge kly-badge-pill" style={{marginLeft: 6}}>$79/mo</span>
+                    </div>
+                    <span>79 subscribers</span>
+                  </div>
+                  <div className="kly-analytics-tier-stats">
+                    <b style={{ color: '#8b5cf6' }}>$6,241 / mo (72.8%)</b>
+                  </div>
+                  <div className="kly-analytics-geo-bar"><div style={{ width: '72.8%', background: '#8b5cf6' }}></div></div>
+                </div>
+
+                <div className="kly-analytics-tier-item">
+                  <div className="kly-analytics-tier-info">
+                    <div>
+                      <strong>Pro Tier</strong> <span className="kly-badge kly-badge-pill" style={{marginLeft: 6}}>$19/mo</span>
+                    </div>
+                    <span>372 subscribers</span>
+                  </div>
+                  <div className="kly-analytics-tier-stats">
+                    <b style={{ color: '#38bdf8' }}>$7,068 / mo (27.2%)</b>
+                  </div>
+                  <div className="kly-analytics-geo-bar"><div style={{ width: '27.2%', background: '#38bdf8' }}></div></div>
+                </div>
               </div>
             </div>
           </div>
@@ -186,3 +277,4 @@ export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
     </div>
   );
 };
+

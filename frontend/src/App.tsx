@@ -24,6 +24,7 @@ import { AdminUsagePage } from './pages/AdminUsage/index';
 import { AdminActivityPage } from './pages/AdminActivity/index';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ProfilePage } from './pages/Profile';
+import { ApiKeysPage } from './pages/ApiKeys';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -38,6 +39,7 @@ import {
   MOCK_COLLECTIONS,
 } from './data/mockData';
 import { ApiItem, ApiProject, CollectionItem, NavigationTab } from './types/api';
+import { PlaygroundOpenPayload } from './types/playground';
 import { hasAdminAccess } from './config/adminAccess';
 import { getImpersonationSession } from './services/impersonation';
 import { ChevronRight, TrendingUp, Sparkles, Rocket, Star, RefreshCw, FlaskConical, X } from 'lucide-react';
@@ -162,11 +164,22 @@ function AppContent() {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
+  // One-shot URL prefill for the Playground request editor. Unlike the banner
+  // context above, this is NOT restored from localStorage: it only exists when
+  // a screen explicitly navigates here (API management "Test in Playground",
+  // repository bridge) so the arriving request starts with the API's URL.
+  // The Playground consumes it via onPrefillConsumed once applied.
+  const [playgroundPrefill, setPlaygroundPrefill] = useState<PlaygroundOpenPayload | null>(null);
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail?.repoId) return;
       setPlaygroundContext(detail);
+      setPlaygroundPrefill({
+        apiId: detail.repoId,
+        apiName: detail.repoName,
+        endpoint: detail.endpoint,
+      });
       setActiveTab('playground');
       try { localStorage.setItem('activeTab', 'playground'); } catch { /* ignore */ }
     };
@@ -308,7 +321,12 @@ function AppContent() {
               </button>
             </div>
           )}
-          <PlaygroundPage apiProject={activeApiProject} onBackToKlyra={() => setActiveTab('home')} />
+          <PlaygroundPage
+            apiProject={activeApiProject}
+            openContext={playgroundPrefill}
+            onPrefillConsumed={() => setPlaygroundPrefill(null)}
+            onBackToKlyra={() => setActiveTab('home')}
+          />
         </div>
       ) : activeTab === 'api-build' ? (
         /* API Build opens as a full-page workspace (no marketplace topbar/sidebar) */
@@ -317,8 +335,9 @@ function AppContent() {
           </div>
           <ApiBuildPage
             onBack={() => setActiveTab('home')}
-            onOpenPlayground={() => {
-              setPlaygroundContext({ repoId: activeApiProject?.id || '', repoName: activeApiProject?.name || 'API Project' });
+            onOpenPlayground={(prefill) => {
+              setPlaygroundContext({ repoId: prefill?.apiId || activeApiProject?.id || '', repoName: prefill?.apiName || activeApiProject?.name || 'API Project' });
+              if (prefill) setPlaygroundPrefill(prefill);
               setActiveTab('playground');
               try { localStorage.setItem('activeTab', 'playground'); } catch { /* ignore */ }
             }}
@@ -549,6 +568,10 @@ function AppContent() {
               ) : activeTab === 'profile' ? (
                 <main className="content-page-wrapper">
                   <ProfilePage />
+                </main>
+              ) : activeTab === 'api-keys' ? (
+                <main className="content-page-wrapper">
+                  <ApiKeysPage />
                 </main>
               ) : activeTab === 'billing' ? (
                 <main className="content-page-wrapper">

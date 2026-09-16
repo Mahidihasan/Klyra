@@ -54,7 +54,7 @@ export interface UpdateProfileInput {
   github_url: string;
 }
 
-export type ManagedApiKeyStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+export type ManagedApiKeyStatus = 'ACTIVE' | 'SUSPENDED' | 'REVOKED' | 'EXPIRED';
 
 /** Safe API-key metadata. List responses never include a key hash or secret. */
 export interface ManagedApiKey {
@@ -224,6 +224,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}, retryOnUn
 function authenticatedRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   return request<T>(endpoint, options, true);
 }
+
+/** Shared authenticated transport for other account-scoped API surfaces. */
+export { authenticatedRequest };
 
 async function uploadAvatarRequest<T>(file: File, retryOnUnauthorized = true): Promise<T> {
   const token = localStorage.getItem('klyra_access_token');

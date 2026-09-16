@@ -391,3 +391,23 @@ export interface TabResponseCache {
     response: PlaygroundResponse | null;
   };
 }
+
+/**
+ * Payload carried when another screen (API management / ApiBuild workspace,
+ * repositories bridge) opens the Playground. Lets the request editor start
+ * prefilled with the API's base URL and — when known — a specific endpoint,
+ * instead of landing on a blank "Untitled Request".
+ */
+export interface PlaygroundOpenPayload {
+  /** Originating API/project id (context only, not required). */
+  apiId?: string;
+  /** Human-readable API name used for the request name prefill. */
+  apiName?: string;
+  /** Base URL to put in the URL field (gateway URL, falling back to the upstream origin). */
+  baseUrl?: string;
+  /** Optional endpoint to append to the base URL. */
+  endpoint?: {
+    method: string;
+    path: string;
+  };
+}

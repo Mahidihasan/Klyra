@@ -71,6 +71,7 @@ import {
   ApiSource,
   UserWorkspace,
   LocalApi,
+  PlaygroundOpenPayload,
 } from '../../types/playground';
 import {
   emptyRequestConfig,
@@ -125,6 +126,15 @@ import { ApiProject } from '../../types/api';
 interface PlaygroundProps {
   onBackToKlyra?: () => void;
   apiProject?: ApiProject | null;
+  /**
+   * One-shot payload set by the screen that navigated here (API management
+   * "Test in Playground", repository bridge). When present, the request
+   * editor is prefilled with the API's base URL (+ endpoint when known)
+   * instead of an empty "Untitled Request".
+   */
+  openContext?: PlaygroundOpenPayload | null;
+  /** Called by the Playground once the open payload has been applied. */
+  onPrefillConsumed?: () => void;
 }
 
 type AiMsg = {
@@ -281,7 +291,7 @@ const JsonTreeViewer: React.FC<{ body: string }> = ({ body }) => {
 
 // Playground data is now loaded dynamically from the backend API.
 
-export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiProject }) => {
+export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiProject, openContext, onPrefillConsumed }) => {
   // Core request state
   const [config, setConfig] = useState<RequestConfig>(emptyRequestConfig());
   const [response, setResponse] = useState<PlaygroundResponse | null>(null);
@@ -498,6 +508,39 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       setResponse(cached?.response || null);
     }
   }, [activeTabId, openTabs.length]);
+
+  // Prefill the request editor when the Playground is opened from another
+  // screen (API management "Test in Playground" / repository bridge). This
+  // effect is declared AFTER the tab-sync effect above so the arriving
+  // payload wins over the freshly created empty tab's blank config. The
+  // payload is consumed once via onPrefillConsumed so it never re-applies
+  // over the user's own edits later.
+  useEffect(() => {
+    if (!openContext || !activeTab) return;
+    const base = (openContext.baseUrl || '').trim();
+    if (!base) {
+      // Repository bridge without a resolvable URL — nothing to prefill.
+      onPrefillConsumed?.();
+      return;
+    }
+    const path = (openContext.endpoint?.path || '').trim();
+    const method = openContext.endpoint?.method;
+    const url = path
+      ? `${base.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
+      : base;
+    setConfig((prev) => ({
+      ...prev,
+      method: (method as HttpMethod) || prev.method,
+      url,
+      name: openContext.endpoint
+        ? `${method || prev.method} ${path}`
+        : openContext.apiName || prev.name,
+    }));
+    setResponse(null);
+    onPrefillConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openContext, activeTabId, openTabs.length]);
+
 
   // Persist sidebar & explorer state
   useEffect(() => {
