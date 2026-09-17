@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Grid,
   Brain,
@@ -8,9 +8,12 @@ import {
   MessageSquare,
   ShoppingBag,
   MoreHorizontal,
-  Newspaper
+  Newspaper,
+  Shield,
+  Layers,
 } from 'lucide-react';
 import { CATEGORIES_LIST } from '../data/mockData';
+import { catalogApi } from '../services/api/catalog';
 
 interface CategoryFilterProps {
   selectedCategory: string;
@@ -21,6 +24,22 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   selectedCategory,
   onSelectCategory
 }) => {
+  const [categories, setCategories] = useState<string[]>(CATEGORIES_LIST);
+
+  useEffect(() => {
+    let mounted = true;
+    catalogApi.getCategories()
+      .then((data) => {
+        if (mounted && data && data.length > 0) {
+          const names = ['All Categories', ...data.map((c) => c.name)];
+          setCategories(Array.from(new Set(names)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
@@ -32,6 +51,8 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
       case 'Communication': return <MessageSquare size={13} />;
       case 'E-commerce': return <ShoppingBag size={13} />;
       case 'News': return <Newspaper size={13} />;
+      case 'Security & Auth': return <Shield size={13} />;
+      case 'Cloud & DevOps': return <Layers size={13} />;
       case 'More': return <MoreHorizontal size={13} />;
       default: return <Grid size={13} />;
     }
@@ -40,7 +61,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   return (
     <div className="category-filter-container">
       <div className="category-scroll">
-        {CATEGORIES_LIST.map((cat) => {
+        {categories.map((cat) => {
           const isActive = selectedCategory === cat;
           return (
             <button

@@ -11,6 +11,7 @@ import {
   CheckCircle,
   Sliders,
   Shield,
+  ShoppingCart,
 } from 'lucide-react';
 import { MOCK_NOTIFICATIONS } from '../data/mockData';
 import klyraLogo from '../assets/images/klyra_logo.png';
@@ -25,6 +26,7 @@ interface TopbarProps {
   onOpenProfile: () => void;
   onOpenLogin?: () => void;
   onOpenRegister?: () => void;
+  onSearchSubmit?: (query: string) => void;
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
@@ -35,6 +37,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   onOpenProfile,
   onOpenLogin,
   onOpenRegister,
+  onSearchSubmit,
 }) => {
   const { user, logout, isAuthenticated } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -101,6 +104,13 @@ export const Topbar: React.FC<TopbarProps> = ({
           placeholder="Search for APIs, collections, or providers..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && onSearchSubmit) {
+              e.preventDefault();
+              e.stopPropagation();
+              onSearchSubmit(searchQuery);
+            }
+          }}
           className="search-input"
         />
       </div>
@@ -130,6 +140,15 @@ export const Topbar: React.FC<TopbarProps> = ({
           </div>
         ) : (
           <>
+            <button
+              className="topbar-btn topbar-cart-btn"
+              onClick={() => window.dispatchEvent(new Event('klyra:open-cart'))}
+              title="API Cart"
+              aria-label="Open API cart"
+            >
+              <ShoppingCart size={18} />
+            </button>
+
             {/* Notifications Popover Container */}
             <div className="popover-wrapper" ref={notifRef}>
               <button
@@ -186,10 +205,7 @@ export const Topbar: React.FC<TopbarProps> = ({
                     </div>
                   </div>
                   <div className="user-menu-divider" />
-                  <button
-                    className="user-menu-item"
-                    onClick={handleOpenProfile}
-                  >
+                  <button className="user-menu-item" onClick={handleOpenProfile}>
                     <User size={16} />
                     <span>My Profile</span>
                   </button>

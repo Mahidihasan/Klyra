@@ -1,29 +1,81 @@
 import express, { Router } from 'express';
 import {
-  addActivity, addDeployment, appendLog, completeDeploy, composeProject,
-  computeAnalytics, computeInsights, createApiKey, createProject, deleteAlertRule, deleteApiKey,
-  deleteConsumer, deletePlan, deleteVersion, enqueueDeploy, getEndpoint, getJob, getProject,
-  importEndpoints, listActivity, listAlertRules, listApiKeys, listConsumers, listDeployments,
-  listEndpoints, listIncidents, listLogs, listPlans, listProjects, listUsage, listVersions,
-  recordUsage, removeProject, saveAlertRule, saveIncident, savePlan, saveConsumer, saveVersion,
-  touchApiKey, updateApiKey, updateDeploymentStatus, updateEndpoint, updateProject,
+  addActivity,
+  addDeployment,
+  appendLog,
+  completeDeploy,
+  composeProject,
+  computeAnalytics,
+  computeInsights,
+  createApiKey,
+  createProject,
+  deleteAlertRule,
+  deleteApiKey,
+  deleteConsumer,
+  deletePlan,
+  deleteVersion,
+  enqueueDeploy,
+  getEndpoint,
+  getJob,
+  getProject,
+  importEndpoints,
+  listActivity,
+  listAlertRules,
+  listApiKeys,
+  listConsumers,
+  listDeployments,
+  listEndpoints,
+  listIncidents,
+  listLogs,
+  listPlans,
+  listProjects,
+  listUsage,
+  listVersions,
+  recordUsage,
+  removeProject,
+  saveAlertRule,
+  saveIncident,
+  savePlan,
+  saveConsumer,
+  saveVersion,
+  touchApiKey,
+  updateApiKey,
+  updateDeploymentStatus,
+  updateEndpoint,
+  updateProject,
 } from './api-build.service';
 import { addCategory, listCategories, removeCategory } from './api-build.categories';
 import { detectUpstream, extractOperations } from './api-build.detect';
 import { probeProjectHealth } from './api-build.telemetry';
 import {
-  getDraftState, saveDraftConfig, promoteDraftToLive, discardDraft,
-  computeChanges, validateDraft, recordAuditEvent, getAuditLog,
+  getDraftState,
+  saveDraftConfig,
+  promoteDraftToLive,
+  discardDraft,
+  computeChanges,
+  validateDraft,
+  recordAuditEvent,
+  getAuditLog,
 } from './api-build.draft';
 import {
-  createOperation, getOperation, listOperations, cancelOperation, retryOperation,
-  type OperationType, type OperationState,
+  createOperation,
+  getOperation,
+  listOperations,
+  cancelOperation,
+  retryOperation,
+  type OperationType,
+  type OperationState,
 } from './api-build.operations';
-import { listResourceHistory, getRestoreSnapshot, recordResourceHistory } from './api-build.history';
+import {
+  listResourceHistory,
+  getRestoreSnapshot,
+  recordResourceHistory,
+} from './api-build.history';
 
 const router = Router();
 
-const ok = (res: express.Response, data: unknown, status = 200) => res.status(status).json({ success: true, data });
+const ok = (res: express.Response, data: unknown, status = 200) =>
+  res.status(status).json({ success: true, data });
 const fail = (res: express.Response, status: number, code: string, message: string) =>
   res.status(status).json({ success: false, error: { code, message } });
 const validId = (id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 160;
@@ -32,38 +84,89 @@ const numField = (v: unknown, fallback = 0) => (Number.isFinite(Number(v)) ? Num
 
 const newProjectRecord = (body: Record<string, unknown>) => {
   const name = str(body.name).trim() || 'Untitled API';
-  const slug = str(body.slug) || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `api-${Date.now()}`;
+  const slug =
+    str(body.slug) ||
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') ||
+    `api-${Date.now()}`;
   const now = new Date().toISOString();
   return {
     id: `proj-${slug}-${Math.random().toString(36).slice(2, 8)}`,
-    name, slug,
+    name,
+    slug,
     description: str(body.description, 'A new Klyra API project.'),
     category: str(body.category, 'AI / Developer Tools'),
-    status: 'draft' as const, environment: 'development' as const, version: 'v1.0.0',
-    sourceKind: str(body.sourceKind, 'existing'), baseUrl: '', openApiUrl: '',
-    gatewayUrl: `https://api.klyra.com/${slug}`, authKind: 'apiKey' as const,
-    rateLimitPerMin: 100, healthCheckPath: '/health',
-    requests: 0, requestsLabel: '0 requests', successRate: 100, latencyMs: 0,
-    consumers: 0, revenue: 0, endpointCount: 0, schemaCount: 0,
-    visibility: 'private' as const, published: false, createdAt: now, updatedAt: now,
+    status: 'draft' as const,
+    environment: 'development' as const,
+    version: 'v1.0.0',
+    sourceKind: str(body.sourceKind, 'existing'),
+    baseUrl: '',
+    openApiUrl: '',
+    gatewayUrl: `https://api.klyra.com/${slug}`,
+    authKind: 'apiKey' as const,
+    rateLimitPerMin: 100,
+    healthCheckPath: '/health',
+    requests: 0,
+    requestsLabel: '0 requests',
+    successRate: 100,
+    latencyMs: 0,
+    consumers: 0,
+    revenue: 0,
+    endpointCount: 0,
+    schemaCount: 0,
+    visibility: 'private' as const,
+    published: false,
+    createdAt: now,
+    updatedAt: now,
     deployment: {
-      kind: 'external' as const, status: 'queued' as const, providerUrl: '',
-      environment: 'development' as const, version: 'v1.0.0',
-      lastHealthCheck: 'not yet checked', log: ['Project created — choose an API source to continue.'],
+      kind: 'external' as const,
+      status: 'queued' as const,
+      providerUrl: '',
+      environment: 'development' as const,
+      version: 'v1.0.0',
+      lastHealthCheck: 'not yet checked',
+      log: ['Project created — choose an API source to continue.'],
     },
-    detection: null, plans: [], consumersList: [], apiKeys: [], versions: [], activity: [],
-    corsOrigins: '*', cacheTtlSeconds: 0, retryStrategy: 'none', connectTimeoutMs: 5000,
-    requestTimeoutMs: 30000, stripBasePath: false, authHeaderName: 'Authorization',
-    ipAllowlist: '', tags: str(body.category),
+    detection: null,
+    plans: [],
+    consumersList: [],
+    apiKeys: [],
+    versions: [],
+    activity: [],
+    corsOrigins: '*',
+    cacheTtlSeconds: 0,
+    retryStrategy: 'none',
+    connectTimeoutMs: 5000,
+    requestTimeoutMs: 30000,
+    stripBasePath: false,
+    authHeaderName: 'Authorization',
+    ipAllowlist: '',
+    tags: str(body.category),
   };
 };
 
 /* Projects — full lifecycle. POST creates the record AND its defaults. */
-router.get('/projects', async (_req, res) => { try { ok(res, await listProjects()); } catch { fail(res, 503, 'DATABASE_UNAVAILABLE', 'Project storage is unavailable.'); } });
+router.get('/projects', async (_req, res) => {
+  try {
+    ok(res, await listProjects());
+  } catch {
+    fail(res, 503, 'DATABASE_UNAVAILABLE', 'Project storage is unavailable.');
+  }
+});
 
 router.post('/projects', async (req, res) => {
-  try { ok(res, await createProject(newProjectRecord(req.body || {}))); }
-  catch (error) { fail(res, 400, 'INVALID_PROJECT', error instanceof Error ? error.message : 'Could not create the project.'); }
+  try {
+    ok(res, await createProject(newProjectRecord(req.body || {})));
+  } catch (error) {
+    fail(
+      res,
+      400,
+      'INVALID_PROJECT',
+      error instanceof Error ? error.message : 'Could not create the project.',
+    );
+  }
 });
 
 router.get('/projects/:id', async (req, res) => {
@@ -73,7 +176,8 @@ router.get('/projects/:id', async (req, res) => {
 });
 
 router.put('/projects/:id', async (req, res) => {
-  if (!validId(req.params.id) || !req.body || typeof req.body !== 'object') return fail(res, 400, 'INVALID_PROJECT', 'A valid project payload is required.');
+  if (!validId(req.params.id) || !req.body || typeof req.body !== 'object')
+    return fail(res, 400, 'INVALID_PROJECT', 'A valid project payload is required.');
 
   // Governance: capture the previous record for audit + resource history.
   const actor = str(req.headers['x-actor-id'], 'system');
@@ -84,10 +188,18 @@ router.put('/projects/:id', async (req, res) => {
   const project = await updateProject(req.params.id, req.body);
   if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
 
-  const changedKeys = Object.keys(req.body).filter((k) => JSON.stringify((before as Record<string, unknown>)[k]) !== JSON.stringify((project as Record<string, unknown>)[k]));
+  const changedKeys = Object.keys(req.body).filter(
+    (k) =>
+      JSON.stringify((before as Record<string, unknown>)[k]) !==
+      JSON.stringify((project as Record<string, unknown>)[k]),
+  );
   if (changedKeys.length > 0) {
-    const beforeSubset = Object.fromEntries(changedKeys.map((k) => [k, (before as Record<string, unknown>)[k]]));
-    const afterSubset = Object.fromEntries(changedKeys.map((k) => [k, (project as Record<string, unknown>)[k]]));
+    const beforeSubset = Object.fromEntries(
+      changedKeys.map((k) => [k, (before as Record<string, unknown>)[k]]),
+    );
+    const afterSubset = Object.fromEntries(
+      changedKeys.map((k) => [k, (project as Record<string, unknown>)[k]]),
+    );
     void recordResourceHistory({
       projectId: req.params.id,
       resourceType: 'project',
@@ -96,7 +208,9 @@ router.put('/projects/:id', async (req, res) => {
       reason,
       before: beforeSubset,
       after: afterSubset,
-      summary: `Updated ${changedKeys.slice(0, 6).join(', ')}${changedKeys.length > 6 ? ` +${changedKeys.length - 6} more` : ''}`,
+      summary: `Updated ${changedKeys.slice(0, 6).join(', ')}${
+        changedKeys.length > 6 ? ` +${changedKeys.length - 6} more` : ''
+      }`,
     }).catch(() => undefined);
     void recordAuditEvent({
       projectId: req.params.id,
@@ -113,9 +227,13 @@ router.put('/projects/:id', async (req, res) => {
   ok(res, project);
 });
 
-router.delete('/projects/:id', async (req, res) => { ok(res, { deleted: await removeProject(req.params.id) }); });
+router.delete('/projects/:id', async (req, res) => {
+  ok(res, { deleted: await removeProject(req.params.id) });
+});
 /* Endpoints — catalog backed by the relational table; imported from specs. */
-router.get('/projects/:id/endpoints', async (req, res) => { ok(res, await listEndpoints(req.params.id)); });
+router.get('/projects/:id/endpoints', async (req, res) => {
+  ok(res, await listEndpoints(req.params.id));
+});
 router.get('/projects/:id/endpoints/:eid', async (req, res) => {
   const endpoint = await getEndpoint(req.params.id, req.params.eid);
   if (!endpoint) return fail(res, 404, 'NOT_FOUND', 'Endpoint not found.');
@@ -140,11 +258,16 @@ router.post('/projects/:id/endpoints/import', async (req, res) => {
 });
 router.delete('/projects/:id/endpoints/:eid', async (req, res) => {
   const { pool } = await import('../../services/database.service');
-  await pool.query('DELETE FROM api_build_endpoints WHERE project_id = $1 AND id = $2', [req.params.id, req.params.eid]);
+  await pool.query('DELETE FROM api_build_endpoints WHERE project_id = $1 AND id = $2', [
+    req.params.id,
+    req.params.eid,
+  ]);
   ok(res, { deleted: true });
 });
 /* Versions */
-router.get('/projects/:id/versions', async (req, res) => { ok(res, await listVersions(req.params.id)); });
+router.get('/projects/:id/versions', async (req, res) => {
+  ok(res, await listVersions(req.params.id));
+});
 router.post('/projects/:id/versions', async (req, res) => {
   const v = req.body || {};
   const version = await saveVersion(req.params.id, {
@@ -155,7 +278,10 @@ router.post('/projects/:id/versions', async (req, res) => {
     endpointsCount: numField(v.endpointsCount),
     isDefault: v.isDefault === true,
     releasedAt: str(v.releasedAt) || new Date().toISOString(),
-    changelog: v.changelog && typeof v.changelog === 'object' ? v.changelog : { added: [], modified: [], deprecated: [], breaking: [] },
+    changelog:
+      v.changelog && typeof v.changelog === 'object'
+        ? v.changelog
+        : { added: [], modified: [], deprecated: [], breaking: [] },
     createdAt: new Date().toISOString(),
   });
   await addActivity(req.params.id, `Version ${version.semver} created (${version.status})`, 'info');
@@ -164,12 +290,19 @@ router.post('/projects/:id/versions', async (req, res) => {
 router.put('/projects/:id/versions/:vid', async (req, res) => {
   const existing = (await listVersions(req.params.id)).find((v) => v.id === req.params.vid);
   if (!existing) return fail(res, 404, 'NOT_FOUND', 'Version not found.');
-  ok(res, await saveVersion(req.params.id, { ...existing, ...(req.body || {}), id: req.params.vid }));
+  ok(
+    res,
+    await saveVersion(req.params.id, { ...existing, ...(req.body || {}), id: req.params.vid }),
+  );
 });
-router.delete('/projects/:id/versions/:vid', async (req, res) => { ok(res, { deleted: await deleteVersion(req.params.id, req.params.vid) }); });
+router.delete('/projects/:id/versions/:vid', async (req, res) => {
+  ok(res, { deleted: await deleteVersion(req.params.id, req.params.vid) });
+});
 
 /* Plans */
-router.get('/projects/:id/plans', async (req, res) => { ok(res, await listPlans(req.params.id)); });
+router.get('/projects/:id/plans', async (req, res) => {
+  ok(res, await listPlans(req.params.id));
+});
 router.post('/projects/:id/plans', async (req, res) => {
   const p = req.body || {};
   const plan = await savePlan(req.params.id, {
@@ -191,10 +324,14 @@ router.put('/projects/:id/plans/:pid', async (req, res) => {
   if (!existing) return fail(res, 404, 'NOT_FOUND', 'Plan not found.');
   ok(res, await savePlan(req.params.id, { ...existing, ...(req.body || {}), id: req.params.pid }));
 });
-router.delete('/projects/:id/plans/:pid', async (req, res) => { ok(res, { deleted: await deletePlan(req.params.id, req.params.pid) }); });
+router.delete('/projects/:id/plans/:pid', async (req, res) => {
+  ok(res, { deleted: await deletePlan(req.params.id, req.params.pid) });
+});
 
 /* Consumers */
-router.get('/projects/:id/consumers', async (req, res) => { ok(res, await listConsumers(req.params.id)); });
+router.get('/projects/:id/consumers', async (req, res) => {
+  ok(res, await listConsumers(req.params.id));
+});
 router.post('/projects/:id/consumers', async (req, res) => {
   const c = req.body || {};
   const consumer = await saveConsumer(req.params.id, {
@@ -212,11 +349,18 @@ router.post('/projects/:id/consumers', async (req, res) => {
 router.put('/projects/:id/consumers/:cid', async (req, res) => {
   const existing = (await listConsumers(req.params.id)).find((c) => c.id === req.params.cid);
   if (!existing) return fail(res, 404, 'NOT_FOUND', 'Consumer not found.');
-  ok(res, await saveConsumer(req.params.id, { ...existing, ...(req.body || {}), id: req.params.cid }));
+  ok(
+    res,
+    await saveConsumer(req.params.id, { ...existing, ...(req.body || {}), id: req.params.cid }),
+  );
 });
-router.delete('/projects/:id/consumers/:cid', async (req, res) => { ok(res, { deleted: await deleteConsumer(req.params.id, req.params.cid) }); });
+router.delete('/projects/:id/consumers/:cid', async (req, res) => {
+  ok(res, { deleted: await deleteConsumer(req.params.id, req.params.cid) });
+});
 /* API keys — plaintext returned once at creation; hash-only storage. */
-router.get('/projects/:id/keys', async (req, res) => { ok(res, await listApiKeys(req.params.id)); });
+router.get('/projects/:id/keys', async (req, res) => {
+  ok(res, await listApiKeys(req.params.id));
+});
 router.post('/projects/:id/keys', async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
@@ -224,21 +368,33 @@ router.post('/projects/:id/keys', async (req, res) => {
   const label = str(k.label).trim();
   if (!label) return fail(res, 400, 'INVALID_KEY', 'A key label is required.');
   const created = await createApiKey(req.params.id, {
-    label, consumer: str(k.consumer), plan: str(k.plan, 'Free'), environment: str(k.environment, 'live'),
+    label,
+    consumer: str(k.consumer),
+    plan: str(k.plan, 'Free'),
+    environment: str(k.environment, 'live'),
   });
-  await addActivity(req.params.id, `API key "${label}" created for ${created.consumer || 'the project'}`, 'ok');
+  await addActivity(
+    req.params.id,
+    `API key "${label}" created for ${created.consumer || 'the project'}`,
+    'ok',
+  );
   ok(res, created, 201);
 });
 router.put('/projects/:id/keys/:kid', async (req, res) => {
   const updated = await updateApiKey(req.params.id, req.params.kid, req.body || {});
   if (!updated) return fail(res, 404, 'NOT_FOUND', 'Key not found.');
-  if (req.body?.revoked === true) await addActivity(req.params.id, `API key "${updated.label}" revoked`, 'warning');
+  if (req.body?.revoked === true)
+    await addActivity(req.params.id, `API key "${updated.label}" revoked`, 'warning');
   ok(res, updated);
 });
-router.delete('/projects/:id/keys/:kid', async (req, res) => { ok(res, { deleted: await deleteApiKey(req.params.id, req.params.kid) }); });
+router.delete('/projects/:id/keys/:kid', async (req, res) => {
+  ok(res, { deleted: await deleteApiKey(req.params.id, req.params.kid) });
+});
 
 /* Activity — audit feed (append + list). */
-router.get('/projects/:id/activity', async (req, res) => { ok(res, await listActivity(req.params.id)); });
+router.get('/projects/:id/activity', async (req, res) => {
+  ok(res, await listActivity(req.params.id));
+});
 router.post('/projects/:id/activity', async (req, res) => {
   const label = str(req.body?.label).trim();
   if (!label) return fail(res, 400, 'INVALID_ACTIVITY', 'An activity label is required.');
@@ -247,7 +403,9 @@ router.post('/projects/:id/activity', async (req, res) => {
 });
 
 /* Deployments — queue + real records. */
-router.get('/projects/:id/deployments', async (req, res) => { ok(res, await listDeployments(req.params.id)); });
+router.get('/projects/:id/deployments', async (req, res) => {
+  ok(res, await listDeployments(req.params.id));
+});
 router.post('/projects/:id/deployments', async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
@@ -265,7 +423,10 @@ router.post('/projects/:id/deployments', async (req, res) => {
     commitMessage: str(body.commitMessage) || null,
     region: str(body.region, 'sg-edge'),
     status: str(body.status, 'building'),
-    url: str(body.url, str((project.deployment as Record<string, unknown> | undefined)?.providerUrl, '')),
+    url: str(
+      body.url,
+      str((project.deployment as Record<string, unknown> | undefined)?.providerUrl, ''),
+    ),
     durationSec: numField(body.durationSec),
     author: str(body.author, 'workspace'),
     logs: Array.isArray(body.logs) ? body.logs : ['Deployment requested'],
@@ -283,66 +444,104 @@ router.put('/projects/:id/deployments/:did', async (req, res) => {
 
 /* Logs — filterable request log feed. */
 router.get('/projects/:id/logs', async (req, res) => {
-  ok(res, await listLogs(req.params.id, {
-    limit: Number(req.query.limit) || 200,
-    method: str(req.query.method, 'ALL'),
-    path: str(req.query.path),
-    status: Number(req.query.status) || undefined,
-  }));
+  ok(
+    res,
+    await listLogs(req.params.id, {
+      limit: Number(req.query.limit) || 200,
+      method: str(req.query.method, 'ALL'),
+      path: str(req.query.path),
+      status: Number(req.query.status) || undefined,
+    }),
+  );
 });
 router.post('/projects/:id/logs', async (req, res) => {
   const l = req.body || {};
-  if (!str(l.method) || !str(l.path)) return fail(res, 400, 'INVALID_LOG', 'method and path are required.');
+  if (!str(l.method) || !str(l.path))
+    return fail(res, 400, 'INVALID_LOG', 'method and path are required.');
   if (str(l.keyPrefix)) void touchApiKey(req.params.id, str(l.keyPrefix));
-  ok(res, await appendLog(req.params.id, {
-    method: str(l.method, 'GET'), path: str(l.path, '/'), statusCode: numField(l.statusCode, 200),
-    latencyMs: numField(l.latencyMs), consumerName: str(l.consumerName, 'anonymous'),
-    keyPrefix: str(l.keyPrefix), version: str(l.version), region: str(l.region, 'sg-edge'),
-    ipAddress: str(l.ipAddress), requestHeaders: l.requestHeaders, queryParams: l.queryParams,
-    requestBody: str(l.requestBody), responseHeaders: l.responseHeaders, responseBody: str(l.responseBody),
-    trace: Array.isArray(l.trace) ? l.trace : [],
-  }), 201);
+  ok(
+    res,
+    await appendLog(req.params.id, {
+      method: str(l.method, 'GET'),
+      path: str(l.path, '/'),
+      statusCode: numField(l.statusCode, 200),
+      latencyMs: numField(l.latencyMs),
+      consumerName: str(l.consumerName, 'anonymous'),
+      keyPrefix: str(l.keyPrefix),
+      version: str(l.version),
+      region: str(l.region, 'sg-edge'),
+      ipAddress: str(l.ipAddress),
+      requestHeaders: l.requestHeaders,
+      queryParams: l.queryParams,
+      requestBody: str(l.requestBody),
+      responseHeaders: l.responseHeaders,
+      responseBody: str(l.responseBody),
+      trace: Array.isArray(l.trace) ? l.trace : [],
+    }),
+    201,
+  );
 });
 /* Monitoring — incidents + alert rules. */
-router.get('/projects/:id/incidents', async (req, res) => { ok(res, await listIncidents(req.params.id)); });
+router.get('/projects/:id/incidents', async (req, res) => {
+  ok(res, await listIncidents(req.params.id));
+});
 router.post('/projects/:id/incidents', async (req, res) => {
   const i = req.body || {};
   const title = str(i.title).trim();
   if (!title) return fail(res, 400, 'INVALID_INCIDENT', 'An incident title is required.');
-  ok(res, await saveIncident(req.params.id, {
-    title,
-    severity: (str(i.severity, 'Major') as 'Critical' | 'Major' | 'Minor'),
-    status: str(i.status, 'Investigating'),
-    affectedEndpoints: Array.isArray(i.affectedEndpoints) ? i.affectedEndpoints : [],
-    summary: str(i.summary),
-  }), 201);
+  ok(
+    res,
+    await saveIncident(req.params.id, {
+      title,
+      severity: str(i.severity, 'Major') as 'Critical' | 'Major' | 'Minor',
+      status: str(i.status, 'Investigating'),
+      affectedEndpoints: Array.isArray(i.affectedEndpoints) ? i.affectedEndpoints : [],
+      summary: str(i.summary),
+    }),
+    201,
+  );
 });
 router.put('/projects/:id/incidents/:iid', async (req, res) => {
   const existing = (await listIncidents(req.params.id)).find((i) => i.id === req.params.iid);
   if (!existing) return fail(res, 404, 'NOT_FOUND', 'Incident not found.');
   const merged = { ...existing, ...(req.body || {}) };
-  if (merged.status === 'Resolved' && !merged.resolvedAt) merged.resolvedAt = new Date().toISOString();
+  if (merged.status === 'Resolved' && !merged.resolvedAt)
+    merged.resolvedAt = new Date().toISOString();
   ok(res, await saveIncident(req.params.id, merged));
 });
 
-router.get('/projects/:id/alerts', async (req, res) => { ok(res, await listAlertRules(req.params.id)); });
+router.get('/projects/:id/alerts', async (req, res) => {
+  ok(res, await listAlertRules(req.params.id));
+});
 router.post('/projects/:id/alerts', async (req, res) => {
   const a = req.body || {};
   const metric = str(a.metric);
   if (!['p95_latency', 'error_rate', 'uptime', 'rate_limit'].includes(metric)) {
-    return fail(res, 400, 'INVALID_ALERT', 'metric must be p95_latency, error_rate, uptime or rate_limit.');
+    return fail(
+      res,
+      400,
+      'INVALID_ALERT',
+      'metric must be p95_latency, error_rate, uptime or rate_limit.',
+    );
   }
-  ok(res, await saveAlertRule(req.params.id, {
-    name: str(a.name, 'New alert rule'),
-    metric: metric as 'p95_latency' | 'error_rate' | 'uptime' | 'rate_limit',
-    condition: str(a.condition, '>') as '>' | '<',
-    threshold: numField(a.threshold, 1),
-    unit: str(a.unit), durationSec: numField(a.durationSec, 300),
-    channels: Array.isArray(a.channels) ? a.channels : ['email'],
-    enabled: a.enabled !== false,
-  }), 201);
+  ok(
+    res,
+    await saveAlertRule(req.params.id, {
+      name: str(a.name, 'New alert rule'),
+      metric: metric as 'p95_latency' | 'error_rate' | 'uptime' | 'rate_limit',
+      condition: str(a.condition, '>') as '>' | '<',
+      threshold: numField(a.threshold, 1),
+      unit: str(a.unit),
+      durationSec: numField(a.durationSec, 300),
+      channels: Array.isArray(a.channels) ? a.channels : ['email'],
+      enabled: a.enabled !== false,
+    }),
+    201,
+  );
 });
-router.delete('/projects/:id/alerts/:aid', async (req, res) => { ok(res, { deleted: await deleteAlertRule(req.params.id, req.params.aid) }); });
+router.delete('/projects/:id/alerts/:aid', async (req, res) => {
+  ok(res, { deleted: await deleteAlertRule(req.params.id, req.params.aid) });
+});
 
 /* Usage + analytics + insights — all derived from observed data. */
 router.get('/projects/:id/usage', async (req, res) => {
@@ -351,22 +550,35 @@ router.get('/projects/:id/usage', async (req, res) => {
 router.post('/projects/:id/usage', async (req, res) => {
   const u = req.body || {};
   await appendLog(req.params.id, {
-    method: str(u.method, 'GET'), path: str(u.path, '/'), statusCode: numField(u.statusCode, 200),
-    latencyMs: numField(u.latencyMs), consumerName: str(u.consumerName, 'anonymous'),
-    keyPrefix: str(u.keyPrefix), version: str(u.version),
+    method: str(u.method, 'GET'),
+    path: str(u.path, '/'),
+    statusCode: numField(u.statusCode, 200),
+    latencyMs: numField(u.latencyMs),
+    consumerName: str(u.consumerName, 'anonymous'),
+    keyPrefix: str(u.keyPrefix),
+    version: str(u.version),
   });
   await recordUsage(req.params.id, {
     requests: 1,
     success: numField(u.statusCode, 200) >= 200 && numField(u.statusCode) < 400 ? 1 : 0,
-    clientErr: numField(u.statusCode) >= 400 && numField(u.statusCode) < 500 && numField(u.statusCode) !== 429 ? 1 : 0,
+    clientErr:
+      numField(u.statusCode) >= 400 &&
+      numField(u.statusCode) < 500 &&
+      numField(u.statusCode) !== 429
+        ? 1
+        : 0,
     serverErr: numField(u.statusCode) >= 500 ? 1 : 0,
     rateLim: numField(u.statusCode) === 429 ? 1 : 0,
     p95: numField(u.latencyMs),
   });
   ok(res, { recorded: true }, 201);
 });
-router.get('/projects/:id/analytics', async (req, res) => { ok(res, await computeAnalytics(req.params.id)); });
-router.get('/projects/:id/insights', async (req, res) => { ok(res, await computeInsights(req.params.id)); });
+router.get('/projects/:id/analytics', async (req, res) => {
+  ok(res, await computeAnalytics(req.params.id));
+});
+router.get('/projects/:id/insights', async (req, res) => {
+  ok(res, await computeInsights(req.params.id));
+});
 
 /* Health probe — real upstream check, refreshes endpoint metrics. */
 router.post('/projects/:id/health', async (req, res) => {
@@ -377,8 +589,11 @@ router.post('/projects/:id/health', async (req, res) => {
 
 /* Marketplace categories (user-defined from the "New project" wizard). */
 router.get('/categories', async (_req, res) => {
-  try { ok(res, await listCategories()); }
-  catch { fail(res, 503, 'DATABASE_UNAVAILABLE', 'Category storage is unavailable.'); }
+  try {
+    ok(res, await listCategories());
+  } catch {
+    fail(res, 503, 'DATABASE_UNAVAILABLE', 'Category storage is unavailable.');
+  }
 });
 router.post('/categories', async (req, res) => {
   try {
@@ -389,7 +604,9 @@ router.post('/categories', async (req, res) => {
     fail(res, 400, 'INVALID_CATEGORY', error instanceof Error ? error.message : String(error));
   }
 });
-router.delete('/categories/:name', async (req, res) => { ok(res, { deleted: await removeCategory(req.params.name) }); });
+router.delete('/categories/:name', async (req, res) => {
+  ok(res, { deleted: await removeCategory(req.params.name) });
+});
 
 /* Live upstream detection (server-side fetch; no CORS limitations). */
 router.post('/detect', async (req, res) => {
@@ -407,7 +624,9 @@ router.get('/jobs/:id', async (req, res) => {
     const job = await getJob(req.params.id);
     if (!job) return fail(res, 404, 'NOT_FOUND', 'Deployment job not found.');
     ok(res, job);
-  } catch { fail(res, 503, 'DATABASE_UNAVAILABLE', 'Deployment queue is unavailable.'); }
+  } catch {
+    fail(res, 503, 'DATABASE_UNAVAILABLE', 'Deployment queue is unavailable.');
+  }
 });
 router.post('/jobs/:id/complete', async (req, res) => {
   await completeDeploy(req.params.id);
@@ -424,7 +643,12 @@ router.get('/projects/:id/draft', async (req, res) => {
     const state = await getDraftState(req.params.id);
     ok(res, state);
   } catch (error) {
-    fail(res, 500, 'DRAFT_FETCH_FAILED', error instanceof Error ? error.message : 'Failed to fetch draft state');
+    fail(
+      res,
+      500,
+      'DRAFT_FETCH_FAILED',
+      error instanceof Error ? error.message : 'Failed to fetch draft state',
+    );
   }
 });
 
@@ -435,11 +659,20 @@ router.patch('/projects/:id/draft', async (req, res) => {
   }
 
   try {
-    const actorId = req.headers['x-actor-id'] as string || 'system';
-    const result = await saveDraftConfig(req.params.id, req.body as Record<string, unknown>, actorId);
+    const actorId = (req.headers['x-actor-id'] as string) || 'system';
+    const result = await saveDraftConfig(
+      req.params.id,
+      req.body as Record<string, unknown>,
+      actorId,
+    );
     ok(res, result);
   } catch (error) {
-    fail(res, 500, 'DRAFT_SAVE_FAILED', error instanceof Error ? error.message : 'Failed to save draft');
+    fail(
+      res,
+      500,
+      'DRAFT_SAVE_FAILED',
+      error instanceof Error ? error.message : 'Failed to save draft',
+    );
   }
 });
 
@@ -454,7 +687,12 @@ router.post('/projects/:id/draft/changes', async (req, res) => {
     const changes = await computeChanges(req.params.id, state.draft, state.server);
     ok(res, changes);
   } catch (error) {
-    fail(res, 500, 'CHANGES_COMPUTE_FAILED', error instanceof Error ? error.message : 'Failed to compute changes');
+    fail(
+      res,
+      500,
+      'CHANGES_COMPUTE_FAILED',
+      error instanceof Error ? error.message : 'Failed to compute changes',
+    );
   }
 });
 
@@ -470,7 +708,12 @@ router.post('/projects/:id/draft/validate', async (req, res) => {
     const validation = await validateDraft(req.params.id, config);
     ok(res, validation);
   } catch (error) {
-    fail(res, 500, 'VALIDATION_FAILED', error instanceof Error ? error.message : 'Validation failed');
+    fail(
+      res,
+      500,
+      'VALIDATION_FAILED',
+      error instanceof Error ? error.message : 'Validation failed',
+    );
   }
 });
 
@@ -482,13 +725,18 @@ router.post('/projects/:id/draft/save', async (req, res) => {
 
   try {
     const clientVersion = numField(req.body?.version, 0);
-    const actorId = req.headers['x-actor-id'] as string || 'system';
+    const actorId = (req.headers['x-actor-id'] as string) || 'system';
 
     const result = await promoteDraftToLive(req.params.id, clientVersion, actorId);
 
     if (!result.success) {
       const statusCode = result.error?.code === 'CONFLICT' ? 409 : 400;
-      return fail(res, statusCode, result.error?.code || 'UNKNOWN', result.error?.message || 'Failed to save draft');
+      return fail(
+        res,
+        statusCode,
+        result.error?.code || 'UNKNOWN',
+        result.error?.message || 'Failed to save draft',
+      );
     }
 
     ok(res, { project: result.project, version: result.newVersion });
@@ -503,7 +751,12 @@ router.delete('/projects/:id/draft', async (req, res) => {
     const result = await discardDraft(req.params.id);
     ok(res, { discarded: result });
   } catch (error) {
-    fail(res, 500, 'DISCARD_FAILED', error instanceof Error ? error.message : 'Failed to discard draft');
+    fail(
+      res,
+      500,
+      'DISCARD_FAILED',
+      error instanceof Error ? error.message : 'Failed to discard draft',
+    );
   }
 });
 
@@ -515,7 +768,12 @@ router.get('/projects/:id/audit', async (req, res) => {
     const events = await getAuditLog(req.params.id, { limit, offset });
     ok(res, events);
   } catch (error) {
-    fail(res, 500, 'AUDIT_FETCH_FAILED', error instanceof Error ? error.message : 'Failed to fetch audit log');
+    fail(
+      res,
+      500,
+      'AUDIT_FETCH_FAILED',
+      error instanceof Error ? error.message : 'Failed to fetch audit log',
+    );
   }
 });
 
@@ -529,8 +787,16 @@ router.get('/projects/:id/audit', async (req, res) => {
  * ========================================================================== */
 
 const OPERATION_TYPES: ReadonlySet<string> = new Set([
-  'deploy', 'rollback', 'publish', 'import', 'sync', 'migrate',
-  'rotate_key', 'bulk_policy_update', 'health_probe', 'delete',
+  'deploy',
+  'rollback',
+  'publish',
+  'import',
+  'sync',
+  'migrate',
+  'rotate_key',
+  'bulk_policy_update',
+  'health_probe',
+  'delete',
 ]);
 
 router.post('/projects/:id/operations', async (req, res) => {
@@ -538,7 +804,12 @@ router.post('/projects/:id/operations', async (req, res) => {
   const body = (req.body || {}) as Record<string, unknown>;
   const type = str(body.type);
   if (!OPERATION_TYPES.has(type)) {
-    return fail(res, 400, 'INVALID_OPERATION_TYPE', `type must be one of: ${[...OPERATION_TYPES].join(', ')}.`);
+    return fail(
+      res,
+      400,
+      'INVALID_OPERATION_TYPE',
+      `type must be one of: ${[...OPERATION_TYPES].join(', ')}.`,
+    );
   }
   const project = await getProject(req.params.id);
   if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
@@ -550,13 +821,21 @@ router.post('/projects/:id/operations', async (req, res) => {
       actor: str(req.headers['x-actor-id'], 'system'),
       resource: str(body.resource, '') || undefined,
       environment: str(body.environment, '') || undefined,
-      payload: (body.payload && typeof body.payload === 'object' ? body.payload : {}) as Record<string, unknown>,
+      payload: (body.payload && typeof body.payload === 'object' ? body.payload : {}) as Record<
+        string,
+        unknown
+      >,
       requestId: str(req.headers['x-request-id'], '') || undefined,
       reason: str(body.reason, '') || undefined,
     });
     ok(res, operation, 202);
   } catch (error) {
-    fail(res, 500, 'OPERATION_CREATE_FAILED', error instanceof Error ? error.message : 'Failed to create operation.');
+    fail(
+      res,
+      500,
+      'OPERATION_CREATE_FAILED',
+      error instanceof Error ? error.message : 'Failed to create operation.',
+    );
   }
 });
 
@@ -564,13 +843,21 @@ router.get('/projects/:id/operations', async (req, res) => {
   try {
     const state = str(req.query.state, '') as OperationState;
     const type = str(req.query.type, '') as OperationType;
-    ok(res, await listOperations(req.params.id, {
-      limit: numField(req.query.limit as string, 50),
-      state: state || undefined,
-      type: type || undefined,
-    }));
+    ok(
+      res,
+      await listOperations(req.params.id, {
+        limit: numField(req.query.limit as string, 50),
+        state: state || undefined,
+        type: type || undefined,
+      }),
+    );
   } catch (error) {
-    fail(res, 500, 'OPERATIONS_FETCH_FAILED', error instanceof Error ? error.message : 'Failed to list operations.');
+    fail(
+      res,
+      500,
+      'OPERATIONS_FETCH_FAILED',
+      error instanceof Error ? error.message : 'Failed to list operations.',
+    );
   }
 });
 
@@ -580,27 +867,62 @@ router.get('/projects/:id/operations/:opId', async (req, res) => {
     if (!operation) return fail(res, 404, 'NOT_FOUND', 'Operation not found.');
     ok(res, operation);
   } catch (error) {
-    fail(res, 500, 'OPERATION_FETCH_FAILED', error instanceof Error ? error.message : 'Failed to fetch operation.');
+    fail(
+      res,
+      500,
+      'OPERATION_FETCH_FAILED',
+      error instanceof Error ? error.message : 'Failed to fetch operation.',
+    );
   }
 });
 
 router.post('/projects/:id/operations/:opId/cancel', async (req, res) => {
   try {
-    const row = await cancelOperation(req.params.id, req.params.opId, str(req.headers['x-actor-id'], 'system'));
-    if (!row) return fail(res, 409, 'OPERATION_NOT_CANCELLABLE', 'Operation is not in a cancellable state.');
+    const row = await cancelOperation(
+      req.params.id,
+      req.params.opId,
+      str(req.headers['x-actor-id'], 'system'),
+    );
+    if (!row)
+      return fail(
+        res,
+        409,
+        'OPERATION_NOT_CANCELLABLE',
+        'Operation is not in a cancellable state.',
+      );
     ok(res, row);
   } catch (error) {
-    fail(res, 500, 'OPERATION_CANCEL_FAILED', error instanceof Error ? error.message : 'Failed to cancel operation.');
+    fail(
+      res,
+      500,
+      'OPERATION_CANCEL_FAILED',
+      error instanceof Error ? error.message : 'Failed to cancel operation.',
+    );
   }
 });
 
 router.post('/projects/:id/operations/:opId/retry', async (req, res) => {
   try {
-    const row = await retryOperation(req.params.id, req.params.opId, str(req.headers['x-actor-id'], 'system'));
-    if (!row) return fail(res, 409, 'OPERATION_NOT_RETRYABLE', 'Only failed or cancelled operations can be retried.');
+    const row = await retryOperation(
+      req.params.id,
+      req.params.opId,
+      str(req.headers['x-actor-id'], 'system'),
+    );
+    if (!row)
+      return fail(
+        res,
+        409,
+        'OPERATION_NOT_RETRYABLE',
+        'Only failed or cancelled operations can be retried.',
+      );
     ok(res, row, 202);
   } catch (error) {
-    fail(res, 500, 'OPERATION_RETRY_FAILED', error instanceof Error ? error.message : 'Failed to retry operation.');
+    fail(
+      res,
+      500,
+      'OPERATION_RETRY_FAILED',
+      error instanceof Error ? error.message : 'Failed to retry operation.',
+    );
   }
 });
 
@@ -610,14 +932,22 @@ router.post('/projects/:id/operations/:opId/retry', async (req, res) => {
 
 router.get('/projects/:id/history', async (req, res) => {
   try {
-    ok(res, await listResourceHistory(req.params.id, {
-      resourceType: str(req.query.resourceType, '') || undefined,
-      resourceId: req.query.resourceId !== undefined ? String(req.query.resourceId) : undefined,
-      limit: numField(req.query.limit as string, 50),
-      offset: numField(req.query.offset as string, 0),
-    }));
+    ok(
+      res,
+      await listResourceHistory(req.params.id, {
+        resourceType: str(req.query.resourceType, '') || undefined,
+        resourceId: req.query.resourceId !== undefined ? String(req.query.resourceId) : undefined,
+        limit: numField(req.query.limit as string, 50),
+        offset: numField(req.query.offset as string, 0),
+      }),
+    );
   } catch (error) {
-    fail(res, 500, 'HISTORY_FETCH_FAILED', error instanceof Error ? error.message : 'Failed to fetch resource history.');
+    fail(
+      res,
+      500,
+      'HISTORY_FETCH_FAILED',
+      error instanceof Error ? error.message : 'Failed to fetch resource history.',
+    );
   }
 });
 
@@ -661,7 +991,12 @@ router.post('/projects/:id/history/restore', async (req, res) => {
     });
     ok(res, project);
   } catch (error) {
-    fail(res, 500, 'RESTORE_FAILED', error instanceof Error ? error.message : 'Failed to restore version.');
+    fail(
+      res,
+      500,
+      'RESTORE_FAILED',
+      error instanceof Error ? error.message : 'Failed to restore version.',
+    );
   }
 });
 

@@ -55,14 +55,14 @@ const MIGRATIONS = [
   { name: '0008_api_build_control_plane', file: '2026_09_13_001_api_build_control_plane.sql' },
   { name: '0009_account_reactivation', file: '2026_09_13_001_account_reactivation.sql' },
   { name: '0010_session_activity', file: '2026_09_13_002_session_activity.sql' },
+  { name: '0011_marketplace_enhancements', file: '2026_09_14_001_marketplace_enhancements.sql' },
 ];
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });
 client.on('error', (e) => console.error('[pg] idle error:', e.message));
 
 async function tableExists(table) {
-  const r = await client.query(
-    `SELECT to_regclass($1) IS NOT NULL::int AS present`, [table]);
+  const r = await client.query(`SELECT to_regclass($1) IS NOT NULL::int AS present`, [table]);
   return r.rows[0].present === 1;
 }
 
@@ -86,20 +86,27 @@ async function main() {
         `CREATE TABLE _klyra_migrations (
            name      TEXT PRIMARY KEY,
            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-         )`);
+         )`,
+      );
     }
 
     const done = new Set(await appliedNames());
     const status = process.argv.includes('--status');
 
     for (const m of MIGRATIONS) {
-      if (done.has(m.name)) { console.log(`  [skip]  ${m.name}`); continue; }
-      if (status) { console.log(`  [pending] ${m.name}`); continue; }
+      if (done.has(m.name)) {
+        console.log(`  [skip]  ${m.name}`);
+        continue;
+      }
+      if (status) {
+        console.log(`  [pending] ${m.name}`);
+        continue;
+      }
 
       // Baseline schema.sql uses plain CREATE TABLE (not IF NOT EXISTS). If it
       // has already been provisioned (e.g. existing share or a prior manual
       // apply), record it as applied without re-running, so we never clobber.
-      if (m.baseline && await tableExists('users')) {
+      if (m.baseline && (await tableExists('users'))) {
         console.log(`  [skip]  ${m.name} (users table already present — recorded)`);
       } else {
         const sqlPath = path.join(dbDir, m.file);

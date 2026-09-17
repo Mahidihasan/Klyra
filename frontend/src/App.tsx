@@ -22,6 +22,8 @@ import { AdminRevenuePage } from './pages/AdminRevenue/index';
 import { AdminSubscriptionsPage } from './pages/AdminSubscriptions/index';
 import { AdminUsagePage } from './pages/AdminUsage/index';
 import { AdminActivityPage } from './pages/AdminActivity/index';
+import { MarketplacePage } from './pages/Marketplace/index';
+import { catalogApi, toApiItem } from './services/api/catalog';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ProfilePage } from './pages/Profile';
 import './pages/Playground/styles.css';
@@ -40,7 +42,16 @@ import {
 import { ApiItem, ApiProject, CollectionItem, NavigationTab } from './types/api';
 import { hasAdminAccess } from './config/adminAccess';
 import { getImpersonationSession } from './services/impersonation';
-import { ChevronRight, TrendingUp, Sparkles, Rocket, Star, RefreshCw, FlaskConical, X } from 'lucide-react';
+import {
+  ChevronRight,
+  TrendingUp,
+  Sparkles,
+  Rocket,
+  Star,
+  RefreshCw,
+  FlaskConical,
+  X,
+} from 'lucide-react';
 
 function AppContent() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -156,11 +167,17 @@ function AppContent() {
   // `klyra:open-playground`; the shell exits fullscreen repo mode and lands on
   // the Playground with the originating repo/endpoint as context.
   // NOTE: must be declared before any early returns (Rules of Hooks).
-  const [playgroundContext, setPlaygroundContext] = useState<{ repoId: string; repoName: string; endpoint?: { method: string; path: string } } | null>(() => {
+  const [playgroundContext, setPlaygroundContext] = useState<{
+    repoId: string;
+    repoName: string;
+    endpoint?: { method: string; path: string };
+  } | null>(() => {
     try {
       const raw = localStorage.getItem('klyra_playground_context');
       return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   });
   useEffect(() => {
     const handler = (e: Event) => {
@@ -168,7 +185,11 @@ function AppContent() {
       if (!detail?.repoId) return;
       setPlaygroundContext(detail);
       setActiveTab('playground');
-      try { localStorage.setItem('activeTab', 'playground'); } catch { /* ignore */ }
+      try {
+        localStorage.setItem('activeTab', 'playground');
+      } catch {
+        /* ignore */
+      }
     };
     window.addEventListener('klyra:open-playground', handler);
     return () => window.removeEventListener('klyra:open-playground', handler);
@@ -186,21 +207,66 @@ function AppContent() {
   // the target user, so every admin request would be refused anyway.
   const isAdmin = hasAdminAccess(user?.role) && !getImpersonationSession();
   useEffect(() => {
-    const isAdminTab = activeTab === 'admin-overview' || activeTab === 'admin-users' || activeTab === 'admin-apis' || activeTab === 'admin-marketplace' || activeTab === 'admin-revenue' || activeTab === 'admin-subscriptions' || activeTab === 'admin-usage' || activeTab === 'admin-activity';
+    const isAdminTab =
+      activeTab === 'admin-overview' ||
+      activeTab === 'admin-users' ||
+      activeTab === 'admin-apis' ||
+      activeTab === 'admin-marketplace' ||
+      activeTab === 'admin-revenue' ||
+      activeTab === 'admin-subscriptions' ||
+      activeTab === 'admin-usage' ||
+      activeTab === 'admin-activity';
     if (!isLoading && isAdminTab && !isAdmin) {
       setActiveTab('home');
     }
   }, [isLoading, activeTab, isAdmin]);
 
+  // Curated rails state fetched from catalog API with mock fallback
+  const [curatedRails, setCuratedRails] = useState<{
+    trending: ApiItem[];
+    popular: ApiItem[];
+    newlyLaunched: ApiItem[];
+    recommended: ApiItem[];
+  }>({
+    trending: MOCK_TRENDING_APIS,
+    popular: MOCK_POPULAR_APIS,
+    newlyLaunched: MOCK_NEWLY_LAUNCHED_APIS,
+    recommended: MOCK_RECOMMENDED_APIS,
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    catalogApi
+      .getCuratedRails()
+      .then((data) => {
+        if (mounted && data) {
+          setCuratedRails({
+            trending: data.trending?.length ? data.trending.map(toApiItem) : MOCK_TRENDING_APIS,
+            popular: data.popular?.length ? data.popular.map(toApiItem) : MOCK_POPULAR_APIS,
+            newlyLaunched: data.newlyLaunched?.length
+              ? data.newlyLaunched.map(toApiItem)
+              : MOCK_NEWLY_LAUNCHED_APIS,
+            recommended: data.recommended?.length
+              ? data.recommended.map(toApiItem)
+              : MOCK_RECOMMENDED_APIS,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   // All combined APIs
   const allApis = useMemo(() => {
     return [
-      ...MOCK_TRENDING_APIS,
-      ...MOCK_POPULAR_APIS,
-      ...MOCK_NEWLY_LAUNCHED_APIS,
-      ...MOCK_RECOMMENDED_APIS,
+      ...curatedRails.trending,
+      ...curatedRails.popular,
+      ...curatedRails.newlyLaunched,
+      ...curatedRails.recommended,
     ];
-  }, []);
+  }, [curatedRails]);
 
   // Filter helper
   const filterApis = (apis: ApiItem[]) => {
@@ -215,20 +281,20 @@ function AppContent() {
   };
 
   const filteredTrendingApis = useMemo(
-    () => filterApis(MOCK_TRENDING_APIS),
-    [selectedCategory, searchQuery],
+    () => filterApis(curatedRails.trending),
+    [curatedRails.trending, selectedCategory, searchQuery],
   );
   const filteredPopularApis = useMemo(
-    () => filterApis(MOCK_POPULAR_APIS),
-    [selectedCategory, searchQuery],
+    () => filterApis(curatedRails.popular),
+    [curatedRails.popular, selectedCategory, searchQuery],
   );
   const filteredNewlyLaunchedApis = useMemo(
-    () => filterApis(MOCK_NEWLY_LAUNCHED_APIS),
-    [selectedCategory, searchQuery],
+    () => filterApis(curatedRails.newlyLaunched),
+    [curatedRails.newlyLaunched, selectedCategory, searchQuery],
   );
   const filteredRecommendedApis = useMemo(
-    () => filterApis(MOCK_RECOMMENDED_APIS),
-    [selectedCategory, searchQuery],
+    () => filterApis(curatedRails.recommended),
+    [curatedRails.recommended, selectedCategory, searchQuery],
   );
 
   // Handlers
@@ -288,39 +354,83 @@ function AppContent() {
           {playgroundContext && (
             <div
               style={{
-                position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 50,
-                display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)',
-                background: 'rgba(20,20,28,0.92)', border: '1px solid rgba(139,92,246,0.4)',
-                borderRadius: 999, padding: '6px 8px 6px 12px', maxWidth: '92vw',
+                position: 'absolute',
+                top: 10,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 50,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                background: 'rgba(20,20,28,0.92)',
+                border: '1px solid rgba(139,92,246,0.4)',
+                borderRadius: 999,
+                padding: '6px 8px 6px 12px',
+                maxWidth: '92vw',
               }}
             >
               <FlaskConical size={13} />
-              <span>From repository <b>{playgroundContext.repoName}</b></span>
+              <span>
+                From repository <b>{playgroundContext.repoName}</b>
+              </span>
               {playgroundContext.endpoint && (
-                <span style={{ fontFamily: 'var(--font-mono)' }}>{playgroundContext.endpoint.method} {playgroundContext.endpoint.path}</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>
+                  {playgroundContext.endpoint.method} {playgroundContext.endpoint.path}
+                </span>
               )}
               <button
-                type="button" title="Dismiss repository context"
-                onClick={() => { setPlaygroundContext(null); try { localStorage.removeItem('klyra_playground_context'); } catch { /* ignore */ } }}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex' }}
+                type="button"
+                title="Dismiss repository context"
+                onClick={() => {
+                  setPlaygroundContext(null);
+                  try {
+                    localStorage.removeItem('klyra_playground_context');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                }}
               >
                 <X size={13} />
               </button>
             </div>
           )}
-          <PlaygroundPage apiProject={activeApiProject} onBackToKlyra={() => setActiveTab('home')} />
+          <PlaygroundPage
+            apiProject={activeApiProject}
+            onBackToKlyra={() => setActiveTab('home')}
+          />
         </div>
       ) : activeTab === 'api-build' ? (
         /* API Build opens as a full-page workspace (no marketplace topbar/sidebar) */
-        <div style={{ position: 'relative', minHeight: '100vh', background: 'var(--bg-primary, #0b0c12)' }}>
-          <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}>
-          </div>
+        <div
+          style={{
+            position: 'relative',
+            minHeight: '100vh',
+            background: 'var(--bg-primary, #0b0c12)',
+          }}
+        >
+          <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}></div>
           <ApiBuildPage
             onBack={() => setActiveTab('home')}
             onOpenPlayground={() => {
-              setPlaygroundContext({ repoId: activeApiProject?.id || '', repoName: activeApiProject?.name || 'API Project' });
+              setPlaygroundContext({
+                repoId: activeApiProject?.id || '',
+                repoName: activeApiProject?.name || 'API Project',
+              });
               setActiveTab('playground');
-              try { localStorage.setItem('activeTab', 'playground'); } catch { /* ignore */ }
+              try {
+                localStorage.setItem('activeTab', 'playground');
+              } catch {
+                /* ignore */
+              }
             }}
           />
         </div>
@@ -345,6 +455,12 @@ function AppContent() {
           <Topbar
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
+            onSearchSubmit={(term) => {
+              setSearchQuery(term);
+              if (term.trim()) {
+                setActiveTab('apis');
+              }
+            }}
             onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
             onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
             onOpenProfile={handleOpenProfile}
@@ -377,7 +493,14 @@ function AppContent() {
                   {/* Center Main Dashboard Column */}
                   <div className="center-column">
                     {/* 1. Hero Banner */}
-                    <HeroBanner onSearchSubmit={(term) => setSearchQuery(term)} />
+                    <HeroBanner
+                      onSearchSubmit={(term) => {
+                        setSearchQuery(term);
+                        if (term.trim()) {
+                          setActiveTab('apis');
+                        }
+                      }}
+                    />
 
                     {/* 2. Category Filter Navigation Bar */}
                     <CategoryFilter
@@ -400,7 +523,7 @@ function AppContent() {
 
                         <div className="section-header-actions">
                           <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                            <span>View all</span>
+                            <span>Explore Marketplace</span>
                             <ChevronRight size={14} />
                           </button>
                         </div>
@@ -440,7 +563,7 @@ function AppContent() {
 
                         <div className="section-header-actions">
                           <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                            <span>View all</span>
+                            <span>Explore Marketplace</span>
                             <ChevronRight size={14} />
                           </button>
                         </div>
@@ -480,7 +603,7 @@ function AppContent() {
 
                         <div className="section-header-actions">
                           <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                            <span>View all</span>
+                            <span>Explore Marketplace</span>
                             <ChevronRight size={14} />
                           </button>
                         </div>
@@ -514,13 +637,15 @@ function AppContent() {
                           </div>
                           <div>
                             <h2 className="section-title">Recommended for You</h2>
-                            <p className="section-subtitle">Personalized / featured APIs</p>
+                            <p className="section-subtitle">
+                              A curated starting point for your next integration
+                            </p>
                           </div>
                         </div>
 
                         <div className="section-header-actions">
                           <button className="view-all-link" onClick={() => setActiveTab('apis')}>
-                            <span>View all</span>
+                            <span>Explore Marketplace</span>
                             <ChevronRight size={14} />
                           </button>
                         </div>
@@ -589,6 +714,17 @@ function AppContent() {
               ) : activeTab === 'admin-activity' ? (
                 <main className="content-page-wrapper">
                   <AdminActivityPage />
+                </main>
+              ) : activeTab === 'apis' ? (
+                <main className="content-page-wrapper mp-content-wrapper">
+                  <MarketplacePage
+                    initialSearch={searchQuery}
+                    initialCategory={selectedCategory !== 'All Categories' ? selectedCategory : ''}
+                    onOpenTester={(api: any) => {
+                      const item = api.baseUrl ? toApiItem(api) : api;
+                      handleOpenTester(item);
+                    }}
+                  />
                 </main>
               ) : (
                 <main className="content-page-wrapper">
@@ -788,6 +924,16 @@ function AppContent() {
           max-width: 1400px;
           width: 100%;
           margin: 0 auto;
+        }
+
+        .content-page-wrapper.mp-content-wrapper {
+          padding: 16px 32px 24px 32px;
+        }
+
+        @media (max-width: 768px) {
+          .content-page-wrapper.mp-content-wrapper {
+            padding: 14px 16px 20px 16px;
+          }
         }
 
         /* Responsive: collapse to fewer columns on smaller screens */

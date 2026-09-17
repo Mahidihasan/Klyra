@@ -13,6 +13,7 @@ import { gitHttpHandler } from './modules/repos/git.http';
 import reposRouter from './modules/repos/repos.routes';
 import apiBuildRouter from './modules/api-build/api-build.routes';
 import apiKeysRouter from './modules/api-keys/api-keys.routes';
+import { catalogRouter } from './modules/catalog/catalog.routes';
 
 const app = express();
 
@@ -61,6 +62,9 @@ app.use('/api/playground', playgroundRouter);
 // Billing routes
 app.use('/api/billing', billingRouter);
 app.use('/api/api-build', apiBuildRouter);
+
+// Public Marketplace Catalog routes (curated rails, search, filters, API details, reviews, providers, publishing)
+app.use('/api/v1/catalog', catalogRouter);
 
 // Admin dashboard (platform overview). Registered before the `/api` catch-all
 // below so the repos router can't shadow it.
