@@ -90,6 +90,7 @@ router.get('/metrics', async (req: Request, res: Response) => {
 router.get('/plans', async (req: Request, res: Response) => {
   try {
     const plans = await prisma.subscription_plans.findMany({
+      where: { is_active: true },
       orderBy: { price: 'asc' }
     });
     return res.json({ success: true, data: plans });

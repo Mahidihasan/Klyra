@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { checkPermission } from '../auth/auth.middleware';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -35,7 +36,7 @@ router.get('/gateway', async (req: Request, res: Response) => {
 });
 
 // PUT /api/v1/admin/settings/gateway
-router.put('/gateway', async (req: Request, res: Response) => {
+router.put('/gateway', checkPermission('EDIT_SETTINGS'), async (req: Request, res: Response) => {
   try {
     const limits = req.body.limits;
 
@@ -57,6 +58,86 @@ router.put('/gateway', async (req: Request, res: Response) => {
     return res.json({ success: true, data: limits });
   } catch (err) {
     return handleError(res, 'PUT /settings/gateway', err);
+  }
+});
+
+// GET /api/v1/admin/settings/core
+router.get('/core', async (req: Request, res: Response) => {
+  try {
+    let settings = await prisma.coreSettings.findFirst();
+
+    if (!settings) {
+      settings = await prisma.coreSettings.create({
+        data: {
+          id: 'singleton',
+          platformName: 'My SaaS Platform',
+          supportEmail: 'support@example.com',
+          maintenanceMode: false,
+          systemTimezone: 'UTC',
+          brandColor: '#6366f1',
+          logoUrl: '',
+          faviconUrl: '',
+          ogImageUrl: ''
+        }
+      });
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, data: settings });
+  } catch (err) {
+    return handleError(res, 'GET /settings/core', err);
+  }
+});
+
+// PUT /api/v1/admin/settings/core
+router.put('/core', checkPermission('EDIT_SETTINGS'), async (req: Request, res: Response) => {
+  try {
+    const { platformName, supportEmail, systemTimezone, maintenanceMode, brandColor, logoUrl, faviconUrl, ogImageUrl } = req.body;
+    
+    if (typeof req.body !== 'object') {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_PAYLOAD', message: 'Payload must be an object' } });
+    }
+
+    const adminId = (req as any).user?.sub;
+
+    const existingSetting = await prisma.coreSettings.findFirst();
+
+    let updatedSettings;
+
+    if (existingSetting) {
+      updatedSettings = await prisma.coreSettings.update({
+        where: { id: existingSetting.id },
+        data: { platformName, supportEmail, systemTimezone, maintenanceMode, brandColor, logoUrl, faviconUrl, ogImageUrl }
+      });
+    } else {
+      updatedSettings = await prisma.coreSettings.create({
+        data: { 
+          platformName: platformName || 'My SaaS Platform', 
+          supportEmail: supportEmail || 'support@example.com', 
+          systemTimezone: systemTimezone || 'UTC',
+          maintenanceMode: maintenanceMode || false,
+          brandColor: brandColor || '#6366f1',
+          logoUrl: logoUrl || '',
+          faviconUrl: faviconUrl || '',
+          ogImageUrl: ogImageUrl || ''
+        }
+      });
+    }
+
+    await (prisma as any).auditLog.create({
+      data: {
+        action: 'UPDATE',
+        entity_type: 'core_settings',
+        entity_id: 'singleton',
+        user_id: adminId || '00000000-0000-0000-0000-000000000000',
+        new_values: req.body as any,
+        ip_address: req.ip || 'unknown'
+      }
+    });
+
+    return res.json({ success: true, data: updatedSettings });
+  } catch (err) {
+    return handleError(res, 'PUT /settings/core', err);
   }
 });
 

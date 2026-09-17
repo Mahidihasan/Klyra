@@ -158,9 +158,9 @@ export const PlanManager = () => {
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
             <Zap size={20} className="text-indigo-400" />
-            3D Interactive Plan Architect
+            Billing & Tier Architecture
           </h2>
-          <p className="text-sm text-white/50 mt-1">Design and manage subscription tiers. Toggle features instantly.</p>
+          <p className="text-sm text-white/50 mt-1">Configure pricing tiers, manage discount incentives, and control feature permissions for your platform users.</p>
         </div>
         
         <MagneticButton onClick={() => setIsModalOpen(true)}>
@@ -178,24 +178,42 @@ export const PlanManager = () => {
           if (typeof features === 'string') features = JSON.parse(features);
           if (!Array.isArray(features)) features = [];
 
+          const discountFeature = features.find((f: any) => f.id === 'discount_percent' && f.value > 0);
+          const hasDiscount = !!discountFeature;
+          const discountPercent = discountFeature ? discountFeature.value : 0;
+          const isFeaturedOrDiscounted = plan.isPopular || hasDiscount;
+          const discountedPrice = plan.price * (1 - discountPercent / 100);
+          const savingsAmount = plan.price - discountedPrice;
+
           return (
             <div key={plan.id} className="relative group">
             
             {/* Glowing Tier Indication (Behind the Card) */}
-            {plan.isPopular && (
+            {isFeaturedOrDiscounted && (
               <motion.div 
-                className="absolute -inset-4 bg-indigo-500/30 blur-[60px] rounded-[3rem] -z-10"
+                className={`absolute -inset-4 blur-[60px] rounded-[3rem] -z-10 ${hasDiscount ? 'bg-emerald-500/20' : 'bg-indigo-500/30'}`}
                 animate={{ opacity: [0.3, 0.6, 0.3], scale: [0.95, 1.05, 0.95] }}
                 transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
               />
             )}
 
             {/* Glassmorphism Plan Card */}
-            <div className={`relative h-full flex flex-col p-8 rounded-3xl bg-[#0a0a0f]/60 backdrop-blur-2xl border transition-all duration-300 ${plan.isPopular ? 'border-indigo-500/50 shadow-2xl shadow-indigo-500/20' : 'border-white/5 hover:border-white/20'}`}>
+            <div className={`relative h-full flex flex-col p-8 rounded-3xl bg-[#0a0a0f]/60 backdrop-blur-2xl border transition-all duration-300 ${
+              hasDiscount 
+                ? 'border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.15)]' 
+                : plan.isPopular 
+                  ? 'border-indigo-500/50 shadow-2xl shadow-indigo-500/20' 
+                  : 'border-white/5 hover:border-white/20'
+            }`}>
               
-              {plan.isPopular && (
+              {plan.isPopular && !hasDiscount && (
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-indigo-500 text-white text-[11px] font-bold uppercase tracking-widest shadow-lg shadow-indigo-500/30">
                   Most Popular
+                </div>
+              )}
+              {hasDiscount && (
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-emerald-400 text-emerald-950 text-[11px] font-bold uppercase tracking-widest shadow-lg shadow-emerald-500/30">
+                  SAVE {discountPercent}%
                 </div>
               )}
 
@@ -209,19 +227,26 @@ export const PlanManager = () => {
                     <Edit3 size={16} />
                   </button>
                 </div>
-                <div className="flex items-baseline gap-2">
-                  {features.find((f: any) => f.id === 'discount_percent' && f.value > 0) ? (
-                    <>
-                      <span className="text-xl font-mono font-bold text-white/30 line-through">${plan.price}</span>
+                
+                {hasDiscount ? (
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-end gap-2">
                       <span className="text-4xl font-mono font-bold text-emerald-400">
-                        ${(plan.price * (1 - features.find((f: any) => f.id === 'discount_percent').value / 100)).toFixed(2)}
+                        ${discountedPrice.toFixed(2)}
                       </span>
-                    </>
-                  ) : (
-                    <span className="text-4xl font-mono font-bold text-white">${plan.price}</span>
-                  )}
-                  <span className="text-sm text-white/40">/{plan.interval}</span>
-                </div>
+                      <span className="text-xl font-mono font-bold text-white/30 line-through mb-1">${Number(plan.price).toFixed(2)}</span>
+                      <span className="text-sm text-white/40 mb-1">/{plan.interval || 'month'}</span>
+                    </div>
+                    <div className="text-sm text-emerald-400/80 font-medium">
+                      You save ${savingsAmount.toFixed(2)} on this plan
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-mono font-bold text-white">${Number(plan.price).toFixed(2)}</span>
+                    <span className="text-sm text-white/40">/{plan.interval || 'month'}</span>
+                  </div>
+                )}
               </div>
 
               <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/5 mb-8 flex justify-between items-center">

@@ -102,11 +102,23 @@ router.use('/activity', adminActivityRouter);
 import { adminSettingsRouter } from './admin.settings.routes';
 router.use('/settings', adminSettingsRouter);
 
-import { adminSecurityRouter } from './admin.security.routes';
-router.use('/security', adminSecurityRouter);
+import { AdminSecurityRoutes } from './admin.security.routes';
+router.use('/security', AdminSecurityRoutes);
+
+import { AdminLogsRoutes } from './admin.logs.routes';
+router.use('/logs', AdminLogsRoutes);
+
+import { AdminRbacRoutes } from './admin.rbac.routes';
+router.use('/rbac', AdminRbacRoutes);
 
 import { adminFinancesRouter } from './admin.finances.routes';
 router.use('/finances', adminFinancesRouter);
+
+import { adminReportsRouter } from './admin.reports.routes';
+router.use('/reports', adminReportsRouter);
+
+import { adminModerationRouter } from './admin.moderation.routes';
+router.use('/moderation', adminModerationRouter);
 
 // ============ Platform Overview (everything the screen needs) ============
 router.post('/platform/acknowledge-alerts', PlatformController.acknowledgeAlerts);

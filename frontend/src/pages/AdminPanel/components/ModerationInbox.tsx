@@ -27,64 +27,7 @@ interface Report {
   apiLogs?: ApiLog[];
 }
 
-// ─── Mock Data ────────────────────────────────────────────────────────────────
-
-const INITIAL_REPORTS: Report[] = [
-  {
-    id: 'rep_1', type: 'API', severity: 'critical', unread: true,
-    title: 'Malicious payload in /generate endpoint',
-    preview: 'API returns executable scripts when passed certain headers...',
-    reporter: 'usr_sec_1', target: 'API: DeepGen v2.1', targetDetail: 'api_x9j2',
-    date: '2m ago',
-    fullBody: 'This API returns executable scripts when passed the X-Bypass header. I was able to trigger an XSS attack on the documentation page by crafting a specific prompt. The API does not sanitize output before returning it to the client.',
-    apiLogs: [
-      { time: '14:42:11', status: 403, method: 'POST', path: '/v1/generate' },
-      { time: '14:42:08', status: 200, method: 'POST', path: '/v1/generate' },
-      { time: '14:41:55', status: 200, method: 'GET',  path: '/v1/status'   },
-      { time: '14:41:30', status: 500, method: 'POST', path: '/v1/generate' },
-    ],
-  },
-  {
-    id: 'rep_2', type: 'USER', severity: 'high', unread: true,
-    title: 'Automated spam account creation',
-    preview: 'User is automating account creation and spamming marketplace...',
-    reporter: 'System', target: 'User: usr_9x8f', targetDetail: 'usr_9x8f@shadow.net',
-    date: '5h ago',
-    fullBody: 'User ID usr_9x8f is automating account creation and spamming comments on popular marketplace listings. IP analysis shows 230+ account registrations from the same /24 subnet in the past 6 hours. Behavioural fingerprint matches known bot framework.',
-  },
-  {
-    id: 'rep_3', type: 'REVIEW', severity: 'medium', unread: false,
-    title: 'Abusive language in public review',
-    preview: '"This API is absolute garbage and the creator should..."',
-    reporter: 'usr_abc', target: 'Review on: GeoLocate Pro', targetDetail: 'review_88z',
-    date: '1d ago',
-    fullBody: 'This API is absolute garbage and the creator should delete their account immediately. The documentation is a complete waste of time and the rate limits are a scam. Absolutely useless product.',
-    flaggedWords: ['garbage', 'delete their account', 'scam', 'useless'],
-  },
-  {
-    id: 'rep_4', type: 'API', severity: 'high', unread: false,
-    title: 'Rate limit bypass via header spoofing',
-    preview: 'Rotating X-Forwarded-For headers to bypass gateway limits...',
-    reporter: 'usr_hacker_2', target: 'API: GeoLocate Pro', targetDetail: 'api_gl9',
-    date: '2d ago',
-    fullBody: 'Found a way to bypass the gateway limits by spoofing X-Forwarded-For headers with a rotating proxy pool. The gateway trusts this header without validation, so it resets the rate limiter for each new "IP" seen.',
-    apiLogs: [
-      { time: '10:12:00', status: 200, method: 'GET',  path: '/v1/locate' },
-      { time: '10:12:00', status: 200, method: 'GET',  path: '/v1/locate' },
-      { time: '10:11:59', status: 200, method: 'GET',  path: '/v1/locate' },
-      { time: '10:11:59', status: 429, method: 'GET',  path: '/v1/locate' },
-    ],
-  },
-  {
-    id: 'rep_5', type: 'REVIEW', severity: 'low', unread: false,
-    title: 'Off-topic review (competitor advertising)',
-    preview: 'Review contains links to a competing platform...',
-    reporter: 'usr_dev99', target: 'Review on: WeatherStack', targetDetail: 'review_12a',
-    date: '3d ago',
-    fullBody: 'Check out RapidAPI instead, it is way better than Klyra and has way more APIs. You can sign up at rapidapi.com. Klyra is overpriced for what it offers.',
-    flaggedWords: ['RapidAPI', 'rapidapi.com'],
-  },
-];
+// Removed INITIAL_REPORTS mock data
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -324,10 +267,32 @@ const DetailPane = ({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const ModerationInbox = () => {
-  const [reports, setReports]     = useState<Report[]>(INITIAL_REPORTS);
-  const [selectedId, setSelected] = useState<string | null>(INITIAL_REPORTS[0].id);
+  const [reports, setReports]     = useState<Report[]>([]);
+  const [selectedId, setSelected] = useState<string | null>(null);
   const [filter, setFilter]       = useState<'ALL' | ReportType>('ALL');
   const [query, setQuery]         = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchReports = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/moderation/inbox', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          setReports(data.data);
+          if (data.data.length > 0) setSelected(data.data[0].id);
+        }
+      } catch (err) {
+        console.error('Failed to fetch reports', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchReports();
+  }, []);
 
   // Resizable split state
   const [leftWidth, setLeftWidth] = useState(340);
@@ -342,12 +307,39 @@ export const ModerationInbox = () => {
 
   const activeReport = reports.find(r => r.id === selectedId) ?? null;
 
-  const handleAction = useCallback((id: string, _action: string) => {
+  const handleAction = useCallback(async (id: string, action: string) => {
+    const report = reports.find(r => r.id === id);
+    if (!report) return;
+
+    if (action === 'suspend') {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      // If it's a user action, the targetDetail holds the user ID. Otherwise we don't have a direct endpoint for API suspend here.
+      if (report.target === 'users') {
+        try {
+          const res = await fetch(`/api/v1/admin/moderation/${report.targetDetail}/action`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'SUSPEND', reason: 'Suspended via Moderation Inbox' })
+          });
+          const data = await res.json();
+          if (!data.success) throw new Error(data.error?.message || 'Failed to suspend');
+          
+          import('react-hot-toast').then(m => m.default.success('User suspended successfully'));
+        } catch (err: any) {
+          import('react-hot-toast').then(m => m.default.error(err.message));
+          return; // Stop if failed
+        }
+      } else {
+        import('react-hot-toast').then(m => m.default.error('Cannot suspend this target type directly'));
+        return;
+      }
+    }
+
     const idx = filtered.findIndex(r => r.id === id);
     const next = filtered[idx + 1] ?? filtered[idx - 1] ?? null;
     setSelected(next?.id ?? null);
     setReports(prev => prev.filter(r => r.id !== id));
-  }, [filtered]);
+  }, [filtered, reports]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -427,20 +419,32 @@ export const ModerationInbox = () => {
 
         {/* Report list */}
         <div className="flex-1 overflow-y-auto">
-          <AnimatePresence initial={false}>
-            {filtered.map(report => (
-              <ReportCard
-                key={report.id}
-                report={report}
-                isSelected={selectedId === report.id}
-                onSelect={() => selectReport(report.id)}
-              />
-            ))}
-          </AnimatePresence>
-          {filtered.length === 0 && (
+          {isLoading ? (
+            <div className="p-4 space-y-4">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="animate-pulse flex flex-col gap-2 p-2 border border-white/5 rounded-xl bg-white/[0.02]">
+                  <div className="w-1/3 h-3 bg-white/10 rounded"></div>
+                  <div className="w-3/4 h-4 bg-white/10 rounded"></div>
+                  <div className="w-1/2 h-3 bg-white/10 rounded"></div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <AnimatePresence initial={false}>
+              {filtered.map(report => (
+                <ReportCard
+                  key={report.id}
+                  report={report}
+                  isSelected={selectedId === report.id}
+                  onSelect={() => selectReport(report.id)}
+                />
+              ))}
+            </AnimatePresence>
+          )}
+          {!isLoading && filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center h-40 gap-3 text-white/25">
               <CheckCircle2 size={28} className="text-emerald-500/30" />
-              <span className="text-[13px]">Inbox zero ✦</span>
+              <span className="text-[13px] text-center px-4">Inbox Clear. No pending moderation reports.</span>
             </div>
           )}
         </div>
@@ -467,8 +471,8 @@ export const ModerationInbox = () => {
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-white/25">
             <CheckCircle2 size={48} className="text-emerald-500/20" />
             <div className="text-center">
-              <h3 className="text-[18px] font-bold text-white/40 mb-1">All clear</h3>
-              <p className="text-[13px]">No reports require your attention.</p>
+              <h3 className="text-[18px] font-bold text-white/40 mb-2">Inbox Clear</h3>
+              <p className="text-[13px] text-white/30 max-w-[250px]">No pending moderation reports or flagged activities require your attention.</p>
             </div>
           </div>
         )}

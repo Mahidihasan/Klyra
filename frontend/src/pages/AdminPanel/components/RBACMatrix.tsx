@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, Save, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -20,22 +20,24 @@ const PERMISSIONS = [
   { id: 'manage_plans',    label: 'Edit Subscription Plans',     category: 'Billing'         },
 ];
 
-const ROLES = ['Super Admin', 'Manager', 'Editor', 'Viewer'] as const;
+const ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'SUPPORT', 'USER'] as const;
 
 type Role = typeof ROLES[number];
 
 const INITIAL_MATRIX: Record<Role, Record<string, boolean>> = {
-  'Super Admin': PERMISSIONS.reduce((a, p) => ({ ...a, [p.id]: true }), {}),
-  'Manager':     { view_dashboard: true, view_revenue: true, manage_users: true, approve_apis: true, revoke_keys: true, view_logs: true },
-  'Editor':      { view_dashboard: true, approve_apis: true, curate_market: true, view_logs: true },
-  'Viewer':      { view_dashboard: true, view_logs: true },
+  'SUPER_ADMIN': PERMISSIONS.reduce((a, p) => ({ ...a, [p.id]: true }), {}),
+  'ADMIN':       {},
+  'MODERATOR':   {},
+  'SUPPORT':     {},
+  'USER':        {},
 };
 
 const ROLE_COLORS: Record<Role, string> = {
-  'Super Admin': 'text-rose-400 bg-rose-500/10 border-rose-500/20',
-  'Manager':     'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-  'Editor':      'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  'Viewer':      'text-sky-400 bg-sky-500/10 border-sky-500/20',
+  'SUPER_ADMIN': 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+  'ADMIN':       'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+  'MODERATOR':   'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  'SUPPORT':     'text-sky-400 bg-sky-500/10 border-sky-500/20',
+  'USER':        'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
 };
 
 const CATEGORIES = Array.from(new Set(PERMISSIONS.map(p => p.category)));
@@ -96,17 +98,49 @@ const CrosshairCell = ({
 
 export const RBACMatrix = () => {
   const [matrix, setMatrix]     = useState<Record<Role, Record<string, boolean>>>(INITIAL_MATRIX);
-  const [original]              = useState<Record<Role, Record<string, boolean>>>(INITIAL_MATRIX);
+  const [original, setOriginal] = useState<Record<Role, Record<string, boolean>>>(INITIAL_MATRIX);
   const [pending, setPending]   = useState<Set<string>>(new Set());
   const [hoveredRow, setRow]    = useState<number | null>(null);
   const [hoveredCol, setCol]    = useState<number | null>(null);
+  
+  useEffect(() => {
+    const fetchMatrix = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/rbac/roles', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          const fetchedMatrix: any = { ...INITIAL_MATRIX };
+          data.data.forEach((item: any) => {
+            const r = item.role;
+            if (fetchedMatrix[r]) {
+              item.permissions.forEach((p: string) => {
+                if (p === '*') {
+                  PERMISSIONS.forEach(perm => fetchedMatrix[r][perm.id] = true);
+                } else {
+                  fetchedMatrix[r][p] = true;
+                }
+              });
+            }
+          });
+          setMatrix(fetchedMatrix);
+          setOriginal(fetchedMatrix);
+        }
+      } catch (err) {
+        console.error('Failed to fetch RBAC matrix', err);
+      }
+    };
+    fetchMatrix();
+  }, []);
 
   const setHover = useCallback((r: number | null, c: number | null) => {
     setRow(r); setCol(c);
   }, []);
 
   const togglePermission = (role: Role, permId: string) => {
-    if (role === 'Super Admin') return;
+    if (role === 'SUPER_ADMIN') return;
     const key = `${role}::${permId}`;
     const newVal = !matrix[role]?.[permId];
 
@@ -129,9 +163,30 @@ export const RBACMatrix = () => {
     setPending(new Set());
   };
 
-  const saveChanges = () => {
-    setPending(new Set());
-    // TODO: POST to /api/admin/rbac
+  const saveChanges = async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const updates = ROLES.map(role => {
+        const perms = PERMISSIONS.filter(p => matrix[role]?.[p.id]).map(p => p.id);
+        if (role === 'SUPER_ADMIN') perms.push('*');
+        return { role, permissions: perms };
+      });
+      const res = await fetch('/api/v1/admin/rbac/roles', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ updates })
+      });
+      if (res.ok) {
+        setPending(new Set());
+        setOriginal(matrix);
+        import('react-hot-toast').then(m => m.default.success('RBAC updated successfully'));
+      }
+    } catch (err) {
+      console.error('Failed to save changes', err);
+    }
   };
 
   return (
@@ -219,11 +274,11 @@ export const RBACMatrix = () => {
                             setHover={setHover}
                           >
                             <div className="flex items-center justify-center gap-2">
-                              <NeonToggle
-                                enabled={!!matrix[role]?.[perm.id]}
-                                onToggle={() => togglePermission(role, perm.id)}
-                                locked={role === 'Super Admin'}
-                              />
+                                <NeonToggle
+                                  enabled={!!matrix[role]?.[perm.id]}
+                                  onToggle={() => togglePermission(role, perm.id)}
+                                  locked={role === 'SUPER_ADMIN'}
+                                />
                               {/* Modified indicator */}
                               {isModified && (
                                 <motion.div

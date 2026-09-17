@@ -8,29 +8,33 @@ type LogLevel = 'INFO' | 'ERROR' | 'WARN' | 'DEBUG';
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 interface LogEntry {
-  id: number;
+  id: string;
   time: string;
   level: LogLevel;
-  method?: HttpMethod;
   module: string;
-  msg: string;
+  action: string;
+  user: string;
+  details: string;
+  ip: string;
 }
 
-const SEED_LOGS: LogEntry[] = [
-  { id: 1, time: '14:32:01.442', level: 'INFO',  method: 'POST', module: 'Auth',     msg: 'User usr_9x8f authenticated via OAuth2 (GitHub). Session created.' },
-  { id: 2, time: '14:32:05.119', level: 'INFO',  method: 'GET',  module: 'Gateway',  msg: 'Route /v1/market/search received 1,420 hits in last 60s. Cache HIT ratio: 94%.' },
-  { id: 3, time: '14:33:12.884', level: 'WARN',                  module: 'RateLimit',msg: 'IP 192.168.1.44 approaching bucket limit on /v1/billing. Throttling at 85%.' },
-  { id: 4, time: '14:35:22.911', level: 'ERROR', method: 'POST', module: 'Security', msg: '[BREACH ATTEMPT] 5 failed root login attempts from IP 45.33.12.99 (Tor Exit Node).' },
-  { id: 5, time: '14:38:00.114', level: 'INFO',                  module: 'Cron',     msg: 'Daily MRR aggregation job initiated. Scheduler ID: cron_mrr_daily.' },
-  { id: 6, time: '14:40:18.203', level: 'ERROR', method: 'POST', module: 'WAF',      msg: '[BREACH] XSS payload detected in /api/v1/generate. Request blocked. Rule: WAF_902.' },
-];
-
-const STREAM_LOGS: LogEntry[] = [
-  { id: 100, time: '14:42:11.001', level: 'INFO',  method: 'PUT',  module: 'Gateway',  msg: 'New API provider "DataNexus Corp" published to marketplace. Pending review.' },
-  { id: 101, time: '14:42:30.512', level: 'WARN',                  module: 'DB',       msg: 'Connection pool utilization at 78%. Consider scaling replica set.' },
-  { id: 102, time: '14:43:05.889', level: 'ERROR', method: 'GET',  module: 'Security', msg: '[BREACH] SQL injection attempt on /api/v1/search. Blocked by WAF rule SQL_1023.' },
-  { id: 103, time: '14:43:45.221', level: 'INFO',  method: 'POST', module: 'Auth',     msg: 'User usr_new_pro upgraded subscription from Free to Pro tier.' },
-];
+const formatBDTime = (dateString: string) => {
+  if (!dateString) return "N/A";
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Dhaka',
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }).format(new Date(dateString));
+  } catch {
+    return dateString;
+  }
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -92,29 +96,58 @@ const Magnetic = ({ children }: { children: React.ReactElement }) => {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const SystemLogsTerminal = () => {
-  const [logs, setLogs] = useState<LogEntry[]>(SEED_LOGS);
+  const [logs, setLogs] = useState<LogEntry[] | null>(null);
   const [paused, setPaused] = useState(false);
-  const [streamIndex, setStreamIndex] = useState(0);
+  const [showHighlight, setShowHighlight] = useState(true);
   
   const terminalRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const pausedRef = useRef(false);
   pausedRef.current = paused;
 
-  // Auto-stream simulation
+  // Fetch logs with auto-refresh polling
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (!pausedRef.current && streamIndex < STREAM_LOGS.length) {
-        setLogs(prev => [...prev, STREAM_LOGS[streamIndex]]);
-        setStreamIndex(i => i + 1);
+    let intervalId: ReturnType<typeof setInterval>;
+
+    const fetchLogs = async () => {
+      // Skip fetching if the user paused the terminal stream
+      if (pausedRef.current) return;
+
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch(`/api/v1/admin/logs/system?t=` + new Date().getTime(), {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        console.log("Fetched Logs:", data);
+        if (Array.isArray(data)) {
+          setLogs(data);
+        } else {
+          console.warn("Backend returned non-array data, setting to empty array.");
+          setLogs([]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch system logs', err);
       }
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [streamIndex]);
+    };
+
+    fetchLogs(); // Initial fetch
+    intervalId = setInterval(fetchLogs, 3000); // 3-second polling
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // 30-second highlight effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowHighlight(false);
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Auto-scroll logic (only if not paused)
   useEffect(() => {
-    if (!paused) {
+    if (!paused && logs !== null) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, paused]);
@@ -190,34 +223,62 @@ export const SystemLogsTerminal = () => {
             ref={terminalRef}
             className="absolute inset-0 overflow-y-auto p-5 font-mono text-[13px] leading-relaxed custom-scrollbar"
           >
-            <AnimatePresence initial={false}>
-              {logs.map((log) => (
+            {logs === null ? (
+              <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-4 text-white/20">
+                <div className="w-8 h-8 rounded-full border-4 border-white/5 border-t-indigo-500/50 animate-spin"></div>
+                <div className="text-[13px] text-white/40 font-sans font-medium">Loading system logs...</div>
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-4 text-white/20">
+                <div className="p-5 rounded-full bg-indigo-500/10 border border-indigo-500/20 backdrop-blur-md">
+                  <Terminal size={32} className="text-indigo-400/50" />
+                </div>
+                <div className="text-center font-sans">
+                  <h3 className="text-[16px] font-bold text-white/40 mb-1">System Logs Empty</h3>
+                  <p className="text-[13px] text-white/30 max-w-[250px]">No active system events, deployment logs, or audit activities to display.</p>
+                </div>
+              </div>
+            ) : (
+              <AnimatePresence initial={false}>
+              {logs.map((log) => {
+                const isWarningOrError = log.level === 'WARN' || log.level === 'ERROR';
+                const isHighlighted = showHighlight && isWarningOrError;
+
+                return (
                 <motion.div
                   key={log.id}
                   initial={{ opacity: 0, y: 20, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={{ type: 'spring', stiffness: 100, damping: 15 }}
-                  className="flex items-start gap-4 mb-1.5 px-2 py-1 rounded hover:bg-white/[0.03] transition-colors group/row"
+                  className={`flex items-start gap-4 mb-1.5 px-2 py-1 rounded transition-colors group/row ${
+                    isHighlighted ? 'bg-rose-500/10 border border-rose-500/30' : 'hover:bg-white/[0.03]'
+                  }`}
                 >
-                  <span className="text-white/20 shrink-0 w-28 select-none">{log.time}</span>
+                  <span className="text-white/30 shrink-0 w-44 select-none" title={log.time}>{formatBDTime(log.time)}</span>
                   
                   <span className={`shrink-0 w-16 ${LEVEL_COLORS[log.level]}`}>
                     [{log.level}]
                   </span>
                   
-                  <span className="shrink-0 w-24 text-indigo-300/60">
-                    [{log.module}]
+                  <span className="shrink-0 w-28 text-indigo-300/60 font-bold">
+                    {log.action}
                   </span>
                   
-                  <span className="flex-1 text-white/80 break-words flex gap-2">
-                    {log.method && (
-                      <span className={`shrink-0 ${METHOD_COLORS[log.method]}`}>[{log.method}]</span>
-                    )}
-                    <span className={log.level === 'ERROR' ? 'text-rose-100' : ''}>{log.msg}</span>
+                  <span className="shrink-0 w-40 text-emerald-400/80 truncate pr-2" title={log.user}>
+                    {log.user}
+                  </span>
+
+                  <span className="flex-1 text-white/60 break-words flex flex-col">
+                    <span className={log.level === 'ERROR' ? 'text-rose-100' : 'text-white/80'}>
+                      [{log.module}] {log.details}
+                    </span>
+                    <span className="text-white/30 text-[11px]">IP: {log.ip}</span>
                   </span>
                 </motion.div>
-              ))}
-            </AnimatePresence>
+                );
+              })}
+              </AnimatePresence>
+            )}
 
             {/* Terminal Cursor */}
             <div className="flex items-center gap-3 px-2 py-2 mt-4">

@@ -24,6 +24,7 @@ import './pages/Playground/styles.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthPage, AuthMode } from './pages/Auth/AuthPage';
 import { DemoInboxPage } from './pages/Auth/DemoInboxPage';
+import { Toaster } from 'react-hot-toast';
 
 import {
   MOCK_TRENDING_APIS,
@@ -799,6 +800,12 @@ function AppContent() {
 export function App() {
   return (
     <AuthProvider>
+      <Toaster 
+        position="bottom-right"
+        toastOptions={{
+          style: { background: '#333', color: '#fff' }
+        }}
+      />
       <AppContent />
     </AuthProvider>
   );

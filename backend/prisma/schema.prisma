@@ -47,6 +47,7 @@ model User {
   system_settings          system_settings[]
   user_sessions            user_sessions[]
   user_subscriptions       user_subscriptions[]
+  sessions                 Session[]
 
   @@index([email(ops: raw("gin_trgm_ops"))], map: "idx_users_email_trgm", type: Gin)
   @@index([name(ops: raw("gin_trgm_ops"))], map: "idx_users_name_trgm", type: Gin)
@@ -1348,4 +1349,85 @@ enum verification_type {
   VERIFY_EMAIL
   RESET_PASSWORD
   REACTIVATE_ACCOUNT
+}
+
+model ModerationReport {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type         String    @db.VarChar(50)
+  title        String    @db.VarChar(200)
+  preview      String?
+  severity     String    @db.VarChar(20)
+  reporter     String    @db.VarChar(100)
+  target       String    @db.VarChar(50)
+  targetDetail String    @db.VarChar(255)
+  unread       Boolean   @default(true)
+  fullBody     String?
+  flaggedWords Json?     @default("[]")
+  apiLogs      Json?     @default("[]")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("moderation_reports")
+}
+
+
+model RolePermission {
+  role        user_role @id
+  permissions Json      @default("[]")
+}
+
+model SecuritySettings {
+  id                String  @id @default("singleton")
+  require_2fa       Boolean @default(false)
+  session_timeout   Int     @default(30)
+  block_vpn         Boolean @default(false)
+  max_failed_logins Int     @default(5)
+
+  @@map("security_settings")
+}
+
+model PlatformKey {
+  id           String    @id @default(uuid())
+  name         String    @db.VarChar(100)
+  masked_key   String    @db.VarChar(100)
+  raw_key_hash String    @db.VarChar(255)
+  environment  String    @db.VarChar(50)
+  last_used_at DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@map("platform_keys")
+}
+
+model Session {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id") @db.Uuid
+  device      String   @db.VarChar(255)
+  browser     String   @db.VarChar(255)
+  ipAddress   String   @map("ip_address") @db.Inet
+  location    String?  @db.VarChar(255)
+  latitude    Float?
+  longitude   Float?
+  isRevoked   Boolean  @default(false) @map("is_revoked")
+  lastActive  DateTime @default(now()) @map("last_active_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRevoked])
+}
+
+model CoreSettings {
+  id              String  @id @default("singleton")
+  platformName    String  @default("My SaaS Platform")
+  supportEmail    String  @default("support@example.com")
+  maintenanceMode Boolean @default(false)
+  systemTimezone  String  @default("UTC")
+  brandColor      String? @default("#6366f1")
+  logoUrl         String?
+  faviconUrl      String?
+  ogImageUrl      String?
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  @@map("core_settings")
 }

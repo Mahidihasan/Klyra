@@ -15,19 +15,7 @@ const THREAT_NODES: { id: string; cx: number; cy: number; severity: 'normal' | '
 
 const CENTER = { cx: 200, cy: 200 };
 
-const INITIAL_FEED = [
-  { id: 1, time: '14:45:01', level: 'critical', msg: 'Blocked 1,420 req from 45.33.12.99 — Reason: DDoS burst pattern' },
-  { id: 2, time: '14:44:55', level: 'warning',  msg: 'IP 192.168.1.44 at 85% rate bucket — throttling applied'         },
-  { id: 3, time: '14:44:30', level: 'info',     msg: 'WAF rule WAF_902 triggered — XSS payload blocked'               },
-  { id: 4, time: '14:43:12', level: 'info',     msg: 'API key usr_9x8f detected across 4 regions simultaneously'       },
-];
-
-const STREAM_FEED = [
-  { id: 5,  time: '14:46:10', level: 'critical', msg: 'New SQL injection attempt on /v1/search — rule SQL_1023'         },
-  { id: 6,  time: '14:46:45', level: 'info',     msg: 'Auto-ban triggered for 77.88.55.33 — 5 failed auth attempts'     },
-  { id: 7,  time: '14:47:02', level: 'warning',  msg: 'Anomalous payload size >10MB on /v1/images/generate'             },
-  { id: 8,  time: '14:48:15', level: 'info',     msg: 'Tor exit node 103.94.56.10 blocked — policy: no-anon-exit-nodes' },
-];
+const INITIAL_FEED: any[] = [];
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -62,24 +50,27 @@ const NodePulse = ({ cx, cy, severity }: { cx: number; cy: number; severity: str
   );
 };
 
-const RadarSweep = () => (
-  <motion.g
-    style={{ transformOrigin: '200px 200px' }}
-    animate={{ rotate: 360 }}
-    transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
-  >
-    <defs>
-      <radialGradient id="sweepGradient" cx="0%" cy="50%" r="100%">
-        <stop offset="0%" stopColor="#6366f1" stopOpacity="0.4" />
-        <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
-      </radialGradient>
-    </defs>
-    <path
-      d="M 200 200 L 200 20 A 180 180 0 0 1 380 200 Z"
-      fill="url(#sweepGradient)"
-    />
-  </motion.g>
-);
+const RadarSweep = ({ hasCritical }: { hasCritical?: boolean }) => {
+  const sweepColor = hasCritical ? '#f43f5e' : '#6366f1';
+  return (
+    <motion.g
+      style={{ transformOrigin: '200px 200px' }}
+      animate={{ rotate: 360 }}
+      transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
+    >
+      <defs>
+        <radialGradient id="sweepGradient" cx="0%" cy="50%" r="100%">
+          <stop offset="0%" stopColor={sweepColor} stopOpacity="0.4" />
+          <stop offset="100%" stopColor={sweepColor} stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <path
+        d="M 200 200 L 200 20 A 180 180 0 0 1 380 200 Z"
+        fill="url(#sweepGradient)"
+      />
+    </motion.g>
+  );
+};
 
 const ThreatFeedItem = ({ item }: { item: typeof INITIAL_FEED[0] }) => {
   const color = item.level === 'critical' ? 'text-rose-400' : item.level === 'warning' ? 'text-amber-400' : 'text-sky-400/70';
@@ -174,24 +165,69 @@ const DefconModal = ({ onClose, onConfirm }: { onClose: () => void; onConfirm: (
 
 export const AIThreatDetection = () => {
   const [feed, setFeed]             = useState(INITIAL_FEED);
-  const [streamIdx, setStreamIdx]   = useState(0);
+  const [stats, setStats]           = useState({ critical: 0, warnings: 0, mitigated: 0, systemStatus: true });
   const [lockdownOpen, setLockdown] = useState(false);
   const [locked, setLocked]         = useState(false);
 
-  // Auto-stream threat feed entries
+  // Fetch threats and stats on mount
   useEffect(() => {
-    const t = setInterval(() => {
-      if (streamIdx < STREAM_FEED.length) {
-        setFeed(prev => [STREAM_FEED[streamIdx], ...prev].slice(0, 12));
-        setStreamIdx(i => i + 1);
-      }
-    }, 3500);
-    return () => clearInterval(t);
-  }, [streamIdx]);
+    const fetchThreats = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        
+        // Fetch feed
+        const res = await fetch('/api/v1/admin/security/threats', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data && Array.isArray(data)) {
+          setFeed(data.slice(0, 12));
+        }
 
-  const handleConfirmLockdown = () => {
-    setLocked(true);
-    setLockdown(false);
+        // Fetch stats
+        const resStats = await fetch('/api/v1/admin/security/threat-stats', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const statsData = await resStats.json();
+        if (statsData && typeof statsData.critical === 'number') {
+          setStats(statsData);
+        }
+      } catch (err) {
+        console.error('Failed to fetch threats or stats:', err);
+      }
+    };
+    fetchThreats();
+  }, []);
+
+  const handleConfirmLockdown = async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      await fetch('/api/v1/admin/security/emergency-lockdown', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: true })
+      });
+      setLocked(true);
+      setLockdown(false);
+      import('react-hot-toast').then(m => m.default.success('DEFCON Lockdown Engaged'));
+    } catch (err) {
+      import('react-hot-toast').then(m => m.default.error('Failed to engage lockdown'));
+    }
+  };
+
+  const handleDisengageLockdown = async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      await fetch('/api/v1/admin/security/emergency-lockdown', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: false })
+      });
+      setLocked(false);
+      import('react-hot-toast').then(m => m.default.success('Lockdown Disengaged'));
+    } catch (err) {
+      import('react-hot-toast').then(m => m.default.error('Failed to disengage lockdown'));
+    }
   };
 
   return (
@@ -226,7 +262,7 @@ export const AIThreatDetection = () => {
 
           {locked ? (
             <button
-              onClick={() => setLocked(false)}
+              onClick={handleDisengageLockdown}
               className="px-6 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white/60 font-bold text-sm hover:bg-white/10 transition-colors"
             >
               Disengage Lockdown
@@ -251,12 +287,12 @@ export const AIThreatDetection = () => {
             <Cpu size={16} className="text-indigo-400" />
             <h3 className="text-sm font-bold text-white tracking-tight uppercase">Live Threat Radar</h3>
             <motion.div
-              className="ml-auto flex items-center gap-2 text-[11px] font-mono text-emerald-400"
+              className={`ml-auto flex items-center gap-2 text-[11px] font-mono ${stats.critical > 0 ? 'text-rose-400' : 'text-emerald-400'}`}
               animate={{ opacity: [1, 0.4, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-              SCANNING
+              <div className={`w-1.5 h-1.5 rounded-full ${stats.critical > 0 ? 'bg-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.8)]' : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'}`} />
+              {stats.critical > 0 ? 'THREAT DETECTED' : 'SCANNING'}
             </motion.div>
           </div>
 
@@ -294,16 +330,20 @@ export const AIThreatDetection = () => {
               ))}
 
               {/* Radar sweep */}
-              <RadarSweep />
+              <RadarSweep hasCritical={stats.critical > 0} />
 
               {/* Center node — the gateway */}
-              <circle cx="200" cy="200" r="8" fill="#6366f1" style={{ filter: 'drop-shadow(0 0 12px rgba(99,102,241,0.8))' }} />
-              <circle cx="200" cy="200" r="20" fill="none" stroke="rgba(99,102,241,0.3)" strokeWidth="1" />
+              <circle cx="200" cy="200" r="8" fill={stats.critical > 0 ? '#f43f5e' : '#6366f1'} style={{ filter: `drop-shadow(0 0 12px ${stats.critical > 0 ? 'rgba(244,63,94,0.8)' : 'rgba(99,102,241,0.8)'})` }} />
+              <circle cx="200" cy="200" r="20" fill="none" stroke={stats.critical > 0 ? 'rgba(244,63,94,0.3)' : 'rgba(99,102,241,0.3)'} strokeWidth="1" />
 
               {/* Threat nodes */}
-              {THREAT_NODES.map(n => (
-                <NodePulse key={n.id} cx={n.cx} cy={n.cy} severity={n.severity} />
-              ))}
+              {THREAT_NODES.map(n => {
+                let severity = n.severity;
+                if (stats.critical === 0 && severity === 'critical') {
+                  severity = 'warn'; // Make criticals warn if system is secure
+                }
+                return <NodePulse key={n.id} cx={n.cx} cy={n.cy} severity={severity} />;
+              })}
             </svg>
           </div>
 
@@ -332,23 +372,47 @@ export const AIThreatDetection = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-2">
-            <AnimatePresence initial={false}>
-              {feed.map(item => (
-                <ThreatFeedItem key={item.id} item={item} />
-              ))}
-            </AnimatePresence>
+            {feed.length === 0 || (!stats.systemStatus && feed.length === 0) ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-white/20 min-h-[200px]">
+                <div className={`p-4 rounded-full border backdrop-blur-md ${stats.systemStatus ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'}`}>
+                  {stats.systemStatus ? (
+                    <Shield size={28} className="text-emerald-400/50" />
+                  ) : (
+                    <AlertTriangle size={28} className="text-rose-400/50" />
+                  )}
+                </div>
+                <div className="text-center font-sans">
+                  <h4 className="text-[14px] font-bold text-white/40 mb-1">{stats.systemStatus ? 'System Secure' : 'Active Threats Detected'}</h4>
+                  <p className="text-[12px] text-white/30 px-4">
+                    {stats.systemStatus ? 'No active AI threats or anomalies detected.' : 'Critical severity anomalies require immediate attention.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <AnimatePresence initial={false}>
+                {(!stats.systemStatus && feed.length > 0) && (
+                  <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 flex gap-3 items-center">
+                    <AlertTriangle size={18} className="text-rose-400" />
+                    <span className="text-[12px] font-bold text-rose-400">System under active threat. Review logs immediately.</span>
+                  </div>
+                )}
+                {feed.map(item => (
+                  <ThreatFeedItem key={item.id} item={item} />
+                ))}
+              </AnimatePresence>
+            )}
           </div>
 
           {/* Threat Summary Chips */}
           <div className="px-6 py-4 border-t border-white/5 flex gap-3 flex-wrap">
             <div className="px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[11px] font-bold text-rose-400">
-              🔴 {feed.filter(f => f.level === 'critical').length} Critical
+              🔴 {stats.critical} Critical
             </div>
             <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-400">
-              🟡 {feed.filter(f => f.level === 'warning').length} Warnings
+              🟡 {stats.warnings} Warnings
             </div>
             <div className="px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[11px] font-bold text-sky-400">
-              🔵 {feed.filter(f => f.level === 'info').length} Mitigated
+              🔵 {stats.mitigated} Mitigated
             </div>
           </div>
         </div>

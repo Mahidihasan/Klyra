@@ -2,6 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyJwt } from './jwt.util';
 import { JwtPayload } from './auth.types';
 import { pool } from '../../services/database.service';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -37,6 +40,20 @@ export async function isActiveAuthenticatedUser(payload: JwtPayload): Promise<bo
   if (payload.sessionId) {
     if (!user.session_id || user.revoked_at || new Date(user.expires_at) < new Date()) return false;
   }
+
+  // Validate Admin Session (if present)
+  if (payload.adminSessionId) {
+    try {
+      const adminSession = await (prisma as any).session.findUnique({
+        where: { id: payload.adminSessionId }
+      });
+      if (!adminSession || adminSession.isRevoked) return false;
+    } catch (err) {
+      console.error('Admin session validation error:', err);
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -63,6 +80,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   if (payload.sessionId) {
     void pool.query('UPDATE user_sessions SET last_active_at = NOW() WHERE id = $1 AND revoked_at IS NULL', [payload.sessionId]).catch(() => undefined);
   }
+  if (payload.adminSessionId) {
+    void (prisma as any).session.update({
+      where: { id: payload.adminSessionId },
+      data: { lastActive: new Date() }
+    }).catch(() => undefined);
+  }
   next();
 }
 
@@ -79,4 +102,45 @@ export async function authOptional(req: Request, _res: Response, next: NextFunct
     }
   }
   next();
+}
+
+/**
+ * RBAC authorization middleware.
+ * Checks if the user's role has the required permission in RolePermission.
+ * SUPER_ADMIN is granted all permissions.
+ */
+export function checkPermission(requiredPermission: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    const role = req.user.role;
+    if (role === 'SUPER_ADMIN') {
+      return next();
+    }
+
+    try {
+      const result = await pool.query(
+        `SELECT permissions FROM "RolePermission" WHERE role = $1`,
+        [role]
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        // If no permissions configured, deny access unless we fallback
+        return res.status(403).json({ error: 'Forbidden: Insufficient permissions (Role not configured)' });
+      }
+
+      const permissions = row.permissions || [];
+      if (permissions.includes('*') || permissions.includes(requiredPermission)) {
+        return next();
+      }
+
+      return res.status(403).json({ error: `Forbidden: Insufficient permissions. Required: ${requiredPermission}` });
+    } catch (err) {
+      console.error('Error in checkPermission middleware:', err);
+      return res.status(500).json({ error: 'Failed to authorize request.' });
+    }
+  };
 }

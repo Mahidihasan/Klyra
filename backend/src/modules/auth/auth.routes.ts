@@ -26,11 +26,14 @@ function sendAuthError(res: Response, err: any, fallback: string): void {
 }
 
 function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
+  let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || 'Unknown';
+  if (Array.isArray(clientIp)) {
+    clientIp = clientIp[0];
   }
-  return req.socket.remoteAddress || '127.0.0.1';
+  if (typeof clientIp === 'string' && clientIp.includes(',')) {
+    clientIp = clientIp.split(',')[0].trim();
+  }
+  return clientIp as string;
 }
 
 function getUserAgent(req: Request): string {
@@ -85,7 +88,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     const result = await AuthService.login(email, password, !!rememberMe, ip, userAgent);
     res.json(result);
   } catch (err: any) {
-    const status = err.code === 'EMAIL_NOT_VERIFIED' || err.code === 'ACCOUNT_INACTIVE' ? 403 : err.message?.includes('locked') ? 423 : 401;
+    const status = err.code === 'EMAIL_NOT_VERIFIED' || err.code === 'ACCOUNT_INACTIVE' || err.code === 'MAINTENANCE_LOCKDOWN' || err.code === 'DEFCON_LOCKDOWN' ? 403 : err.message?.includes('locked') ? 423 : 401;
     res.status(status).json({
       error: err.message || 'Login failed.',
       code: err.code || 'LOGIN_ERROR',
@@ -339,7 +342,9 @@ router.post('/logout', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.sub;
     const sessionId = req.user?.sessionId;
-    await AuthService.logout(userId!, sessionId);
+    const ip = getClientIp(req);
+    const userAgent = getUserAgent(req);
+    await AuthService.logout(userId!, sessionId, ip, userAgent);
     res.json({ success: true, message: 'Successfully logged out.' });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Logout failed.' });

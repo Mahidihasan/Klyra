@@ -153,6 +153,7 @@ export interface JwtPayload {
   role: string;
   name: string;
   sessionId?: string;
+  adminSessionId?: string;
   /**
    * Set only on admin impersonation tokens: the id of the admin who minted it.
    *

@@ -1,5 +1,8 @@
 import bcrypt from 'bcryptjs';
+import geoip from 'geoip-lite';
 import type { Express } from 'express';
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
 import { pool } from '../../services/database.service';
 import { CLOUDINARY_FOLDERS, deleteFile, uploadFile } from '../../services/storage.service';
 import {
@@ -579,6 +582,29 @@ export class AuthService {
       throw err;
     }
 
+    // Check System Lockdown (Maintenance Mode & DEFCON)
+    let isMaintenance = false;
+    let isDefcon = false;
+    try {
+      const settingsRes = await pool.query(`SELECT key, value FROM system_settings WHERE key IN ('maintenance_mode', 'defcon_lockdown')`);
+      for (const row of settingsRes.rows) {
+        if (row.key === 'maintenance_mode') isMaintenance = row.value === true || row.value === 'true';
+        if (row.key === 'defcon_lockdown') isDefcon = row.value === true || row.value === 'true';
+      }
+    } catch (err) {
+      console.warn('System settings fetch failed, defaulting to lockdown = false', err);
+    }
+
+    if ((isMaintenance || isDefcon) && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+      const err = new Error(
+        isDefcon 
+          ? '🚨 SYSTEM LOCKDOWN: The platform is currently under DEFCON emergency lockdown. Only authorized administrators can log in.' 
+          : 'System is currently under maintenance or lockdown. Only administrators can log in at this time.'
+      ) as any;
+      err.code = isDefcon ? 'DEFCON_LOCKDOWN' : 'MAINTENANCE_LOCKDOWN';
+      throw err;
+    }
+
     const metadata: UserMetadata = user.metadata || {};
 
     // 1. Check account lockout
@@ -894,6 +920,50 @@ export class AuthService {
 
     const sessionId = sessionRes.rows[0].id;
 
+    // Parse simple user agent to extract device and browser
+    let deviceName = 'Unknown Device';
+    let browserName = 'Unknown Browser';
+    
+    const browserMatch = userAgent.match(/(firefox|msie|trident|chrome|safari|edg|opr)\/?\s*(\d+)/i);
+    if (browserMatch) {
+      browserName = `${browserMatch[1]} ${browserMatch[2]}`.replace('OPR', 'Opera').replace('Edg', 'Edge');
+    }
+    
+    const deviceMatch = userAgent.match(/\(([^)]+)\)/);
+    if (deviceMatch) {
+      const parts = deviceMatch[1].split(';');
+      deviceName = parts[0];
+      if (parts.length > 1 && parts[1].includes('OS')) deviceName = parts[1].trim();
+    }
+
+    let resolvedLocation = 'Unknown Location';
+    let resolvedLatitude = null;
+    let resolvedLongitude = null;
+    const cleanIp = ip.replace(/[^0-9.:]/g, '') || '127.0.0.1';
+
+    if (cleanIp === '::1' || cleanIp === '127.0.0.1' || cleanIp.startsWith('192.168.')) {
+      resolvedLocation = 'Localhost (Dev)';
+    } else {
+      const geo = geoip.lookup(cleanIp);
+      if (geo) {
+        resolvedLocation = `${geo.city || 'Unknown City'}, ${geo.country || 'Unknown Country'}`;
+        resolvedLatitude = geo.ll[0];
+        resolvedLongitude = geo.ll[1];
+      }
+    }
+
+    const adminSession = await (prisma as any).session.create({
+      data: {
+        userId: user.id,
+        device: deviceName,
+        browser: browserName,
+        ipAddress: cleanIp,
+        location: resolvedLocation,
+        latitude: resolvedLatitude,
+        longitude: resolvedLongitude
+      }
+    });
+
     // Access token valid for 15 minutes (900s)
     const accessToken = signJwt(
       {
@@ -902,6 +972,7 @@ export class AuthService {
         name: user.name,
         role: user.role,
         sessionId,
+        adminSessionId: adminSession.id
       },
       15 * 60
     );
@@ -914,13 +985,22 @@ export class AuthService {
       [ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', JSON.stringify(metadata), user.id]
     );
 
-    // Record successful login in audit_logs
-    await pool.query(
-      `INSERT INTO audit_logs (
-        user_id, action, entity_type, entity_id, new_values, ip_address, user_agent
-      ) VALUES ($1, 'LOGIN', 'users', $1, $2, $3::inet, $4)`,
-      [user.id, JSON.stringify({ success: true, rememberMe, sessionId }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
-    );
+    // Record successful login in audit_logs securely using Prisma
+    try {
+      await (prisma as any).auditLog.create({
+        data: {
+          action: 'LOGIN',
+          entity_type: 'users',
+          entity_id: user.id,
+          user_id: user.id,
+          new_values: { success: true, rememberMe, sessionId } as any,
+          ip_address: ip.replace(/[^0-9.:]/g, '') || '127.0.0.1',
+          user_agent: userAgent
+        }
+      });
+    } catch (err) {
+      console.error('Failed to log login event to audit_logs:', err);
+    }
 
     return {
       tokens: {
@@ -1292,7 +1372,7 @@ export class AuthService {
   /**
    * Logout and revoke active session.
    */
-  static async logout(userId: string, sessionId?: string): Promise<void> {
+  static async logout(userId: string, sessionId?: string, ipAddress = '127.0.0.1', userAgent = 'Unknown'): Promise<void> {
     if (sessionId) {
       await pool.query('UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1', [sessionId]);
     } else if (userId) {
@@ -1300,10 +1380,11 @@ export class AuthService {
     }
 
     if (userId) {
+      const cleanIp = ipAddress.replace(/[^0-9.:]/g, '') || '127.0.0.1';
       await pool.query(
-        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
-         VALUES ($1, 'LOGOUT', 'users', $1, '{"action": "user_logout"}')`,
-        [userId]
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values, ip_address, user_agent)
+         VALUES ($1, 'LOGOUT', 'users', $1, '{"action": "user_logout"}', $2::inet, $3)`,
+        [userId, cleanIp, userAgent]
       );
     }
   }
