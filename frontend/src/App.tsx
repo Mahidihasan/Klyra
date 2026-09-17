@@ -13,6 +13,7 @@ import { PlaygroundPage } from './pages/Playground/index';
 import { ApiBuilder } from './pages/ApiBuilder/index';
 import { ApiBuildPage } from './pages/ApiBuild';
 import { BillingPage } from './pages/Billing/index';
+import { WalletPage } from './pages/Wallet/index';
 import { RepositoriesPage } from './pages/Repositories/index';
 import { AdminOverviewPage } from './pages/AdminOverview/index';
 import { AdminUsersPage } from './pages/AdminUsers/index';
@@ -576,6 +577,10 @@ function AppContent() {
               ) : activeTab === 'billing' ? (
                 <main className="content-page-wrapper">
                   <BillingPage />
+                </main>
+              ) : activeTab === 'wallet' ? (
+                <main className="content-page-wrapper">
+                  <WalletPage />
                 </main>
               ) : activeTab === 'repositories' ? (
                 <main>

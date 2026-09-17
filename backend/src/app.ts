@@ -14,6 +14,8 @@ import reposRouter from './modules/repos/repos.routes';
 import apiBuildRouter from './modules/api-build/api-build.routes';
 import apiBuildGateway from './modules/api-build/api-build.gateway';
 import apiKeysRouter from './modules/api-keys/api-keys.routes';
+import walletRouter from './modules/wallet/wallet.routes';
+import walletWebhookRouter from './modules/wallet/wallet.webhook';
 
 const app = express();
 
@@ -42,6 +44,10 @@ app.use(
   },
 );
 
+// Stripe webhook — Stripe signs the unparsed payload, so this must sit above
+// express.json(), like the Git Smart HTTP route does.
+app.use('/api/wallet/webhook', express.raw({ type: 'application/json' }), walletWebhookRouter);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -61,6 +67,7 @@ app.use('/api/playground', playgroundRouter);
 
 // Billing routes
 app.use('/api/billing', billingRouter);
+app.use('/api/wallet', walletRouter);
 
 // API Build module (projects, endpoints, versions, …) and its dev gateway.
 // The gateway answers /api/gateway/{slug}/* — the same path the project's
