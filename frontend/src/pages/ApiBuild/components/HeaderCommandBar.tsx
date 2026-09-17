@@ -208,7 +208,7 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
         <div className="kly-cmd-left">
           <button className="kly-back-pill" onClick={onBackToDashboard} title="Back to All Projects">
             <ArrowLeft size={13} />
-            <span>Projects</span>
+            <span>Back</span>
           </button>
 
           <span className="kly-breadcrumb-divider">/</span>

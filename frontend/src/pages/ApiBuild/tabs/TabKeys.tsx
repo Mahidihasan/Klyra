@@ -52,7 +52,6 @@ export const TabKeys: React.FC<TabKeysProps> = ({
         
         <div className="kly-keys-kpi-grid">
           <div className="kly-keys-kpi-card kly-keys-kpi-active">
-            <div className="kly-keys-kpi-icon"><ShieldCheck size={16} /></div>
             <div className="kly-keys-kpi-content">
               <div className="kly-keys-kpi-val">{activeCount}</div>
               <div className="kly-keys-kpi-label">Active Credentials</div>
@@ -61,7 +60,6 @@ export const TabKeys: React.FC<TabKeysProps> = ({
           </div>
           
           <div className="kly-keys-kpi-card kly-keys-kpi-warn">
-            <div className="kly-keys-kpi-icon"><Clock size={16} /></div>
             <div className="kly-keys-kpi-content">
               <div className="kly-keys-kpi-val">0</div>
               <div className="kly-keys-kpi-label">Expiring in 30d</div>
@@ -70,7 +68,6 @@ export const TabKeys: React.FC<TabKeysProps> = ({
           </div>
           
           <div className="kly-keys-kpi-card kly-keys-kpi-idle">
-            <div className="kly-keys-kpi-icon"><EyeOff size={16} /></div>
             <div className="kly-keys-kpi-content">
               <div className="kly-keys-kpi-val">2</div>
               <div className="kly-keys-kpi-label">Stale Keys (&gt;90d)</div>
@@ -79,7 +76,6 @@ export const TabKeys: React.FC<TabKeysProps> = ({
           </div>
           
           <div className="kly-keys-kpi-card kly-keys-kpi-danger">
-            <div className="kly-keys-kpi-icon"><ShieldAlert size={16} /></div>
             <div className="kly-keys-kpi-content">
               <div className="kly-keys-kpi-val">{revokedCount}</div>
               <div className="kly-keys-kpi-label">Revoked Tokens</div>
@@ -148,9 +144,6 @@ export const TabKeys: React.FC<TabKeysProps> = ({
               <tr key={k.id} className="kly-keys-row">
                 <td>
                   <div className="kly-keys-identity-cell">
-                    <div className="kly-keys-icon-wrapper" data-status={!k.revoked ? 'active' : 'revoked'}>
-                      <Key size={13} />
-                    </div>
                     <div>
                       <div className="kly-keys-label">{k.label}</div>
                       <div className="kly-keys-env">

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { HeroBanner } from './components/HeroBanner';
@@ -55,6 +55,38 @@ function AppContent() {
     }
     return 'home';
   });
+  // ---- History-aware back navigation ---------------------------------------
+  // React Router is not used in this app; "routes" are the activeTab state
+  // below. Every tab transition is recorded here so the Back buttons can walk
+  // the real navigation history — the equivalent of React Router's navigate(-1)
+  // — instead of hardcoding a destination.
+  const navHistoryRef = useRef<NavigationTab[]>([]);
+  const lastTabRef = useRef<NavigationTab>(activeTab);
+  // Set just before a goBack()-initiated transition so the recorder below does
+  // NOT re-push the page we are leaving — otherwise Back would bounce between
+  // the last two pages instead of walking the stack (A → B → C, back → B,
+  // back → A). Transitions not caused by goBack() are recorded normally.
+  const backNavRef = useRef(false);
+  useEffect(() => {
+    if (lastTabRef.current === activeTab) return;
+    if (backNavRef.current) {
+      backNavRef.current = false; // consume the flag; origin stays unrecorded
+    } else {
+      navHistoryRef.current.push(lastTabRef.current);
+      if (navHistoryRef.current.length > 50) navHistoryRef.current.shift();
+    }
+    lastTabRef.current = activeTab;
+  }, [activeTab]);
+
+  /** Return to the tab the user came from. When there is no in-app history
+   *  (direct load or refresh), fall back to `fallback` — the same contract as
+   *  React Router's navigate(-1) paired with a location fallback. */
+  const goBack = (fallback: NavigationTab = 'home') => {
+    const previous = navHistoryRef.current.pop();
+    if (previous !== undefined && previous !== activeTab) backNavRef.current = true;
+    setActiveTab(previous ?? fallback);
+  };
+
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -325,7 +357,7 @@ function AppContent() {
             apiProject={activeApiProject}
             openContext={playgroundPrefill}
             onPrefillConsumed={() => setPlaygroundPrefill(null)}
-            onBackToKlyra={() => setActiveTab('home')}
+            onBackToKlyra={() => goBack()}
           />
         </div>
       ) : activeTab === 'api-build' ? (
@@ -334,7 +366,7 @@ function AppContent() {
           <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}>
           </div>
           <ApiBuildPage
-            onBack={() => setActiveTab('home')}
+            onBack={() => goBack()}
             onOpenPlayground={(prefill) => {
               setPlaygroundContext({ repoId: prefill?.apiId || activeApiProject?.id || '', repoName: prefill?.apiName || activeApiProject?.name || 'API Project' });
               if (prefill) setPlaygroundPrefill(prefill);
@@ -346,7 +378,7 @@ function AppContent() {
       ) : activeTab === 'api-builder' && activeApiProject ? (
         <ApiBuilder
           project={activeApiProject}
-          onBack={() => setActiveTab('home')}
+          onBack={() => goBack()}
           onChange={(project) => {
             setActiveApiProject(project);
             const projects = JSON.parse(localStorage.getItem('klyra-api-projects') || '[]');
@@ -579,7 +611,7 @@ function AppContent() {
                 </main>
               ) : activeTab === 'repositories' ? (
                 <main>
-                  <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
+                  <RepositoriesPage onBackToKlyra={() => goBack()} />
                 </main>
               ) : activeTab === 'admin-overview' ? (
                 <main className="content-page-wrapper">
