@@ -80,7 +80,8 @@ export type NavigationTab =
   | 'admin-database'
   | 'admin-engine'
   | 'admin-devops'
-  | 'admin-forensics';
+  | 'admin-forensics'
+  | 'admin-denied';
 
 export type ApiProjectCreationMethod = 'import' | 'blank' | 'template' | 'ai';
 

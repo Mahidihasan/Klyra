@@ -440,6 +440,23 @@ router.patch('/:id/role', async (req: Request, res: Response) => {
     const { PrismaClient } = require('@prisma/client');
     const prisma = new PrismaClient();
 
+    const targetUser = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (actor.id === targetUser.id) {
+      return res.status(403).json({ error: 'You cannot change your own role. Ask another admin to do it.' });
+    }
+
+    if (actor.role === 'ADMIN' && targetUser.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access Denied: You cannot modify a SUPER_ADMIN.' });
+    }
+
+    if (actor.role === 'ADMIN' && role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access Denied: Only a SUPER_ADMIN can assign the SUPER_ADMIN role.' });
+    }
+
     const data = await prisma.user.update({
       where: { id: req.params.id },
       data: { role }

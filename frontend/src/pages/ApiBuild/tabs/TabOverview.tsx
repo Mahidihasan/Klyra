@@ -192,7 +192,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
         <div className="kly-metric-box">
           <div className="kly-metric-label">
             <span>Uptime SLA</span>
-            <Activity size={12} color="#10b981" />
           </div>
           <div className="kly-metric-val">99.97%</div>
           <div className="kly-metric-trend kly-trend-up">
@@ -203,7 +202,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
         <div className="kly-metric-box">
           <div className="kly-metric-label">
             <span>Success Rate</span>
-            <CheckCircle2 size={12} color="#10b981" />
           </div>
           <div className="kly-metric-val">{project.successRate}%</div>
           <div className="kly-metric-trend kly-trend-up">
@@ -214,7 +212,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
         <div className="kly-metric-box">
           <div className="kly-metric-label">
             <span>P95 Latency</span>
-            <Clock size={12} color="#f59e0b" />
           </div>
           <div className="kly-metric-val">{project.latencyMs || 142}ms</div>
           <div className="kly-metric-trend kly-trend-up">
@@ -225,7 +222,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
         <div className="kly-metric-box">
           <div className="kly-metric-label">
             <span>Error Rate</span>
-            <AlertTriangle size={12} color="#f43f5e" />
           </div>
           <div className="kly-metric-val">0.21%</div>
           <div className="kly-metric-trend kly-trend-up">
@@ -236,7 +232,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
         <div className="kly-metric-box">
           <div className="kly-metric-label">
             <span>Total Requests</span>
-            <TrendingUp size={12} color="#8b5cf6" />
           </div>
           <div className="kly-metric-val">{project.requestsLabel.split(' ')[0]}</div>
           <div className="kly-metric-trend kly-trend-up">
@@ -247,7 +242,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
         <div className="kly-metric-box">
           <div className="kly-metric-label">
             <span>Active MRR</span>
-            <DollarSign size={12} color="#10b981" />
           </div>
           <div className="kly-metric-val">${project.revenue.toLocaleString()}</div>
           <div className="kly-metric-trend kly-trend-up">
@@ -261,7 +255,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
         <div className="kly-card-header">
           <div>
             <h3 className="kly-card-title">
-              <Activity size={15} color="var(--kly-primary)" />
               <span>Request volume</span>
             </h3>
             <p className="kly-card-subtitle">
@@ -471,21 +464,11 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
           <div className="kly-card kly-deploy-card">
             <div className="kly-card-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className={`kly-deploy-icon${opRunning ? ' busy' : ''}`}>
-                  <Server size={15} />
-                </span>
                 <div>
                   <h4 className="kly-card-title">Production Deployment</h4>
                   <p className="kly-card-subtitle"><Globe size={10} style={{ marginRight: 4, verticalAlign: -1 }} />Active Edge Cluster: Singapore (ap-southeast-1)</p>
                 </div>
               </div>
-              <span className={`kly-badge ${isDeploymentHealthy ? 'kly-badge-healthy' : 'kly-badge-deploying'} kly-deploy-badge`}>
-                <span className="kly-pulse-dot" style={{
-                  background: isDeploymentHealthy ? '#10b981' : '#f59e0b',
-                  boxShadow: isDeploymentHealthy ? '0 0 8px #10b981' : '0 0 8px #f59e0b',
-                }} />
-                {deploymentLabel}
-              </span>
             </div>
 
             {/* In-flight operation — live progress with details link */}
@@ -695,13 +678,12 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
           <div className="kly-card">
             <div className="kly-card-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Sparkles size={15} color="#c084fc" />
                 <div>
                   <h4 className="kly-card-title">Klyra Intelligent Insights</h4>
                   <p className="kly-card-subtitle">Autonomous diagnostics & recommendations</p>
                 </div>
               </div>
-              <span className="kly-badge kly-badge-pill">{insights.length} Insights</span>
+              <span className="kly-badge">{insights.length} Insights</span>
             </div>
 
             <div className="kly-insights-list">
@@ -718,7 +700,7 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
 
                   <button
                     className="kly-btn kly-btn-secondary"
-                    style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0 }}
+                    style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0,border:'0px',background:'transparent',}}
                     onClick={() => {
                       if (ins.actionType === 'open_modal') onOpenMigration();
                       else if (ins.targetTab) onSelectTab(ins.targetTab);
@@ -737,7 +719,6 @@ export const TabOverview: React.FC<TabOverviewProps> = ({
           <div className="kly-card">
             <div className="kly-card-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Users size={15} color="#38bdf8" />
                 <div>
                   <h4 className="kly-card-title">Top Consumers & Quotas</h4>
                   <p className="kly-card-subtitle">Highest volume subscribers this cycle</p>

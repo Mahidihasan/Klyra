@@ -56,15 +56,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const discoverNav = [
     { id: 'home', label: 'Home', icon: Home },
-    { id: 'apis', label: 'APIs', icon: Cpu },
+    { id: 'apis', label: 'Marketplace', icon: Store },
   ];
 
   const workspaceNav = [
-    { id: 'repositories', label: 'Repositories', icon: GitBranch },
+    { id: 'playground', label: 'Playground', icon: Terminal },
     { id: 'my-apis', label: 'My APIs', icon: Layers },
     { id: 'publish-api', label: 'Publish API', icon: Zap },
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
-    { id: 'playground', label: 'Playground', icon: Terminal },
+
     
     { id: 'api-keys', label: 'API Keys', icon: Key },
     { id: 'collections', label: 'Collections', icon: FolderOpen },
@@ -125,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="sidebar-action-container">
           <button className="new-request-btn" onClick={onOpenNewRequest}>
             < Plug size={16} />
-            <span>API Build</span>
+            <span>API Studio</span>
           </button>
         </div>
 
@@ -322,11 +322,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           .nav-item.active::before {
             content: '';
             position: absolute;
-            left: 0;
             top: 6px;
             bottom: 6px;
             width: 3px;
-            background: var(--accent-purple);
             border-radius: 0 4px 4px 0;
           }
 

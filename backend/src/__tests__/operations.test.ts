@@ -5,6 +5,10 @@
 process.env.DATABASE_URL =
   process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/klyra_test';
 
+// Type-only import: erased at compile time, so it emits no `require` and the
+// placeholder DATABASE_URL above is still set before the pool module loads.
+import type { OperationState } from '../modules/api-build/api-build.operations';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -90,8 +94,8 @@ test('illegal jumps are rejected', () => {
 // Retryable lifecycle simulation (mirrors executor behaviour)
 // ---------------------------------------------------------------------------
 test('a full lifecycle: queued → running → failed → queued → running → succeeded', () => {
-  let state = 'queued';
-  const to = (next) => {
+  let state: OperationState = 'queued';
+  const to = (next: OperationState) => {
     assert.ok(canTransition(state, next), `${state} → ${next} must be allowed`);
     state = next;
   };

@@ -6,8 +6,24 @@ import { EmailDeliveryError } from './email.service';
 import { authLimiter, resendLimiter } from './auth.rate-limiter';
 import { requireAuth } from './auth.middleware';
 import { avatarUpload } from '../../utils/fileUpload';
+import { PrismaClient, Permission } from '@prisma/client';
 
+const prisma = new PrismaClient();
 const router = Router();
+
+const DEFAULT_PERMISSIONS = {
+  SUPER_ADMIN: Object.values(Permission),
+  ADMIN: [
+    Permission.VIEW_ANALYTICS_DASHBOARD, Permission.VIEW_TRANSACTIONS, Permission.VIEW_STAFF, Permission.MANAGE_STAFF,
+    Permission.VIEW_USERS, Permission.EDIT_USER, Permission.SUSPEND_BAN_USERS, Permission.IMPERSONATE_USERS, Permission.VIEW_KYC_REQUESTS, Permission.APPROVE_REJECT_KYC,
+    Permission.VIEW_APIS, Permission.APPROVE_REJECT_APIS, Permission.DEPRECATE_DELETE_APIS, Permission.CURATE_MARKETPLACE_FEATURED, Permission.MANAGE_API_KEYS, Permission.CONFIGURE_GATEWAY_LIMITS,
+    Permission.VIEW_SECURITY_LOGS, Permission.EXPORT_SECURITY_LOGS, Permission.VIEW_SYSTEM_SETTINGS, Permission.MANAGE_SYSTEM_SETTINGS, Permission.VIEW_WEBHOOKS, Permission.MANAGE_WEBHOOKS, Permission.MANAGE_ROLES_PERMISSIONS,
+    Permission.VIEW_BILLING_INVOICES, Permission.DOWNLOAD_INVOICES, Permission.PROCESS_REFUNDS, Permission.VIEW_SUBSCRIPTIONS, Permission.MANAGE_SUBSCRIPTION_PLANS, Permission.MANAGE_PROMOTIONS,
+    Permission.VIEW_TACTICAL_BOARD, Permission.EXECUTE_EMERGENCY_FREEZE, Permission.VIEW_INVOICE_FORENSICS, Permission.INVOICE_FORENSICS_WAIVE, Permission.VIEW_DISPUTES, Permission.DISPUTE_MANAGER_VERIFICATION,
+    Permission.VIEW_SUPPORT_TICKETS, Permission.MANAGE_SUPPORT_TICKETS, Permission.EDIT_EMAIL_TEMPLATES
+  ],
+  USER: []
+};
 
 /**
  * Map auth errors to HTTP statuses using the project's existing error shape.
@@ -255,9 +271,38 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
     const user = await AuthService.getProfile(userId!);
     if (!user) return res.status(404).json({ error: 'User not found.' });
 
-    res.json({ user });
+    const role = (req.user?.role || 'USER').toUpperCase();
+    const dbRole = await prisma.rolePermission.findUnique({
+      where: { role: role as any }
+    });
+    
+    let permissions = dbRole ? dbRole.permissions : (DEFAULT_PERMISSIONS as any)[role] || [];
+    if (role === 'SUPER_ADMIN') {
+      permissions = Object.values(Permission);
+    }
+
+    res.json({ user, permissions });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to fetch user profile.' });
+  }
+});
+
+// 10a. CURRENT USER PERMISSIONS
+router.get('/permissions', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const role = (req.user?.role || 'USER').toUpperCase();
+    const dbRole = await prisma.rolePermission.findUnique({
+      where: { role: role as any }
+    });
+    
+    let permissions = dbRole ? dbRole.permissions : (DEFAULT_PERMISSIONS as any)[role] || [];
+    if (role === 'SUPER_ADMIN') {
+      permissions = ['*'] as any;
+    }
+    
+    res.json({ permissions });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch user permissions.' });
   }
 });
 

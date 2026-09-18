@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import geoip from 'geoip-lite';
 import type { Express } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Permission } from '@prisma/client';
 const prisma = new PrismaClient();
 import { pool } from '../../services/database.service';
 import { CLOUDINARY_FOLDERS, deleteFile, uploadFile } from '../../services/storage.service';
@@ -565,6 +565,9 @@ export class AuthService {
       [cleanEmail]
     );
     const user: UserRecord = userRes.rows[0];
+    if (user && user.role) {
+      user.role = user.role.toUpperCase();
+    }
 
     if (!user) {
       // Record failed attempt in audit log
@@ -965,12 +968,23 @@ export class AuthService {
     });
 
     // Access token valid for 15 minutes (900s)
+    let permissions: string[] = [];
+    if (user.role === 'SUPER_ADMIN') {
+      permissions = Object.values(Permission);
+    } else if (user.role === 'ADMIN') {
+      const dbRole = await (prisma as any).rolePermission.findUnique({
+        where: { role: 'ADMIN' }
+      });
+      permissions = dbRole ? dbRole.permissions : [];
+    }
+
     const accessToken = signJwt(
       {
         sub: user.id,
         email: user.email,
         name: user.name,
         role: user.role,
+        permissions,
         sessionId,
         adminSessionId: adminSession.id
       },
@@ -1008,7 +1022,10 @@ export class AuthService {
         refreshToken: rawRefreshToken,
         expiresIn: 900,
       },
-      user: sanitizeUser(user),
+      user: {
+        ...sanitizeUser(user),
+        permissions
+      },
     };
   }
 

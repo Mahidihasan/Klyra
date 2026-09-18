@@ -19,10 +19,10 @@ import { TabOverview } from './tabs/TabOverview';
 import { TabApi } from './tabs/TabApi';
 import { TabDeployments } from './tabs/TabDeployments';
 import { TabVersions } from './tabs/TabVersions';
+import { TabDevelopment } from './tabs/TabDevelopment';
 import { TabAudit } from './tabs/TabAudit';
 import { useOperations } from './hooks/useOperations';
 import { OperationRecord } from '../../types/operations';
-import { OperationsMonitor } from './components/OperationsMonitor';
 import { OperationDrawer } from './components/OperationDrawer';
 import { TabPlans } from './tabs/TabPlans';
 import { TabConsumers } from './tabs/TabConsumers';
@@ -77,6 +77,8 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
     trafficPercentage: version.semver === project.version ? 100 : 0,
     successRate: project.successRate,
     avgLatencyMs: project.latencyMs,
+    runtimeState: version.semver === project.version ? 'running' : 'stopped',
+    canaryWeight: version.semver === project.version ? 100 : 0,
     changelog: { added: [], modified: [], deprecated: [], breaking: [] },
   })));
   const [deployments, setDeployments] = useState<DeploymentRecord[]>(() => isDummyProject ? getDummyDeployments() : []);
@@ -299,6 +301,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
 
       {/* 2. Main Tab View Container */}
       <main className="kly-main-container">
+       
         {tab === 'overview' && (
           <TabOverview
             project={project}
@@ -430,6 +433,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
       {/* 3. Global Drawers */}
       <EndpointDrawer
         endpoint={selectedEndpoint}
+        gatewayUrl={project.gatewayUrl}
         onClose={() => setSelectedEndpoint(null)}
         onUpdateEndpoint={handleUpdateEndpoint}
         onOpenPlayground={(ep) => {
@@ -534,14 +538,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
         onShowToast={showToast}
         onOpenAudit={() => setTab('audit')}
       />
-      <OperationsMonitor
-        operations={ops.operations}
-        onSelect={setSelectedOperation}
-        onOpenAll={() => {
-          if (ops.operations.length > 0) setSelectedOperation(ops.operations[0]);
-          else showToast('No operations recorded yet for this project.');
-        }}
-      />
+
 
       {/* 6. Toast System */}
       <div className="kly-toast-container">

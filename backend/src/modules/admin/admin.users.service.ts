@@ -708,7 +708,7 @@ export async function updateUserDetails(
 
   const target = await fetchUserRow(pool, targetId);
 
-  const refusal = canEditUser(actor);
+  const refusal = canEditUser(actor, target as any);
   if (refusal) throw new GuardrailError(refusal);
 
   // Re-fetch current metadata to avoid dropping other fields

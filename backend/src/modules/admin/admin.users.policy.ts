@@ -145,6 +145,13 @@ export function canDeleteUser(actor: PolicyActor, target: PolicyTarget): Guardra
   return null;
 }
 
-export function canEditUser(actor: PolicyActor): GuardrailFailure | null {
-  return canMutate(actor);
+export function canEditUser(actor: PolicyActor, target: PolicyTarget): GuardrailFailure | null {
+  const gate = canMutate(actor);
+  if (gate) return gate;
+
+  if (actor.role === 'ADMIN' && target.role === 'SUPER_ADMIN') {
+    return deny('ADMIN_TARGET_ROLE', 'Access Denied: You cannot modify a SUPER_ADMIN.');
+  }
+
+  return null;
 }

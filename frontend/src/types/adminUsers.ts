@@ -223,7 +223,7 @@ function canWrite(viewer: ViewerIdentity): GuardCheck | null {
   if (viewer.id === null) {
     return denied('Sign in with a real admin account to modify users.');
   }
-  if (!['SUPER_ADMIN', 'ADMIN'].includes(viewer.role)) {
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(viewer.role || '')) {
     return denied('Only an admin or super admin can modify accounts.');
   }
   return null;

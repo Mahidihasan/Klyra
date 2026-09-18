@@ -5,19 +5,94 @@ import { motion, AnimatePresence } from 'framer-motion';
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 const PERMISSIONS = [
-  { id: 'view_dashboard',  label: 'View Analytics Dashboard',    category: 'General'         },
-  { id: 'view_revenue',    label: 'View Financial Data',         category: 'General'         },
-  { id: 'manage_users',    label: 'Suspend / Ban Users',         category: 'User Management' },
-  { id: 'manage_roles',    label: 'Assign Roles & Tiers',        category: 'User Management' },
-  { id: 'impersonate',     label: 'Impersonate Users',           category: 'User Management' },
-  { id: 'approve_apis',    label: 'Approve / Reject APIs',       category: 'API Management'  },
-  { id: 'delete_apis',     label: 'Deprecate / Delete APIs',     category: 'API Management'  },
-  { id: 'curate_market',   label: 'Curate Marketplace Featured', category: 'API Management'  },
-  { id: 'manage_gateway',  label: 'Configure Gateway Limits',    category: 'Security'        },
-  { id: 'revoke_keys',     label: 'Revoke API Keys',             category: 'Security'        },
-  { id: 'view_logs',       label: 'View Security Logs',          category: 'Security'        },
-  { id: 'manage_billing',  label: 'Process Refunds',             category: 'Billing'         },
-  { id: 'manage_plans',    label: 'Edit Subscription Plans',     category: 'Billing'         },
+  // GENERAL & DASHBOARD
+  { id: 'VIEW_ANALYTICS_DASHBOARD',  label: 'View Analytics Dashboard',    category: 'General & Dashboard' },
+  { id: 'VIEW_TRANSACTIONS',         label: 'View Transactions',           category: 'General & Dashboard' },
+  { id: 'VIEW_STAFF',                label: 'View Staff',                  category: 'General & Dashboard' },
+  { id: 'MANAGE_STAFF',              label: 'Manage Staff',                category: 'General & Dashboard' },
+
+  // USER MANAGEMENT
+  { id: 'VIEW_USERS',                label: 'View Users',                  category: 'User Management' },
+  { id: 'EDIT_USER',                 label: 'Edit User',                   category: 'User Management' },
+  { id: 'SUSPEND_BAN_USERS',         label: 'Suspend / Ban Users',         category: 'User Management' },
+  { id: 'IMPERSONATE_USERS',         label: 'Impersonate Users',           category: 'User Management' },
+  { id: 'VIEW_KYC_REQUESTS',         label: 'View KYC Requests',           category: 'User Management' },
+  { id: 'APPROVE_REJECT_KYC',        label: 'Approve / Reject KYC',        category: 'User Management' },
+
+  // API & MARKETPLACE MANAGEMENT
+  { id: 'VIEW_APIS',                 label: 'View APIs',                   category: 'API & Marketplace' },
+  { id: 'APPROVE_REJECT_APIS',       label: 'Approve / Reject APIs',       category: 'API & Marketplace' },
+  { id: 'DEPRECATE_DELETE_APIS',     label: 'Deprecate / Delete APIs',     category: 'API & Marketplace' },
+  { id: 'CURATE_MARKETPLACE_FEATURED',label: 'Curate Marketplace Featured',category: 'API & Marketplace' },
+  { id: 'MANAGE_API_KEYS',           label: 'Manage API Keys',             category: 'API & Marketplace' },
+  { id: 'CONFIGURE_GATEWAY_LIMITS',  label: 'Configure Gateway Limits',    category: 'API & Marketplace' },
+
+  // SECURITY & SYSTEM SETTINGS
+  { id: 'VIEW_SECURITY_LOGS',        label: 'View Security Logs',          category: 'Security & System Settings' },
+  { id: 'EXPORT_SECURITY_LOGS',      label: 'Export Security Logs',        category: 'Security & System Settings' },
+  { id: 'VIEW_SYSTEM_SETTINGS',      label: 'View System Settings',        category: 'Security & System Settings' },
+  { id: 'MANAGE_SYSTEM_SETTINGS',    label: 'Manage System Settings',      category: 'Security & System Settings' },
+  { id: 'VIEW_WEBHOOKS',             label: 'View Webhooks',               category: 'Security & System Settings' },
+  { id: 'MANAGE_WEBHOOKS',           label: 'Manage Webhooks',             category: 'Security & System Settings' },
+  { id: 'MANAGE_ROLES_PERMISSIONS',  label: 'Manage Roles & Permissions',  category: 'Security & System Settings' },
+
+  // BILLING, INVOICES & PROMOTIONS
+  { id: 'VIEW_BILLING_INVOICES',     label: 'View Billing & Invoices',     category: 'Billing & Promotions' },
+  { id: 'DOWNLOAD_INVOICES',         label: 'Download Invoices',           category: 'Billing & Promotions' },
+  { id: 'PROCESS_REFUNDS',           label: 'Process Refunds',             category: 'Billing & Promotions' },
+  { id: 'VIEW_SUBSCRIPTIONS',        label: 'View Subscriptions',          category: 'Billing & Promotions' },
+  { id: 'MANAGE_SUBSCRIPTION_PLANS', label: 'Manage Subscription Plans',   category: 'Billing & Promotions' },
+  { id: 'MANAGE_PROMOTIONS',         label: 'Manage Promotions',           category: 'Billing & Promotions' },
+
+  // FORENSICS & TACTICAL CONTROLS
+  { id: 'VIEW_TACTICAL_BOARD',       label: 'View Tactical Board',         category: 'Forensics & Tactical' },
+  { id: 'EXECUTE_EMERGENCY_FREEZE',  label: 'Execute Emergency Freeze',    category: 'Forensics & Tactical' },
+  { id: 'VIEW_INVOICE_FORENSICS',    label: 'View Invoice Forensics',      category: 'Forensics & Tactical' },
+  { id: 'INVOICE_FORENSICS_WAIVE',   label: 'Invoice Forensics Waive',     category: 'Forensics & Tactical' },
+  { id: 'VIEW_DISPUTES',             label: 'View Disputes',               category: 'Forensics & Tactical' },
+  { id: 'DISPUTE_MANAGER_VERIFICATION',label: 'Dispute Manager Verification',category:'Forensics & Tactical' },
+
+  // SUPPORT & COMMUNICATIONS
+  { id: 'VIEW_SUPPORT_TICKETS',      label: 'View Support Tickets',        category: 'Support & Communications' },
+  { id: 'MANAGE_SUPPORT_TICKETS',    label: 'Manage Support Tickets',      category: 'Support & Communications' },
+  { id: 'EDIT_EMAIL_TEMPLATES',      label: 'Edit Email Templates',        category: 'Support & Communications' },
+  // DATABASE MANAGEMENT
+  { id: 'VIEW_DATABASE_METRICS',     label: 'View Database Metrics',       category: 'Database Management' },
+  { id: 'MANAGE_DATABASE_BACKUPS',   label: 'Manage Database Backups',     category: 'Database Management' },
+  { id: 'EXECUTE_QUERY_OVERRIDES',   label: 'Execute Query Overrides',     category: 'Database Management' },
+  { id: 'FLUSH_REDIS_CACHE',         label: 'Flush Redis Cache',           category: 'Database Management' },
+
+  // DEVOPS & INFRASTRUCTURE
+  { id: 'VIEW_SERVER_HEALTH',        label: 'View Server Health',          category: 'DevOps & Infra' },
+  { id: 'MANAGE_CONTAINERS_PODS',    label: 'Manage Containers / Pods',    category: 'DevOps & Infra' },
+  { id: 'RESTART_CORE_SERVICES',     label: 'Restart Core Services',       category: 'DevOps & Infra' },
+  { id: 'VIEW_DEPLOYMENT_LOGS',      label: 'View Deployment Logs',        category: 'DevOps & Infra' },
+
+  // ENGINE ROOM (Core Operations)
+  { id: 'ACCESS_ENGINE_ROOM',        label: 'Access Engine Room',          category: 'Engine Room (Core)' },
+  { id: 'TOGGLE_MAINTENANCE_MODE',   label: 'Toggle Maintenance Mode',     category: 'Engine Room (Core)' },
+  { id: 'MANAGE_CRON_JOBS',          label: 'Manage Cron Jobs',            category: 'Engine Room (Core)' },
+  { id: 'TRIGGER_MANUAL_PIPELINE',   label: 'Trigger Manual Pipeline',     category: 'Engine Room (Core)' },
+
+  // MODERATION
+  { id: 'VIEW_MODERATION_INBOX',     label: 'View Moderation Inbox',       category: 'Moderation' },
+  { id: 'MANAGE_MODERATION_ACTIONS', label: 'Manage Moderation Actions',   category: 'Moderation' },
+
+  // SYSTEM
+  { id: 'VIEW_SYSTEM_LOGS',          label: 'View System Logs',            category: 'System' },
+  { id: 'MANAGE_CORE_SETTINGS',      label: 'Manage Core Settings',        category: 'System' },
+
+  // ADVANCED SECURITY
+  { id: 'VIEW_AI_THREAT_DETECTION',  label: 'View AI Threat Detection',    category: 'Advanced Security & AI' },
+  { id: 'VIEW_SECURITY_CENTER',      label: 'View Security Center',        category: 'Advanced Security & AI' },
+  { id: 'MANAGE_SECURITY_CENTER',    label: 'Manage Security Center',      category: 'Advanced Security & AI' },
+
+  // ACCESS CONTROL
+  { id: 'ACCESS_RBAC_MATRIX',        label: 'Access RBAC Matrix',          category: 'Access Control' },
+
+  // DANGER ZONE
+  { id: 'VIEW_DANGER_ZONE',          label: 'View Danger Zone',            category: 'Danger Zone (High Risk)' },
+  { id: 'EXECUTE_DANGER_ZONE_ACTIONS',label: 'Execute Danger Zone Actions',category: 'Danger Zone (High Risk)' },
 ];
 
 const ROLES = ['SUPER_ADMIN', 'ADMIN', 'USER'] as const;
@@ -99,37 +174,38 @@ export const RBACMatrix = () => {
   const [hoveredRow, setRow]    = useState<number | null>(null);
   const [hoveredCol, setCol]    = useState<number | null>(null);
   
-  useEffect(() => {
-    const fetchMatrix = async () => {
-      try {
-        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-        const res = await fetch('/api/v1/admin/rbac/roles', {
-          headers: { 'Authorization': `Bearer ${token}` }
+  const fetchMatrix = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch('/api/v1/admin/rbac/roles', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        const fetchedMatrix: any = { ...INITIAL_MATRIX };
+        data.data.forEach((item: any) => {
+          const r = item.role;
+          if (fetchedMatrix[r]) {
+            item.permissions.forEach((p: string) => {
+              if (p === '*') {
+                PERMISSIONS.forEach(perm => fetchedMatrix[r][perm.id] = true);
+              } else {
+                fetchedMatrix[r][p] = true;
+              }
+            });
+          }
         });
-        const data = await res.json();
-        if (data.success && Array.isArray(data.data)) {
-          const fetchedMatrix: any = { ...INITIAL_MATRIX };
-          data.data.forEach((item: any) => {
-            const r = item.role;
-            if (fetchedMatrix[r]) {
-              item.permissions.forEach((p: string) => {
-                if (p === '*') {
-                  PERMISSIONS.forEach(perm => fetchedMatrix[r][perm.id] = true);
-                } else {
-                  fetchedMatrix[r][p] = true;
-                }
-              });
-            }
-          });
-          setMatrix(fetchedMatrix);
-          setOriginal(fetchedMatrix);
-        }
-      } catch (err) {
-        console.error('Failed to fetch RBAC matrix', err);
+        setMatrix(fetchedMatrix);
+        setOriginal(fetchedMatrix);
       }
-    };
-    fetchMatrix();
+    } catch (err) {
+      console.error('Failed to fetch RBAC matrix', err);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchMatrix();
+  }, [fetchMatrix]);
 
   const setHover = useCallback((r: number | null, c: number | null) => {
     setRow(r); setCol(c);
@@ -159,14 +235,20 @@ export const RBACMatrix = () => {
     setPending(new Set());
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+
   const saveChanges = async () => {
     try {
+      setIsSaving(true);
       const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
       const updates = ROLES.map(role => {
         const perms = PERMISSIONS.filter(p => matrix[role]?.[p.id]).map(p => p.id);
         if (role === 'SUPER_ADMIN') perms.push('*');
         return { role, permissions: perms };
       });
+      
+      console.log("Sending Payload:", { updates });
+      
       const res = await fetch('/api/v1/admin/rbac/roles', {
         method: 'PUT',
         headers: {
@@ -175,13 +257,21 @@ export const RBACMatrix = () => {
         },
         body: JSON.stringify({ updates })
       });
+      
       if (res.ok) {
         setPending(new Set());
-        setOriginal(matrix);
-        import('react-hot-toast').then(m => m.default.success('RBAC updated successfully'));
+        import('react-hot-toast').then(m => m.default.success('RBAC Matrix updated successfully'));
+        await fetchMatrix();
+      } else {
+        const errData = await res.json();
+        console.error("Save API failed:", errData);
+        import('react-hot-toast').then(m => m.default.error(`Save failed: ${errData.error || 'Unknown error'}`));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save changes', err);
+      import('react-hot-toast').then(m => m.default.error(`Save failed: ${err.message}`));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -328,11 +418,13 @@ export const RBACMatrix = () => {
 
             <button
               onClick={saveChanges}
-              className="flex items-center gap-2 text-[13px] font-bold text-white px-5 py-2 rounded-full
-                         bg-indigo-500 hover:bg-indigo-600 transition-colors
-                         shadow-[0_0_20px_rgba(99,102,241,0.5)]"
+              disabled={isSaving}
+              className={`flex items-center gap-2 text-[13px] font-bold text-white px-5 py-2 rounded-full transition-colors shadow-[0_0_20px_rgba(99,102,241,0.5)] ${
+                isSaving ? 'bg-indigo-500/50 cursor-not-allowed' : 'bg-indigo-500 hover:bg-indigo-600'
+              }`}
             >
-              <Save size={14} /> Save Changes
+              <Save size={14} className={isSaving ? 'animate-pulse' : ''} /> 
+              {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </motion.div>
         )}

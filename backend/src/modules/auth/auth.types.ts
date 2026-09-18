@@ -101,6 +101,7 @@ export interface UserPublicProfile {
   email: string;
   name: string;
   role: string;
+  permissions?: string[];
   email_verified_at: string | null;
   status: string;
   is_active: boolean;
@@ -151,6 +152,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: string;
+  permissions?: string[];
   name: string;
   sessionId?: string;
   adminSessionId?: string;

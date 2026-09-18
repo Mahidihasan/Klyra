@@ -5,6 +5,8 @@ import { DrawerShell } from './DrawerShell';
 
 interface EndpointDrawerProps {
   endpoint: DetailedEndpoint | null;
+  /** Project gateway URL — cURL examples must target the real, resolvable host. */
+  gatewayUrl?: string;
   onClose: () => void;
   onOpenPlayground: (ep: DetailedEndpoint) => void;
   onViewLogs: (path: string) => void;
@@ -14,6 +16,7 @@ interface EndpointDrawerProps {
 
 export const EndpointDrawer: React.FC<EndpointDrawerProps> = ({
   endpoint,
+  gatewayUrl,
   onClose,
   onOpenPlayground,
   onViewLogs,
@@ -46,7 +49,7 @@ export const EndpointDrawer: React.FC<EndpointDrawerProps> = ({
     onShowToast(`${endpoint.method} ${endpoint.path} policy saved`);
   };
 
-  const curlExample = `curl -X ${endpoint.method} "https://api.klyra.com/kickon-ass${endpoint.path}" \\
+  const curlExample = `curl -X ${endpoint.method} "${gatewayUrl || '${GATEWAY_URL}'}${endpoint.path}" \\
   -H "Authorization: Bearer kly_live_your_key_here" \\
   -H "Content-Type: application/json"${endpoint.requestBody?.sampleBody ? ` \\\n  -d '${endpoint.requestBody.sampleBody.replace(/\n/g, '')}'` : ''}`;
 

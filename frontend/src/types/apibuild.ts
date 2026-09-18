@@ -207,6 +207,7 @@ export interface DraftChange {
 
 export type ProjectTab =
   | 'overview'
+  | 'development'
   | 'api'
   | 'deployments'
   | 'versions'
@@ -222,6 +223,7 @@ export type ProjectTab =
 
 export const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
+  { id: 'development', label: 'Development' },
   { id: 'api', label: 'API' },
   { id: 'deployments', label: 'Deployments' },
   { id: 'versions', label: 'Versions' },

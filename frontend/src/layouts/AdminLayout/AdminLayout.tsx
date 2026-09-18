@@ -12,6 +12,7 @@ import { AdminForensics } from '../../pages/AdminPanel/AdminForensics';
 import { AdminOverview } from '../../pages/AdminPanel/AdminOverview';
 import { AdminSystem } from '../../pages/AdminPanel/AdminSystem';
 import { AdminUsers } from '../../pages/AdminPanel/AdminUsers';
+import { AdminDenied } from '../../pages/AdminPanel/AdminDenied';
 import { NavigationTab } from '../../types/api';
 
 import { CommandHeader } from '../../components/CommandHeader';
@@ -63,6 +64,7 @@ const AdminLayoutInner: React.FC<AdminLayoutProps> = ({ activeTab, setActiveTab 
       case 'admin-engine': return <AdminEngineRoom />;
       case 'admin-devops': return <AdminDevOps />;
       case 'admin-forensics': return <AdminForensics />;
+      case 'admin-denied': return <AdminDenied />;
       default: return <AdminOverview />;
     }
   };

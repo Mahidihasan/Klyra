@@ -21,7 +21,7 @@ export class AdminMarketplaceService {
       SELECT value
       FROM system_settings
       WHERE key = 'featured_apis'
-      `
+      `,
     );
 
     const rawConfigs: any[] = result.rows[0]?.value || [];
@@ -58,7 +58,7 @@ export class AdminMarketplaceService {
       LEFT JOIN categories c ON c.id = a.category_id
       WHERE a.id = ANY($1)
       `,
-      [apiIds]
+      [apiIds],
     );
 
     const apiMap = new Map(apisResult.rows.map((row: any) => [row.id, row]));
@@ -278,19 +278,29 @@ export class AdminMarketplaceService {
         (SELECT COUNT(*) FROM apis WHERE category_id = c.id) AS "apiCount"
       FROM categories c
       ORDER BY c.sort_order ASC, c.name ASC
-      `
+      `,
     );
     return result.rows;
   }
 
-  async createCategory(viewer: ViewerIdentity, payload: CategoryPayload): Promise<AdminCategoryRow> {
+  async createCategory(
+    viewer: ViewerIdentity,
+    payload: CategoryPayload,
+  ): Promise<AdminCategoryRow> {
     const result = await db.query(
       `
       INSERT INTO categories (name, slug, description, icon_url, sort_order, is_active)
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING id, name, slug, description, icon_url AS "iconUrl", sort_order AS "sortOrder", is_active AS "isActive", created_at AS "createdAt"
       `,
-      [payload.name, payload.slug, payload.description || null, payload.iconUrl || null, payload.sortOrder || 0, payload.isActive ?? true]
+      [
+        payload.name,
+        payload.slug,
+        payload.description || null,
+        payload.iconUrl || null,
+        payload.sortOrder || 0,
+        payload.isActive ?? true,
+      ],
     );
 
     const category = { ...result.rows[0], apiCount: 0 } as AdminCategoryRow;
@@ -300,13 +310,17 @@ export class AdminMarketplaceService {
       INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
       VALUES ($1, 'CREATE', 'CATEGORY', $2, $3)
       `,
-      [viewer.id, category.id, payload]
+      [viewer.id, category.id, payload],
     );
 
     return category;
   }
 
-  async updateCategory(viewer: ViewerIdentity, id: string, payload: CategoryPayload): Promise<AdminCategoryRow> {
+  async updateCategory(
+    viewer: ViewerIdentity,
+    id: string,
+    payload: CategoryPayload,
+  ): Promise<AdminCategoryRow> {
     const result = await db.query(
       `
       UPDATE categories
@@ -320,7 +334,15 @@ export class AdminMarketplaceService {
       WHERE id = $1
       RETURNING id, name, slug, description, icon_url AS "iconUrl", sort_order AS "sortOrder", is_active AS "isActive", created_at AS "createdAt"
       `,
-      [id, payload.name, payload.slug, payload.description, payload.iconUrl, payload.sortOrder, payload.isActive]
+      [
+        id,
+        payload.name,
+        payload.slug,
+        payload.description,
+        payload.iconUrl,
+        payload.sortOrder,
+        payload.isActive,
+      ],
     );
 
     if (result.rowCount === 0) {
@@ -328,14 +350,17 @@ export class AdminMarketplaceService {
     }
 
     const apiCountResult = await db.query('SELECT COUNT(*) FROM apis WHERE category_id = $1', [id]);
-    const category = { ...result.rows[0], apiCount: parseInt(apiCountResult.rows[0].count, 10) } as AdminCategoryRow;
+    const category = {
+      ...result.rows[0],
+      apiCount: parseInt(apiCountResult.rows[0].count, 10),
+    } as AdminCategoryRow;
 
     await db.query(
       `
       INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
       VALUES ($1, 'UPDATE', 'CATEGORY', $2, $3)
       `,
-      [viewer.id, id, payload]
+      [viewer.id, id, payload],
     );
 
     return category;
@@ -359,7 +384,7 @@ export class AdminMarketplaceService {
       INSERT INTO audit_logs (user_id, action, entity_type, entity_id)
       VALUES ($1, 'DELETE', 'CATEGORY', $2)
       `,
-      [viewer.id, id]
+      [viewer.id, id],
     );
   }
 
@@ -387,12 +412,16 @@ export class AdminMarketplaceService {
       WHERE r.deleted_at IS NULL
       ORDER BY r.created_at DESC
       LIMIT 100
-      `
+      `,
     );
     return result.rows;
   }
 
-  async toggleReviewApproval(viewer: ViewerIdentity, id: string, isApproved: boolean): Promise<void> {
+  async toggleReviewApproval(
+    viewer: ViewerIdentity,
+    id: string,
+    isApproved: boolean,
+  ): Promise<void> {
     const result = await db.query(
       `
       UPDATE api_reviews
@@ -400,7 +429,7 @@ export class AdminMarketplaceService {
       WHERE id = $1
       RETURNING id
       `,
-      [id, isApproved]
+      [id, isApproved],
     );
 
     if (result.rowCount === 0) {
@@ -412,7 +441,7 @@ export class AdminMarketplaceService {
       INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
       VALUES ($1, 'UPDATE', 'REVIEW', $2, $3)
       `,
-      [viewer.id, id, { isApproved }]
+      [viewer.id, id, { isApproved }],
     );
   }
 
@@ -424,7 +453,7 @@ export class AdminMarketplaceService {
       SET deleted_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND deleted_at IS NULL
       `,
-      [id]
+      [id],
     );
 
     if (result.rowCount === 0) {
@@ -436,7 +465,7 @@ export class AdminMarketplaceService {
       INSERT INTO audit_logs (user_id, action, entity_type, entity_id)
       VALUES ($1, 'DELETE', 'REVIEW', $2)
       `,
-      [viewer.id, id]
+      [viewer.id, id],
     );
   }
 }

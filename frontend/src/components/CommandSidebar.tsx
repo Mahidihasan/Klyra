@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { MagneticWrapper } from './MagneticWrapper';
 import { Tooltip } from './Tooltip';
+import { usePermissions } from '../context/PermissionsContext';
 
 interface CommandSidebarProps {
   activeTab: NavigationTab;
@@ -28,17 +29,19 @@ export const CommandSidebar: React.FC<CommandSidebarProps> = ({
   setActiveTab, 
   onLogout 
 }) => {
+  const { hasPermission } = usePermissions();
+
   const adminNav = [
-    { id: 'admin-overview', label: 'Platform Overview', icon: BarChart3 },
-    { id: 'admin-users', label: 'User Management', icon: Users },
-    { id: 'admin-apis', label: 'API & Marketplace', icon: Network },
-    { id: 'admin-billing', label: 'Billing & Payments', icon: CreditCard },
-    { id: 'admin-activity', label: 'Reports & Security', icon: ShieldAlert },
-    { id: 'admin-database', label: 'Database & Logs', icon: Database },
-    { id: 'admin-engine', label: 'Engine Room', icon: TerminalSquare },
-    { id: 'admin-devops', label: 'DevOps & Auth', icon: Cpu },
-    { id: 'admin-forensics', label: 'Fin Forensics', icon: FileSearch },
-  ];
+    { id: 'admin-overview', label: 'Platform Overview', icon: BarChart3, req: 'VIEW_ANALYTICS_DASHBOARD' },
+    { id: 'admin-users', label: 'User Management', icon: Users, req: 'VIEW_USERS' },
+    { id: 'admin-apis', label: 'API & Marketplace', icon: Network, req: 'VIEW_APIS' },
+    { id: 'admin-billing', label: 'Billing & Payments', icon: CreditCard, req: 'VIEW_BILLING_INVOICES' },
+    { id: 'admin-activity', label: 'Reports & Security', icon: ShieldAlert, req: 'VIEW_SECURITY_LOGS' },
+    { id: 'admin-database', label: 'Database & Logs', icon: Database, req: 'VIEW_DATABASE_METRICS' },
+    { id: 'admin-engine', label: 'Engine Room', icon: TerminalSquare, req: 'ACCESS_ENGINE_ROOM' },
+    { id: 'admin-devops', label: 'DevOps & Auth', icon: Cpu, req: 'VIEW_SERVER_HEALTH' },
+    { id: 'admin-forensics', label: 'Fin Forensics', icon: FileSearch, req: 'VIEW_TACTICAL_BOARD' },
+  ].filter(item => hasPermission(item.req));
 
   return (
       <aside className="fixed top-0 left-0 h-screen w-20 flex flex-col items-center justify-between border-r border-white/5 bg-[#0a0a0f] py-6 z-[9999]">

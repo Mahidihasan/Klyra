@@ -66,12 +66,22 @@ export interface ExtendedVersion {
   semver: string;
   status: 'Current' | 'Beta' | 'Deprecated' | 'Legacy';
   isDefault: boolean;
-  releasedAt: string;
+  /**
+   * Nullable on purpose: `api_build_versions.released_at` is NULL for drafts and
+   * imports (every project is seeded with an unreleased `v1.0.0` row), and the
+   * backend returns `releasedAt: null` for those. Render it through
+   * `releaseStatusLabel()` from `../format` — never call `.slice()` on it.
+   */
+  releasedAt: string | null;
   endpointsCount: number;
   consumersCount: number;
   trafficPercentage: number;
   successRate: number;
   avgLatencyMs: number;
+  /** Multi-runtime lifecycle: whether this version is actively serving traffic */
+  runtimeState: 'running' | 'paused' | 'stopped';
+  /** Weighted traffic share for this version within the runtime matrix (0-100) */
+  canaryWeight: number;
   changelog: {
     added: string[];
     modified: string[];

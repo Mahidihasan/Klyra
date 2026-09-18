@@ -1,0 +1,218 @@
+(node:16180) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+CATEGORIES: [
+  {
+    "id": "99b5d8b1-cae4-47bb-82a5-ab4fd26ea072",
+    "name": "Development Tools",
+    "slug": "development-tools",
+    "is_active": true
+  },
+  {
+    "id": "c8206e89-7010-46fd-86e6-3300150d4ba2",
+    "name": "AI & ML",
+    "slug": "ai-ml",
+    "is_active": true
+  },
+  {
+    "id": "715314ef-3e03-4e52-bd14-d4f832ad442d",
+    "name": "Finance",
+    "slug": "finance",
+    "is_active": true
+  },
+  {
+    "id": "db886e59-5972-4888-8b53-756267ffa21d",
+    "name": "Weather",
+    "slug": "weather",
+    "is_active": true
+  },
+  {
+    "id": "c2d2d7ea-4687-420e-96c2-7c0ad285ab72",
+    "name": "Developer Tools",
+    "slug": "developer-tools",
+    "is_active": true
+  },
+  {
+    "id": "5e001129-b573-4f12-a5ef-f17f92eaea27",
+    "name": "Communication",
+    "slug": "communication",
+    "is_active": true
+  },
+  {
+    "id": "7645574a-5a7e-43a8-9f9a-5d3b6b28e6ea",
+    "name": "E-commerce",
+    "slug": "ecommerce",
+    "is_active": true
+  },
+  {
+    "id": "f03baf74-5fab-4adb-8150-7e28237933fc",
+    "name": "News",
+    "slug": "news",
+    "is_active": true
+  },
+  {
+    "id": "709bf53a-0a6e-4e0b-84a6-2ab7ea965c75",
+    "name": "Security & Auth",
+    "slug": "security",
+    "is_active": true
+  },
+  {
+    "id": "4d1b884c-a28a-481a-b95c-6387ce1a7502",
+    "name": "Cloud & DevOps",
+    "slug": "cloud-devops",
+    "is_active": true
+  }
+]
+DISTINCT TAGS: ai, air-quality, auth, billing, cards, code, collaboration, database, delivery, email, embeddings, finance, forecast, git, github, gpt-4o, graphql, llm, nlp, payments, postgres, radar, realtime, resend, smtp, storage, subscriptions, telemetry, transactional, weather
+SAMPLE APIS: [
+  {
+    "id": "68e4ab70-c601-4f9b-8764-1325f85f8b8f",
+    "name": "OpenAI API",
+    "slug": "openai-api",
+    "description": "Advanced AI models including GPT-4o, embeddings, and vision recognition for modern intelligent workflows.",
+    "current_version": "1.0.0",
+    "base_url": "https://api.openai.com/v1",
+    "docs_url": "https://platform.openai.com/docs",
+    "logo_url": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=128&auto=format&fit=crop&q=80",
+    "logo_public_id": null,
+    "logo_metadata": null,
+    "category_id": "c8206e89-7010-46fd-86e6-3300150d4ba2",
+    "owner_id": "abcfdc99-a0a9-47e9-ae37-bf9e597daa9d",
+    "pricing_model": "FREEMIUM",
+    "pricing": {},
+    "status": "PUBLISHED",
+    "is_public": true,
+    "api_spec": {
+      "info": {
+        "title": "OpenAI API",
+        "version": "1.0.0",
+        "description": "Advanced AI models including GPT-4o, embeddings, and vision recognition for modern intelligent workflows."
+      },
+      "paths": {
+        "/embeddings": {
+          "post": {
+            "summary": "Computes high-dimensional vector representations of arbitrary input text.",
+            "responses": {
+              "200": {
+                "description": "Successful response"
+              }
+            }
+          }
+        },
+        "/chat/completions": {
+          "post": {
+            "summary": "Creates a model response for the given chat conversation.",
+            "responses": {
+              "200": {
+                "description": "Successful response"
+              }
+            }
+          }
+        }
+      },
+      "openapi": "3.0.3"
+    },
+    "tags": [
+      "ai",
+      "gpt-4o",
+      "llm",
+      "nlp",
+      "embeddings"
+    ],
+    "rating": "5.00",
+    "total_reviews": 2,
+    "total_subscribers": 14850,
+    "total_requests": "24500000",
+    "last_published_at": "2026-09-14T17:01:55.671Z",
+    "created_at": "2026-09-14T17:01:55.671Z",
+    "updated_at": "2026-09-14T17:01:55.671Z",
+    "deleted_at": null,
+    "latency_ms": 135,
+    "uptime_percentage": "99.98",
+    "trending_score": 4651.4,
+    "popularity_score": 767492,
+    "highlights": [],
+    "category_name": "AI & ML",
+    "category_slug": "ai-ml",
+    "owner_email": "platform@openai.com"
+  },
+  {
+    "id": "e70fa0fc-e66f-4042-8bf7-da62e96a3c63",
+    "name": "WeatherAPI Global",
+    "slug": "weather-api",
+    "description": "Ultra-accurate real-time weather, high-resolution radar, air quality telemetry, and 14-day forecasts.",
+    "current_version": "1.0.0",
+    "base_url": "https://api.weatherapi.com/v1",
+    "docs_url": "https://weatherapi.com/docs",
+    "logo_url": "https://images.unsplash.com/photo-1504608524841-42fe6f032b4b?w=128&auto=format&fit=crop&q=80",
+    "logo_public_id": null,
+    "logo_metadata": null,
+    "category_id": "db886e59-5972-4888-8b53-756267ffa21d",
+    "owner_id": "2c1d1d44-781e-4aeb-b656-f155cd6888f1",
+    "pricing_model": "FREEMIUM",
+    "pricing": {},
+    "status": "PUBLISHED",
+    "is_public": true,
+    "api_spec": {
+      "info": {
+        "title": "WeatherAPI Global",
+        "version": "1.0.0",
+        "description": "Ultra-accurate real-time weather, high-resolution radar, air quality telemetry, and 14-day forecasts."
+      },
+      "paths": {
+        "/current.json": {
+          "get": {
+            "summary": "Fetch real-time weather details for specified coordinates or city query.",
+            "responses": {
+              "200": {
+                "description": "Successful response"
+              }
+            }
+          }
+        },
+        "/forecast.json": {
+          "get": {
+            "summary": "Retrieve detailed daily and hourly meteorological forecasts up to 14 days.",
+            "responses": {
+              "200": {
+                "description": "Successful response"
+              }
+            }
+          }
+        }
+      },
+      "openapi": "3.0.3"
+    },
+    "tags": [
+      "weather",
+      "forecast",
+      "radar",
+      "telemetry",
+      "air-quality"
+    ],
+    "rating": "5.00",
+    "total_reviews": 1,
+    "total_subscribers": 8940,
+    "total_requests": "18200000",
+    "last_published_at": "2026-09-14T17:01:55.671Z",
+    "created_at": "2026-09-14T17:01:55.671Z",
+    "updated_at": "2026-09-14T17:01:55.671Z",
+    "deleted_at": null,
+    "latency_ms": 78,
+    "uptime_percentage": "99.99",
+    "trending_score": 2852.4,
+    "popularity_score": 465688,
+    "highlights": [],
+    "category_name": "Weather",
+    "category_slug": "weather",
+    "owner_email": "support@weatherapi.com"
+  }
+]
+API VERSION ROWS: 6
+TARGET USER APIS: []

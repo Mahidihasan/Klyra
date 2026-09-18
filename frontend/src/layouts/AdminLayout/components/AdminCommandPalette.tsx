@@ -20,12 +20,15 @@ type CommandItem = {
   color?: string;
 };
 
+import { usePermissions } from '../../../context/PermissionsContext';
+
 export const AdminCommandPalette: React.FC<AdminCommandPaletteProps> = ({ isOpen, onClose, setActiveTab }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [aiState, setAiState] = useState<'idle' | 'suspend-confirm'>('idle');
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const { hasPermission } = usePermissions();
 
   // Focus input when opened
   useEffect(() => {
@@ -58,17 +61,21 @@ export const AdminCommandPalette: React.FC<AdminCommandPaletteProps> = ({ isOpen
     onClose();
   };
 
-  const ALL_COMMANDS: CommandItem[] = useMemo(() => [
-    { id: 'nav-overview', label: 'Platform Overview', icon: BarChart3, group: 'Navigation', action: () => navigateTo('admin-overview') },
-    { id: 'nav-users', label: 'User Management', icon: Users, group: 'Navigation', action: () => navigateTo('admin-users') },
-    { id: 'nav-apis', label: 'API & Marketplace', icon: Network, group: 'Navigation', action: () => navigateTo('admin-apis') },
-    { id: 'nav-billing', label: 'Billing & Payments', icon: CreditCard, group: 'Navigation', action: () => navigateTo('admin-billing') },
-    { id: 'nav-reports', label: 'Reports & Security', icon: ShieldAlert, group: 'Navigation', action: () => navigateTo('admin-activity') },
+  const ALL_COMMANDS: CommandItem[] = useMemo(() => {
+    const commands: CommandItem[] = [];
     
-    { id: 'action-user', label: 'Create New User', icon: UserPlus, group: 'Actions', action: () => handleAction('Create New User'), color: '#3b82f6' },
-    { id: 'action-api', label: 'Approve Pending APIs', icon: FilePlus, group: 'Actions', action: () => handleAction('Approve Pending APIs'), color: '#22c55e' },
-    { id: 'action-maint', label: 'Toggle Maintenance Mode', icon: ShieldAlert, group: 'Actions', action: () => handleAction('Maintenance Mode'), color: '#f59e0b' },
-  ], []);
+    if (hasPermission('VIEW_ANALYTICS_DASHBOARD')) commands.push({ id: 'nav-overview', label: 'Platform Overview', icon: BarChart3, group: 'Navigation', action: () => navigateTo('admin-overview') });
+    if (hasPermission('VIEW_USERS')) commands.push({ id: 'nav-users', label: 'User Management', icon: Users, group: 'Navigation', action: () => navigateTo('admin-users') });
+    if (hasPermission('VIEW_APIS') || hasPermission('CURATE_MARKETPLACE_FEATURED')) commands.push({ id: 'nav-apis', label: 'API & Marketplace', icon: Network, group: 'Navigation', action: () => navigateTo('admin-apis') });
+    if (hasPermission('VIEW_BILLING_INVOICES') || hasPermission('VIEW_SUBSCRIPTIONS')) commands.push({ id: 'nav-billing', label: 'Billing & Payments', icon: CreditCard, group: 'Navigation', action: () => navigateTo('admin-billing') });
+    if (hasPermission('VIEW_SYSTEM_LOGS') || hasPermission('VIEW_SECURITY_CENTER')) commands.push({ id: 'nav-reports', label: 'Reports & Security', icon: ShieldAlert, group: 'Navigation', action: () => navigateTo('admin-activity') });
+    
+    if (hasPermission('EDIT_USER')) commands.push({ id: 'action-user', label: 'Create New User', icon: UserPlus, group: 'Actions', action: () => handleAction('Create New User'), color: '#3b82f6' });
+    if (hasPermission('APPROVE_REJECT_APIS')) commands.push({ id: 'action-api', label: 'Approve Pending APIs', icon: FilePlus, group: 'Actions', action: () => handleAction('Approve Pending APIs'), color: '#22c55e' });
+    if (hasPermission('TOGGLE_MAINTENANCE_MODE')) commands.push({ id: 'action-maint', label: 'Toggle Maintenance Mode', icon: ShieldAlert, group: 'Actions', action: () => handleAction('Maintenance Mode'), color: '#f59e0b' });
+    
+    return commands;
+  }, [hasPermission, navigateTo]);
 
   // Filter commands and inject AI intents
   const filteredCommands = useMemo(() => {

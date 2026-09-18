@@ -3,6 +3,7 @@ import { Settings, Palette, Mail, Webhook, Wrench, AlertTriangle, Check, Loader2
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { usePermissions } from '../../../context/PermissionsContext';
 
 // ─── Types & Constants ────────────────────────────────────────────────────────
 
@@ -182,6 +183,7 @@ const Card = ({ children, className = '' }: { children: React.ReactNode; classNa
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const AdminSettings = () => {
+  const { hasPermission } = usePermissions();
   const [activeSection, setActiveSection] = useState<SectionId>('general');
   const [coreSettings, setCoreSettings] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -324,7 +326,7 @@ export const AdminSettings = () => {
       {/* ── Left Pill Navigation ── */}
       <div className="w-44 shrink-0">
         <nav className="sticky top-6 flex flex-col gap-1 p-2 bg-white/[0.03] rounded-2xl border border-white/5">
-          {NAV_SECTIONS.map(s => {
+          {NAV_SECTIONS.filter(s => s.id !== 'danger' || hasPermission('VIEW_DANGER_ZONE')).map(s => {
             const active = activeSection === s.id;
             const isDanger = s.id === 'danger';
             return (
@@ -667,39 +669,47 @@ export const AdminSettings = () => {
         </Section>
 
         {/* Danger Zone */}
-        <Section id="danger">
-          <div className="relative overflow-hidden rounded-2xl border border-rose-500/30">
-            <div className="absolute inset-x-0 top-0 h-1 bg-[repeating-linear-gradient(90deg,#f43f5e,#f43f5e_12px,transparent_12px,transparent_24px)]" />
-            <div className="p-6">
-              <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle size={18} className="text-rose-500" />
-                <h2 className="text-lg font-bold text-rose-400 tracking-tight">Danger Zone</h2>
-              </div>
-              <p className="text-[13px] text-white/40 mb-6">These actions are <span className="text-white/70 font-bold">irreversible</span> and affect the entire platform infrastructure.</p>
+        {hasPermission('VIEW_DANGER_ZONE') && (
+          <Section id="danger">
+            <div className="relative overflow-hidden rounded-2xl border border-rose-500/30">
+              <div className="absolute inset-x-0 top-0 h-1 bg-[repeating-linear-gradient(90deg,#f43f5e,#f43f5e_12px,transparent_12px,transparent_24px)]" />
+              <div className="p-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle size={18} className="text-rose-500" />
+                  <h2 className="text-lg font-bold text-rose-400 tracking-tight">Danger Zone</h2>
+                </div>
+                <p className="text-[13px] text-white/40 mb-6">These actions are <span className="text-white/70 font-bold">irreversible</span> and affect the entire platform infrastructure.</p>
 
-              <div className="flex flex-col gap-3">
-                {[
-                  { label: 'Purge Edge Cache',       desc: 'Invalidate all CDN & Redis caches globally.',     word: 'PURGE'  },
-                  { label: 'Reset All API Limits',   desc: 'Reset all custom rate overrides to tier defaults.', word: 'RESET'  },
-                  { label: 'Delete Organization',    desc: 'Permanently erase all data, users, and APIs.',    word: 'klyra'  },
-                ].map(action => (
-                  <div key={action.label} className="flex items-center justify-between p-4 rounded-xl bg-rose-500/5 border border-rose-500/10">
-                    <div>
-                      <div className="text-[14px] font-semibold text-white">{action.label}</div>
-                      <div className="text-[12px] text-white/40 mt-0.5">{action.desc}</div>
+                <div className="flex flex-col gap-3">
+                  {[
+                    { label: 'Purge Edge Cache',       desc: 'Invalidate all CDN & Redis caches globally.',     word: 'PURGE'  },
+                    { label: 'Reset All API Limits',   desc: 'Reset all custom rate overrides to tier defaults.', word: 'RESET'  },
+                    { label: 'Delete Organization',    desc: 'Permanently erase all data, users, and APIs.',    word: 'klyra'  },
+                  ].map(action => (
+                    <div key={action.label} className="flex items-center justify-between p-4 rounded-xl bg-rose-500/5 border border-rose-500/10">
+                      <div>
+                        <div className="text-[14px] font-semibold text-white">{action.label}</div>
+                        <div className="text-[12px] text-white/40 mt-0.5">{action.desc}</div>
+                      </div>
+                      <button
+                        onClick={() => setDangerModal({ label: action.label, word: action.word, action: action.label })}
+                        disabled={!hasPermission('EXECUTE_DANGER_ZONE_ACTIONS')}
+                        className={`px-4 py-2 rounded-xl border text-[12px] font-bold transition-colors shrink-0 ${
+                          hasPermission('EXECUTE_DANGER_ZONE_ACTIONS')
+                            ? 'border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 active:scale-95'
+                            : 'border-white/5 bg-black/50 text-white/20 cursor-not-allowed'
+                        }`}
+                        title={!hasPermission('EXECUTE_DANGER_ZONE_ACTIONS') ? 'Requires EXECUTE_DANGER_ZONE_ACTIONS permission' : ''}
+                      >
+                        {action.label}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => setDangerModal({ label: action.label, word: action.word, action: action.label })}
-                      className="px-4 py-2 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-[12px] font-bold hover:bg-rose-500/20 transition-colors active:scale-95 shrink-0"
-                    >
-                      {action.label}
-                    </button>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        </Section>
+          </Section>
+        )}
 
       </div>
 

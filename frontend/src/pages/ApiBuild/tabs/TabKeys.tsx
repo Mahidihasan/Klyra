@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import { Key, Plus, RefreshCw, Trash2, ShieldCheck, Search, Copy, AlertTriangle } from 'lucide-react';
+import {
+  Key, Plus, RefreshCw, Trash2, ShieldCheck, Search, Copy, AlertTriangle,
+  Lock, Clock, Hash, CheckCircle2, ShieldAlert, SlidersHorizontal, Download, EyeOff
+} from 'lucide-react';
 import { ProviderApiKey } from '../../../types/apibuild';
 
 interface TabKeysProps {
@@ -19,50 +22,118 @@ export const TabKeys: React.FC<TabKeysProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [envFilter, setEnvFilter] = useState('ALL');
+
   const filteredKeys = apiKeys.filter((key) => {
     const matchesQuery = !query || `${key.label} ${key.consumer} ${key.prefix}`.toLowerCase().includes(query.toLowerCase());
-    return matchesQuery && (statusFilter === 'ALL' || (statusFilter === 'active' ? !key.revoked : key.revoked));
+    const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'active' ? !key.revoked : key.revoked);
+    const matchesEnv = envFilter === 'ALL' || true; // Assuming we add env to apiKeys later, placeholder for now
+    return matchesQuery && matchesStatus && matchesEnv;
   });
 
+  const activeCount = apiKeys.filter((key) => !key.revoked).length;
+  const revokedCount = apiKeys.filter((key) => key.revoked).length;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header bar */}
-      <div className="kly-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h3 style={{ fontSize: 16, fontWeight: 700 }}>Security & API Key Provisioning</h3>
-            <p style={{ fontSize: 13, color: 'var(--kly-text-muted)', marginTop: 4 }}>
-              Keys are salted and hashed using Argon2id. Full secret tokens are masked after creation.
-            </p>
+    <div className="kly-keys-root">
+      
+      {/* Security Posture Dashboard */}
+      <div className="kly-keys-dashboard">
+        <div className="kly-keys-dash-header">
+          <div className="kly-keys-dash-title">
+            <Lock size={15} color="#c4b5fd" />
+            <h4>Security Posture</h4>
           </div>
-          <button className="kly-btn kly-btn-primary" onClick={onOpenCreateKey}>
-            <Plus size={13} />
-            <span>Generate New API Key</span>
-          </button>
+          <div className="kly-keys-dash-status">
+            <CheckCircle2 size={13} color="#34d399" />
+            <span>All secrets hashed via Argon2id</span>
+          </div>
+        </div>
+        
+        <div className="kly-keys-kpi-grid">
+          <div className="kly-keys-kpi-card kly-keys-kpi-active">
+            <div className="kly-keys-kpi-content">
+              <div className="kly-keys-kpi-val">{activeCount}</div>
+              <div className="kly-keys-kpi-label">Active Credentials</div>
+              <div className="kly-keys-kpi-meta">Serving authenticated traffic</div>
+            </div>
+          </div>
+          
+          <div className="kly-keys-kpi-card kly-keys-kpi-warn">
+            <div className="kly-keys-kpi-content">
+              <div className="kly-keys-kpi-val">0</div>
+              <div className="kly-keys-kpi-label">Expiring in 30d</div>
+              <div className="kly-keys-kpi-meta">No immediate action needed</div>
+            </div>
+          </div>
+          
+          <div className="kly-keys-kpi-card kly-keys-kpi-idle">
+            <div className="kly-keys-kpi-content">
+              <div className="kly-keys-kpi-val">2</div>
+              <div className="kly-keys-kpi-label">Stale Keys (&gt;90d)</div>
+              <div className="kly-keys-kpi-meta" style={{ color: '#fbbf24' }}>Consider rotating</div>
+            </div>
+          </div>
+          
+          <div className="kly-keys-kpi-card kly-keys-kpi-danger">
+            <div className="kly-keys-kpi-content">
+              <div className="kly-keys-kpi-val">{revokedCount}</div>
+              <div className="kly-keys-kpi-label">Revoked Tokens</div>
+              <div className="kly-keys-kpi-meta">Blocked at edge</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="kly-ops-summary kly-key-summary">
-        <div><span><ShieldCheck size={13} /> Active credentials</span><strong>{apiKeys.filter((key) => !key.revoked).length}</strong><small>Serving authenticated traffic</small></div>
-        <div><span><RefreshCw size={13} /> Rotation policy</span><strong>48h</strong><small>Dual-write grace period</small></div>
-        <div><span><AlertTriangle size={13} /> Revoked</span><strong>{apiKeys.filter((key) => key.revoked).length}</strong><small>Blocked immediately</small></div>
-        <div><span><Key size={13} /> Filtered view</span><strong>{filteredKeys.length}</strong><small>Credentials in scope</small></div>
+      {/* Toolbar */}
+      <div className="kly-card kly-keys-toolbar">
+        <div className="kly-keys-toolbar-left">
+          <h3 className="kly-keys-title">Credential Inventory</h3>
+        </div>
+        <div className="kly-keys-toolbar-right">
+          <div className="kly-keys-search">
+            <Search size={13} />
+            <input
+              type="text"
+              placeholder="Search prefix, label, consumer..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="kly-keys-filters">
+            <SlidersHorizontal size={13} color="var(--kly-text-dim)" />
+            <select value={envFilter} onChange={(e) => setEnvFilter(e.target.value)}>
+              <option value="ALL">All Environments</option>
+              <option value="prod">Production</option>
+              <option value="test">Test / Sandbox</option>
+            </select>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="ALL">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="revoked">Revoked</option>
+            </select>
+          </div>
+          <div className="kly-keys-actions">
+            <button className="kly-btn kly-btn-ghost" title="Export Audit Log" onClick={() => onShowToast('Exporting key audit log...')}>
+              <Download size={14} />
+            </button>
+            <button className="kly-btn kly-btn-primary" onClick={onOpenCreateKey}>
+              <Plus size={13} />
+              <span>Issue New Key</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Keys Table */}
-      <div className="kly-table-wrapper">
-        <div className="kly-table-toolbar">
-          <div className="kly-table-toolbar-title"><Search size={14} /><strong>Credential inventory</strong><span>Secrets are never displayed after creation</span></div>
-          <div className="kly-table-toolbar-controls"><input className="kly-input kly-input-compact" aria-label="Search API keys" placeholder="Search label or consumer" value={query} onChange={(event) => setQuery(event.target.value)} /><select className="kly-select kly-select-compact" aria-label="Filter API key status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">All statuses</option><option value="active">Active</option><option value="revoked">Revoked</option></select></div>
-        </div>
-        <table className="kly-table">
+      <div className="kly-card kly-keys-table-wrapper" style={{ padding: 0, overflow: 'hidden' }}>
+        <table className="kly-table kly-keys-table">
           <thead>
             <tr>
-              <th>Key Label</th>
-              <th>Token Prefix</th>
-              <th>Assigned Consumer</th>
-              <th>Plan</th>
-              <th>Scopes</th>
+              <th>Token Identity</th>
+              <th>Secret Prefix</th>
+              <th>Consumer & Plan</th>
+              <th>Permissions</th>
               <th>Last Used</th>
               <th>Status</th>
               <th style={{ textAlign: 'right' }}>Actions</th>
@@ -70,55 +141,84 @@ export const TabKeys: React.FC<TabKeysProps> = ({
           </thead>
           <tbody>
             {filteredKeys.map((k) => (
-              <tr key={k.id}>
+              <tr key={k.id} className="kly-keys-row">
                 <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Key size={14} color="#8b5cf6" />
-                    <span style={{ fontWeight: 600 }}>{k.label}</span>
+                  <div className="kly-keys-identity-cell">
+                    <div>
+                      <div className="kly-keys-label">{k.label}</div>
+                      <div className="kly-keys-env">
+                        <span className="kly-keys-env-dot" style={{ background: k.label.toLowerCase().includes('test') ? '#fbbf24' : '#c4b5fd' }}></span>
+                        {k.label.toLowerCase().includes('test') ? 'Test' : 'Production'}
+                      </div>
+                    </div>
                   </div>
                 </td>
-                <td className="kly-mono" style={{ color: '#c4b5fd', fontWeight: 600 }}>
-                  {k.prefix}... <button className="kly-btn-icon" title="Copy key prefix" onClick={() => { void navigator.clipboard?.writeText(k.prefix); onShowToast('Key prefix copied'); }}><Copy size={11} /></button>
-                </td>
-                <td>{k.consumer}</td>
                 <td>
-                  <span className="kly-badge kly-badge-pill">{k.plan}</span>
+                  <div className="kly-keys-prefix-cell">
+                    <Hash size={12} color="var(--kly-text-dim)" />
+                    <code className="kly-keys-prefix-code">{k.prefix}••••••••</code>
+                    <button className="kly-btn-icon kly-keys-copy-btn" title="Copy prefix" onClick={(e) => { e.stopPropagation(); void navigator.clipboard?.writeText(k.prefix); onShowToast('Key prefix copied'); }}>
+                      <Copy size={11} />
+                    </button>
+                  </div>
                 </td>
                 <td>
-                  <span style={{ fontSize: 11, color: 'var(--kly-text-dim)', fontFamily: 'var(--kly-font-mono)' }}>
-                    read:users, write:generate
-                  </span>
+                  <div className="kly-keys-consumer-cell">
+                    <div className="kly-keys-consumer-name">{k.consumer}</div>
+                    <span className="kly-badge kly-badge-pill kly-keys-plan-badge" data-plan={k.plan.toLowerCase()}>{k.plan}</span>
+                  </div>
                 </td>
-                <td style={{ fontSize: 12, color: 'var(--kly-text-muted)' }}>{k.lastUsed}</td>
                 <td>
-                  <span className={`kly-badge ${!k.revoked ? 'kly-badge-healthy' : 'kly-badge-paused'}`}>
+                  <div className="kly-keys-scopes">
+                    <span className="kly-keys-scope">read:users</span>
+                    <span className="kly-keys-scope">write:data</span>
+                  </div>
+                </td>
+                <td className="kly-keys-last-used">
+                  {k.lastUsed}
+                </td>
+                <td>
+                  <span className={`kly-badge ${!k.revoked ? 'kly-badge-healthy' : 'kly-badge-error'}`}>
                     {!k.revoked ? 'Active' : 'Revoked'}
                   </span>
                 </td>
                 <td style={{ textAlign: 'right' }}>
-                  <div style={{ display: 'inline-flex', gap: 6 }}>
+                  <div className="kly-keys-action-group">
+                    {!k.revoked && (
+                      <button
+                        className="kly-btn kly-btn-ghost kly-keys-btn-rotate"
+                        title="Rotate key (48h dual-write grace period)"
+                        onClick={() => { onRotateKey(k.id); onShowToast(`Key "${k.label}" rotated`); }}
+                      >
+                        <RefreshCw size={12} /> Rotate
+                      </button>
+                    )}
                     <button
-                      className="kly-btn-icon"
-                      title="Rotate key (48h dual-write grace period)"
-                      onClick={() => { onRotateKey(k.id); onShowToast(`Key "${k.label}" rotated`); }}
-                    >
-                      <RefreshCw size={12} color="#10b981" />
-                    </button>
-                    <button
-                      className="kly-btn-icon"
-                      title="Revoke key immediately"
+                      className="kly-btn kly-btn-ghost kly-keys-btn-revoke"
+                      title={!k.revoked ? "Revoke key immediately" : "Delete key record"}
                       onClick={() => { onRevokeKey(k.id); onShowToast(`Key "${k.label}" revoked`); }}
                     >
-                      <Trash2 size={12} color="#fb7185" />
+                      <Trash2 size={12} /> {!k.revoked ? 'Revoke' : 'Delete'}
                     </button>
                   </div>
                 </td>
               </tr>
             ))}
-            {!filteredKeys.length && <tr><td colSpan={8} className="kly-empty-state"><Search size={18} /><span>No API keys match this view.</span><button className="kly-btn kly-btn-ghost" onClick={() => { setQuery(''); setStatusFilter('ALL'); }}>Clear filters</button></td></tr>}
+            {!filteredKeys.length && (
+              <tr>
+                <td colSpan={7}>
+                  <div className="kly-empty-state">
+                    <Search size={18} />
+                    <span>No credentials match the current filters.</span>
+                    <button className="kly-btn kly-btn-ghost" onClick={() => { setQuery(''); setStatusFilter('ALL'); setEnvFilter('ALL'); }}>Clear filters</button>
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
     </div>
   );
 };
+

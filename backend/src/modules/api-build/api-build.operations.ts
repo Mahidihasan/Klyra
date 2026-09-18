@@ -30,7 +30,13 @@
 
 import { randomUUID } from 'node:crypto';
 import { pool } from '../../services/database.service';
-import { addActivity, addDeployment, getProject, saveProject, updateEndpoint } from './api-build.service';
+import {
+  addActivity,
+  addDeployment,
+  getProject,
+  saveProject,
+  updateEndpoint,
+} from './api-build.service';
 import { recordAuditEvent } from './api-build.draft';
 
 /* ==========================================================================
@@ -38,11 +44,24 @@ import { recordAuditEvent } from './api-build.draft';
  * ======================================================================== */
 
 export type OperationType =
-  | 'deploy' | 'rollback' | 'publish' | 'import' | 'sync' | 'migrate'
-  | 'rotate_key' | 'bulk_policy_update' | 'health_probe' | 'delete';
+  | 'deploy'
+  | 'rollback'
+  | 'publish'
+  | 'import'
+  | 'sync'
+  | 'migrate'
+  | 'rotate_key'
+  | 'bulk_policy_update'
+  | 'health_probe'
+  | 'delete';
 
 export type OperationState =
-  | 'queued' | 'validating' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  | 'queued'
+  | 'validating'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled';
 
 export interface OperationRow {
   id: string;
@@ -104,14 +123,21 @@ const SELECT_COLUMNS = `id, project_id, type, state, progress, actor, resource, 
 export function canTransition(from: OperationState, to: OperationState): boolean {
   if (from === to) return false;
   switch (to) {
-    case 'validating': return from === 'queued';
-    case 'running': return from === 'queued' || from === 'validating';
-    case 'succeeded': return from === 'running' || from === 'validating';
-    case 'failed': return from === 'running' || from === 'validating';
-    case 'cancelled': return CANCELLABLE.has(from);
+    case 'validating':
+      return from === 'queued';
+    case 'running':
+      return from === 'queued' || from === 'validating';
+    case 'succeeded':
+      return from === 'running' || from === 'validating';
+    case 'failed':
+      return from === 'running' || from === 'validating';
+    case 'cancelled':
+      return CANCELLABLE.has(from);
     // Re-opening a row is only allowed as a retry of a failed/cancelled one.
-    case 'queued': return from === 'failed' || from === 'cancelled';
-    default: return false;
+    case 'queued':
+      return from === 'failed' || from === 'cancelled';
+    default:
+      return false;
   }
 }
 
@@ -149,9 +175,17 @@ export async function createOperation(input: CreateOperationInput): Promise<Oper
        (id, project_id, type, state, actor, resource, environment, payload, request_id, reason)
      VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7::jsonb, $8, $9)
      RETURNING ${SELECT_COLUMNS}`,
-    [id, input.projectId, input.type, input.actor || 'system', input.resource || null,
-     input.environment || null, input.payload ? JSON.stringify(input.payload) : null,
-     input.requestId || null, input.reason || null],
+    [
+      id,
+      input.projectId,
+      input.type,
+      input.actor || 'system',
+      input.resource || null,
+      input.environment || null,
+      input.payload ? JSON.stringify(input.payload) : null,
+      input.requestId || null,
+      input.reason || null,
+    ],
   );
   const row = mapRow(result.rows[0]);
   await addActivity(input.projectId, `Operation ${row.type} queued (${row.id})`, 'info');
@@ -171,7 +205,8 @@ export async function createOperation(input: CreateOperationInput): Promise<Oper
 export async function getOperation(projectId: string, id: string): Promise<OperationRow | null> {
   const result = await pool.query(
     `SELECT ${SELECT_COLUMNS} FROM api_build_operations WHERE project_id = $1 AND id = $2`,
-    [projectId, id]);
+    [projectId, id],
+  );
   return result.rows[0] ? mapRow(result.rows[0]) : null;
 }
 
@@ -182,13 +217,20 @@ export async function listOperations(
   const limit = Math.min(Number(options.limit) || 50, 200);
   const clauses = ['project_id = $1'];
   const params: unknown[] = [projectId];
-  if (options.state) { params.push(options.state); clauses.push(`state = $${params.length}`); }
-  if (options.type) { params.push(options.type); clauses.push(`type = $${params.length}`); }
+  if (options.state) {
+    params.push(options.state);
+    clauses.push(`state = $${params.length}`);
+  }
+  if (options.type) {
+    params.push(options.type);
+    clauses.push(`type = $${params.length}`);
+  }
   params.push(limit);
   const result = await pool.query(
     `SELECT ${SELECT_COLUMNS} FROM api_build_operations
      WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT $${params.length}`,
-    params);
+    params,
+  );
   return result.rows.map(mapRow);
 }
 
@@ -206,7 +248,9 @@ interface TransitionInput {
 }
 
 export async function transitionOperation(
-  projectId: string, id: string, patch: TransitionInput,
+  projectId: string,
+  id: string,
+  patch: TransitionInput,
 ): Promise<OperationRow | null> {
   const current = await getOperation(projectId, id);
   if (!current) return null;
@@ -219,7 +263,9 @@ export async function transitionOperation(
   const logs = patch.appendLog
     ? [...current.logs, `${new Date().toISOString().slice(11, 19)} ${patch.appendLog}`]
     : current.logs;
-  const warnings = patch.appendWarning ? [...current.warnings, patch.appendWarning] : current.warnings;
+  const warnings = patch.appendWarning
+    ? [...current.warnings, patch.appendWarning]
+    : current.warnings;
   const errors = patch.appendError ? [...current.errors, patch.appendError] : current.errors;
 
   const result = await pool.query(
@@ -235,35 +281,56 @@ export async function transitionOperation(
        updated_at       = NOW()
      WHERE project_id = $1 AND id = $2
      RETURNING ${SELECT_COLUMNS}`,
-    [projectId, id, nextState,
-     patch.progress === undefined ? null : Math.max(0, Math.min(100, Math.round(patch.progress))),
-     JSON.stringify(logs), JSON.stringify(warnings), JSON.stringify(errors),
-     patch.result ? JSON.stringify(patch.result) : null],
+    [
+      projectId,
+      id,
+      nextState,
+      patch.progress === undefined ? null : Math.max(0, Math.min(100, Math.round(patch.progress))),
+      JSON.stringify(logs),
+      JSON.stringify(warnings),
+      JSON.stringify(errors),
+      patch.result ? JSON.stringify(patch.result) : null,
+    ],
   );
   return mapRow(result.rows[0]);
 }
 
-export async function cancelOperation(projectId: string, id: string, actor: string): Promise<OperationRow | null> {
+export async function cancelOperation(
+  projectId: string,
+  id: string,
+  actor: string,
+): Promise<OperationRow | null> {
   const current = await getOperation(projectId, id);
   if (!current || !isCancellable(current.state)) return null;
   const row = await transitionOperation(projectId, id, {
-    state: 'cancelled', appendLog: `Cancelled by ${actor}`,
+    state: 'cancelled',
+    appendLog: `Cancelled by ${actor}`,
   });
   if (row) {
     await addActivity(projectId, `Operation ${current.type} cancelled (${id})`, 'warn');
     await recordAuditEvent({
-      projectId, actorId: actor, resourceType: 'operation', resourceId: id,
-      operation: 'cancel', changeSummary: `${current.type} operation cancelled`,
+      projectId,
+      actorId: actor,
+      resourceType: 'operation',
+      resourceId: id,
+      operation: 'cancel',
+      changeSummary: `${current.type} operation cancelled`,
     });
   }
   return row;
 }
 
-export async function retryOperation(projectId: string, id: string, actor: string): Promise<OperationRow | null> {
+export async function retryOperation(
+  projectId: string,
+  id: string,
+  actor: string,
+): Promise<OperationRow | null> {
   const current = await getOperation(projectId, id);
   if (!current || !isRetryable(current.state)) return null;
   const row = await transitionOperation(projectId, id, {
-    state: 'queued', progress: 0, appendLog: `Re-queued by ${actor}`,
+    state: 'queued',
+    progress: 0,
+    appendLog: `Re-queued by ${actor}`,
   });
   if (row) {
     await addActivity(projectId, `Operation ${current.type} re-queued (${id})`, 'info');
@@ -287,17 +354,25 @@ interface ExecuteContext {
 
 /** Performs the real work for an operation. Returns the result payload. */
 export async function runOperation(
-  type: OperationType, ctx: ExecuteContext,
+  type: OperationType,
+  ctx: ExecuteContext,
 ): Promise<Record<string, unknown>> {
   switch (type) {
-    case 'deploy': return executeDeploy(ctx);
-    case 'rollback': return executeRollback(ctx);
-    case 'publish': return executePublish(ctx);
-    case 'health_probe': return executeHealthProbe(ctx);
-    case 'bulk_policy_update': return executeBulkUpdate(ctx);
+    case 'deploy':
+      return executeDeploy(ctx);
+    case 'rollback':
+      return executeRollback(ctx);
+    case 'publish':
+      return executePublish(ctx);
+    case 'health_probe':
+      return executeHealthProbe(ctx);
+    case 'bulk_policy_update':
+      return executeBulkUpdate(ctx);
     default:
-      throw new Error(`Operation type "${type}" has no executor yet. ` +
-        'Implement it in api-build.operations.runOperation before enqueueing.');
+      throw new Error(
+        `Operation type "${type}" has no executor yet. ` +
+          'Implement it in api-build.operations.runOperation before enqueueing.',
+      );
   }
 }
 
@@ -311,7 +386,12 @@ async function executeDeploy(ctx: ExecuteContext): Promise<Record<string, unknow
   const strategy = String(payload.strategy || 'rolling');
 
   await step('Queued for deployment', 5);
-  await step(`Building ${version} from ${project.sourceKind === 'existing' ? 'connected upstream' : project.sourceKind}`, 20);
+  await step(
+    `Building ${version} from ${
+      project.sourceKind === 'existing' ? 'connected upstream' : project.sourceKind
+    }`,
+    20,
+  );
   await step('Build completed', 45);
 
   const dep = (project.deployment as Record<string, unknown> | undefined) || {};
@@ -357,7 +437,9 @@ async function executeDeploy(ctx: ExecuteContext): Promise<Record<string, unknow
     changeSummary: `Deployed ${version} to ${environment}`,
   });
   return {
-    version, environment, strategy,
+    version,
+    environment,
+    strategy,
     deploymentId: deployment?.id || '',
   };
 }
@@ -374,13 +456,18 @@ async function executeRollback(ctx: ExecuteContext): Promise<Record<string, unkn
   const target = await pool.query(
     `SELECT id, version, environment FROM api_build_deployments
      WHERE project_id = $1 AND version = $2 ORDER BY deployed_at DESC LIMIT 1`,
-    [projectId, targetVersion]);
+    [projectId, targetVersion],
+  );
   if (!target.rows[0]) {
     throw new Error(`No recorded deployment found for ${targetVersion}. Nothing to roll back to.`);
   }
 
   await step(`Reverting ${project.version} → ${targetVersion}`, 55);
-  const before = { version: project.version, environment: project.environment, status: project.status };
+  const before = {
+    version: project.version,
+    environment: project.environment,
+    status: project.status,
+  };
   await saveProject({
     ...project,
     version: targetVersion,
@@ -416,7 +503,9 @@ async function executePublish(ctx: ExecuteContext): Promise<Record<string, unkno
 
   const visibility = String(payload.visibility || project.visibility || 'private');
   const name = payload.listingName ? String(payload.listingName) : project.name;
-  const description = payload.listingDescription ? String(payload.listingDescription) : project.description;
+  const description = payload.listingDescription
+    ? String(payload.listingDescription)
+    : project.description;
 
   await step('Validating marketplace listing', 30);
   if (!name || !description) {
@@ -457,18 +546,27 @@ async function executeHealthProbe(ctx: ExecuteContext): Promise<Record<string, u
   return { probe: result };
 }
 
-const BULK_PATCH_FIELDS = ['authRequired', 'rateLimitPerMin', 'status', 'mockMode', 'cacheTtl', 'category'];
+const BULK_PATCH_FIELDS = [
+  'authRequired',
+  'rateLimitPerMin',
+  'status',
+  'mockMode',
+  'cacheTtl',
+  'category',
+];
 
 async function executeBulkUpdate(ctx: ExecuteContext): Promise<Record<string, unknown>> {
   const { step, payload, projectId, actor } = ctx;
   const endpointIds = Array.isArray(payload.endpointIds) ? payload.endpointIds.map(String) : [];
   const patch = (payload.patch || {}) as Record<string, unknown>;
   if (endpointIds.length === 0) throw new Error('Bulk update requires at least one endpoint.');
-  if (Object.keys(patch).length === 0) throw new Error('Bulk update requires a configuration patch.');
+  if (Object.keys(patch).length === 0)
+    throw new Error('Bulk update requires a configuration patch.');
 
   await step(`Updating ${endpointIds.length} endpoints`, 20);
   const safePatch = Object.fromEntries(
-    Object.entries(patch).filter(([k]) => BULK_PATCH_FIELDS.includes(k)));
+    Object.entries(patch).filter(([k]) => BULK_PATCH_FIELDS.includes(k)),
+  );
   let updated = 0;
   for (const eid of endpointIds) {
     const row = await updateEndpoint(projectId, eid, safePatch);
@@ -501,7 +599,8 @@ export async function execute(operationId: string): Promise<void> {
   try {
     const initial = await pool.query(
       'SELECT project_id, type, state, actor, environment, payload FROM api_build_operations WHERE id = $1',
-      [operationId]);
+      [operationId],
+    );
     const row = initial.rows[0];
     if (!row || row.state !== 'queued') return;
 
@@ -510,26 +609,42 @@ export async function execute(operationId: string): Promise<void> {
     const payload = (row.payload as Record<string, unknown>) || {};
 
     const step = async (label: string, progress: number) => {
-      await transitionOperation(projectId, operationId, { state: 'running', appendLog: label, progress });
+      await transitionOperation(projectId, operationId, {
+        state: 'running',
+        appendLog: label,
+        progress,
+      });
     };
     const warn = async (message: string) => {
       await transitionOperation(projectId, operationId, { appendWarning: message });
     };
 
     try {
-      await transitionOperation(projectId, operationId, { state: 'validating', appendLog: 'Operation started' });
+      await transitionOperation(projectId, operationId, {
+        state: 'validating',
+        appendLog: 'Operation started',
+      });
       const result = await runOperation(type, {
-        step, warn, payload, projectId, actor: String(row.actor || 'system'),
+        step,
+        warn,
+        payload,
+        projectId,
+        actor: String(row.actor || 'system'),
         environment: row.environment ? String(row.environment) : null,
       });
       await transitionOperation(projectId, operationId, {
-        state: 'succeeded', progress: 100, result, appendLog: 'Operation completed',
+        state: 'succeeded',
+        progress: 100,
+        result,
+        appendLog: 'Operation completed',
       });
       await addActivity(projectId, `Operation ${type} succeeded (${operationId})`, 'ok');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await transitionOperation(projectId, operationId, {
-        state: 'failed', appendError: message, appendLog: `Operation failed: ${message}`,
+        state: 'failed',
+        appendError: message,
+        appendLog: `Operation failed: ${message}`,
       });
       await addActivity(projectId, `Operation ${type} failed (${operationId})`, 'error');
     }
@@ -548,7 +663,8 @@ export async function reapStaleOperations(maxAgeMs = 10 * 60 * 1000): Promise<nu
      WHERE state IN ('queued','validating','running')
        AND created_at < NOW() - ($2 || ' milliseconds')::interval
      RETURNING id`,
-    [JSON.stringify(['Operation timed out and was marked failed.']), String(maxAgeMs)]);
+    [JSON.stringify(['Operation timed out and was marked failed.']), String(maxAgeMs)],
+  );
   return result.rowCount ?? 0;
 }
 
@@ -557,5 +673,7 @@ export async function reapStaleOperations(maxAgeMs = 10 * 60 * 1000): Promise<nu
  * runs in-process). Started with the server alongside startApiBuildQueue().
  */
 export function startOperationReaper(intervalMs = 60_000): void {
-  setInterval(() => { void reapStaleOperations().catch(() => undefined); }, intervalMs).unref();
+  setInterval(() => {
+    void reapStaleOperations().catch(() => undefined);
+  }, intervalMs).unref();
 }
