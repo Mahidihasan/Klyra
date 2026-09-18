@@ -1,33 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Plus, Search, Filter } from 'lucide-react';
+import { Database, Plus, Search, Filter, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+
+import axios from 'axios';
 
 // ─── Types & Mock Data ────────────────────────────────────────────────────────
 
-type EntityStatus = 'active' | 'archived' | 'suspended';
+type EntityStatus = 'active' | 'archived' | 'suspended' | 'ACTIVE' | 'ARCHIVED' | 'SUSPENDED';
 
 interface Entity {
-  id: string;
-  name: string;
-  status: EntityStatus;
-  created_at: string;
-  score: number;
+  [key: string]: any;
 }
-
-const INITIAL_DATA: Entity[] = Array.from({ length: 50 }, (_, i) => ({
-  id: `rec_${(1000 + i).toString(16).padStart(6, '0')}`,
-  name: `Platform Entity ${i}`,
-  status: i % 7 === 0 ? 'suspended' : i % 3 === 0 ? 'archived' : 'active',
-  created_at: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
-  score: Math.floor(Math.random() * 100),
-}));
-
-const COLUMNS = ['id', 'name', 'status', 'created_at', 'score'] as const;
-type Column = typeof COLUMNS[number];
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 const StatusBadge = ({ status }: { status: EntityStatus }) => {
+  const normalizedStatus = (status || 'active').toLowerCase() as 'active' | 'archived' | 'suspended';
+  
   const colors = {
     active:    'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     archived:  'text-zinc-400 bg-zinc-500/10 border-zinc-500/20',
@@ -40,8 +29,8 @@ const StatusBadge = ({ status }: { status: EntityStatus }) => {
   };
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase border ${colors[status]}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dotColors[status]} ${status === 'active' ? 'animate-pulse' : ''}`} />
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase border ${colors[normalizedStatus] || colors.active}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dotColors[normalizedStatus] || dotColors.active} ${normalizedStatus === 'active' ? 'animate-pulse' : ''}`} />
       {status}
     </span>
   );
@@ -50,13 +39,67 @@ const StatusBadge = ({ status }: { status: EntityStatus }) => {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const DataGrid = () => {
-  const [data, setData] = useState(INITIAL_DATA);
+  const [data, setData] = useState<Entity[]>([]);
+  const [availableTables, setAvailableTables] = useState<string[]>(['User', 'CoreSettings', 'AuditLog']);
+  const [selectedTable, setSelectedTable] = useState('User');
   const [query, setQuery] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   
   // cell navigation: { rowIdx, colIdx }
   const [focusedCell, setFocusedCell] = useState<{ r: number, c: number } | null>(null);
   // cell edit: { rowIdx, colIdx, val }
   const [editingCell, setEditingCell] = useState<{ r: number, c: number, val: string } | null>(null);
+
+  const fetchExplorerData = async () => {
+    if (!selectedTable) return;
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const response = await axios.get('/api/v1/admin/explorer?table=' + selectedTable, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      setData(response.data.data || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchTables = async () => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const response = await axios.get('/api/v1/admin/explorer/tables', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.data.success && response.data.tables) {
+        setAvailableTables(response.data.tables);
+        if (!response.data.tables.includes(selectedTable) && response.data.tables.length > 0) {
+          setSelectedTable(response.data.tables[0]);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchTables();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    fetchExplorerData();
+  }, [selectedTable]);
+
+  const COLUMNS = data.length > 0 ? Object.keys(data[0]) : [];
 
   const gridRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -65,7 +108,7 @@ export const DataGrid = () => {
   const [mousePos, setMousePos] = useState({ x: -1000, y: -1000 });
 
   const filteredData = data.filter(r => 
-    !query || r.name.toLowerCase().includes(query.toLowerCase()) || r.id.toLowerCase().includes(query.toLowerCase())
+    !query || Object.values(r).some(val => String(val).toLowerCase().includes(query.toLowerCase()))
   );
 
   // Keyboard Navigation & Editing
@@ -124,22 +167,9 @@ export const DataGrid = () => {
   };
 
   const commitEdit = () => {
-    if (!editingCell) return;
-    const { r, c, val } = editingCell;
-    const col = COLUMNS[c];
-    const targetId = filteredData[r].id;
-    
-    setData(prev => prev.map(row => {
-      if (row.id === targetId) {
-        let finalVal: any = val;
-        if (col === 'score') finalVal = parseInt(val, 10) || 0;
-        return { ...row, [col]: finalVal };
-      }
-      return row;
-    }));
-    
     setEditingCell(null);
     gridRef.current?.focus();
+    // Re-fetch or trigger backend update here ideally
   };
 
   // Track mouse for spotlight
@@ -162,9 +192,40 @@ export const DataGrid = () => {
       {/* ── Header Toolbar ── */}
       <div className="flex justify-between items-center shrink-0">
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[12px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors shadow-[0_0_15px_rgba(99,102,241,0.2)]">
-            <Database size={14} /> public.entities
-          </button>
+          <div className="relative inline-block text-left" ref={dropdownRef}>
+            <button 
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[12px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none"
+            >
+              <Database size={14} /> PUBLIC.{selectedTable}
+              <ChevronDown size={14} className={`transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            
+            <AnimatePresence>
+              {isDropdownOpen && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-full left-0 mt-2 w-48 bg-[#111115] border border-white/10 rounded-xl shadow-2xl z-50 py-2 overflow-hidden backdrop-blur-xl"
+                >
+                  {availableTables.map(table => (
+                    <button
+                      key={table}
+                      onClick={() => {
+                        setSelectedTable(table);
+                        setIsDropdownOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-2 text-[13px] text-zinc-400 hover:bg-indigo-500/20 hover:text-indigo-300 transition-colors"
+                    >
+                      {table}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/50 text-[12px] font-bold hover:bg-white/10 transition-colors">
             <Filter size={14} /> Filter
           </button>
@@ -212,21 +273,27 @@ export const DataGrid = () => {
           <table className="w-full border-collapse text-left whitespace-nowrap">
             <thead className="sticky top-0 bg-[#0a0a0f]/90 backdrop-blur-md z-20 shadow-[0_1px_0_rgba(255,255,255,0.05)]">
               <tr>
-                {COLUMNS.map(col => (
-                  <th key={col} className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-white/30 border-r border-white/5 last:border-0">
-                    {col}
+                {COLUMNS.length > 0 ? (
+                  COLUMNS.map(col => (
+                    <th key={col} className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-white/30 border-r border-white/5 last:border-0">
+                      {col}
+                    </th>
+                  ))
+                ) : (
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-white/30">
+                    STATUS
                   </th>
-                ))}
+                )}
               </tr>
             </thead>
             
             <tbody>
               {filteredData.map((row, rIdx) => (
-                <tr key={row.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors group">
+                <tr key={row.id || rIdx} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors group">
                   {COLUMNS.map((col, cIdx) => {
                     const isFocused = focusedCell?.r === rIdx && focusedCell?.c === cIdx;
                     const isEditing = editingCell?.r === rIdx && editingCell?.c === cIdx;
-                    const isImmutable = col === 'id' || col === 'created_at';
+                    const isImmutable = col === 'id' || col.toLowerCase().includes('time') || col.toLowerCase().includes('date');
 
                     return (
                       <td 
@@ -260,11 +327,11 @@ export const DataGrid = () => {
                           ) : (
                             <div className="w-full truncate">
                               {col === 'status' ? (
-                                <StatusBadge status={row.status} />
-                              ) : col === 'id' || col === 'created_at' ? (
+                                <StatusBadge status={String(row[col]).toLowerCase() as EntityStatus} />
+                              ) : isImmutable ? (
                                 <span className="font-mono text-[12px] text-zinc-400/70">{String(row[col])}</span>
                               ) : (
-                                <span className="text-[13px] text-white/80 font-medium">{String(row[col])}</span>
+                                <span className="text-[13px] text-white/80 font-medium">{String(row[col] || '')}</span>
                               )}
                             </div>
                           )}

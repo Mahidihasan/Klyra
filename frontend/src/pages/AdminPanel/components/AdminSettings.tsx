@@ -242,8 +242,14 @@ export const AdminSettings = () => {
       console.log("Save Response:", res.data);
       toast.success('Settings updated successfully!');
     } catch (error: any) {
-      console.error("Save Error:", error.response?.data || error);
-      toast.error(error.response?.data?.message || 'Failed to update settings');
+      let errorMsg = error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to update settings';
+      
+      if (typeof errorMsg === 'object') {
+        errorMsg = JSON.stringify(errorMsg);
+      }
+      
+      console.error("FULL API ERROR:", error.response?.data || error);
+      toast.error(`Error: ${errorMsg}`);
     } finally {
       setIsSaving(false);
     }
@@ -500,12 +506,55 @@ export const AdminSettings = () => {
           <SectionTitle icon={Mail} label="Email / SMTP" />
           <Card>
             <div className="grid grid-cols-2 gap-6">
-              <AutoSaveField label="SMTP Host"      defaultValue="smtp.sendgrid.net"    placeholder="smtp.mailprovider.com" />
-              <AutoSaveField label="SMTP Port"      defaultValue="587"                   placeholder="587" />
-              <AutoSaveField label="SMTP Username"  defaultValue="apikey"               placeholder="username" />
-              <AutoSaveField label="SMTP Password"  type="password"                      placeholder="••••••••••••" />
-              <div className="col-span-2">
-                <AutoSaveField label="From Address" defaultValue="noreply@klyra.io" type="email" placeholder="noreply@..." />
+              <div className="flex flex-col gap-2">
+                <label className="text-[13px] font-semibold text-white/70">SMTP Host</label>
+                <input
+                  type="text"
+                  placeholder="smtp.mailprovider.com"
+                  value={coreSettings.smtpHost}
+                  onChange={e => setCoreSettings({ ...coreSettings, smtpHost: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/10 text-white text-[13px] focus:outline-none focus:border-indigo-500/60 transition-all"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[13px] font-semibold text-white/70">SMTP Port</label>
+                <input
+                  type="text"
+                  placeholder="587"
+                  value={coreSettings.smtpPort}
+                  onChange={e => setCoreSettings({ ...coreSettings, smtpPort: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/10 text-white text-[13px] focus:outline-none focus:border-indigo-500/60 transition-all"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[13px] font-semibold text-white/70">SMTP Username</label>
+                <input
+                  type="text"
+                  placeholder="username"
+                  value={coreSettings.smtpUsername}
+                  onChange={e => setCoreSettings({ ...coreSettings, smtpUsername: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/10 text-white text-[13px] focus:outline-none focus:border-indigo-500/60 transition-all"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[13px] font-semibold text-white/70">SMTP Password</label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••"
+                  value={coreSettings.smtpPassword}
+                  onChange={e => setCoreSettings({ ...coreSettings, smtpPassword: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/10 text-white text-[13px] focus:outline-none focus:border-indigo-500/60 transition-all"
+                />
+              </div>
+              <div className="col-span-2 flex flex-col gap-2">
+                <label className="text-[13px] font-semibold text-white/70">From Address</label>
+                <input
+                  type="email"
+                  placeholder="noreply@..."
+                  value={coreSettings.smtpFromAddress}
+                  onChange={e => setCoreSettings({ ...coreSettings, smtpFromAddress: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/10 text-white text-[13px] focus:outline-none focus:border-indigo-500/60 transition-all"
+                />
               </div>
             </div>
           </Card>
@@ -516,17 +565,56 @@ export const AdminSettings = () => {
           <SectionTitle icon={Webhook} label="Webhooks" />
           <Card>
             <div className="flex flex-col gap-6">
-              <AutoSaveField label="Webhook Endpoint URL"  defaultValue="https://hooks.klyra.io/inbound" placeholder="https://..." />
-              <AutoSaveField label="Webhook Secret"        type="password" placeholder="whsec_••••••••" />
+              <div className="flex flex-col gap-2">
+                <label className="text-[13px] font-semibold text-white/70">Webhook Endpoint URL</label>
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={coreSettings.webhookUrl}
+                  onChange={e => setCoreSettings({ ...coreSettings, webhookUrl: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/10 text-white text-[13px] focus:outline-none focus:border-indigo-500/60 transition-all"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[13px] font-semibold text-white/70">Webhook Secret</label>
+                <input
+                  type="password"
+                  placeholder="whsec_••••••••"
+                  value={coreSettings.webhookSecret}
+                  onChange={e => setCoreSettings({ ...coreSettings, webhookSecret: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/10 text-white text-[13px] focus:outline-none focus:border-indigo-500/60 transition-all"
+                />
+              </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[13px] font-semibold text-white/70">Active Events</label>
-                <div className="flex flex-wrap gap-2">
-                  {['user.created', 'api.approved', 'payment.success', 'api.revoked', 'user.suspended'].map(ev => (
-                    <span key={ev} className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[12px] font-mono font-medium">{ev}</span>
+                <div className="flex flex-wrap gap-2 items-center bg-black/50 border border-white/10 rounded-xl p-2 min-h-[46px] focus-within:border-indigo-500/60 transition-all">
+                  {coreSettings.webhookEvents?.map((ev: string) => (
+                    <span key={ev} className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[12px] font-mono font-medium flex items-center gap-1.5">
+                      {ev}
+                      <button 
+                        type="button"
+                        onClick={() => setCoreSettings({ ...coreSettings, webhookEvents: coreSettings.webhookEvents.filter((e: string) => e !== ev) })}
+                        className="hover:text-white transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
                   ))}
-                  <button className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/40 text-[12px] hover:bg-white/10 transition-colors">
-                    + Add event
-                  </button>
+                  <input
+                    type="text"
+                    placeholder="Type event and press Enter..."
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                        e.preventDefault();
+                        const val = e.currentTarget.value.trim();
+                        if (!coreSettings.webhookEvents?.includes(val)) {
+                          setCoreSettings({ ...coreSettings, webhookEvents: [...(coreSettings.webhookEvents || []), val] });
+                        }
+                        e.currentTarget.value = '';
+                      }
+                    }}
+                    className="flex-1 bg-transparent border-none text-[13px] text-white focus:outline-none min-w-[150px] px-2"
+                  />
                 </div>
               </div>
             </div>
@@ -626,8 +714,23 @@ export const AdminSettings = () => {
               if (dangerModal.action === 'enable_maintenance') {
                 setCoreSettings((prev: any) => ({ ...prev, maintenanceMode: true }));
               } else {
-                // handle other actions...
-                import('react-hot-toast').then(m => m.default.success('Action executed'));
+                try {
+                  const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+                  let endpoint = '';
+                  if (dangerModal.action === 'Purge Edge Cache') endpoint = '/api/v1/admin/settings/danger/purge-cache';
+                  else if (dangerModal.action === 'Reset All API Limits') endpoint = '/api/v1/admin/settings/danger/reset-limits';
+                  else if (dangerModal.action === 'Delete Organization') endpoint = '/api/v1/admin/settings/danger/delete-org';
+                  
+                  if (endpoint) {
+                    const res = await axios.post(endpoint, {}, {
+                      headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    toast.success(res.data.message || 'Action executed successfully.');
+                  }
+                } catch (error: any) {
+                  console.error('Danger action failed:', error);
+                  toast.error(error.response?.data?.message || 'Failed to execute action');
+                }
               }
               setDangerModal(null);
             }}

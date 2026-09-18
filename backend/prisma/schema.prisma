@@ -1427,7 +1427,14 @@ model CoreSettings {
   logoUrl         String?
   faviconUrl      String?
   ogImageUrl      String?
+  smtpHost        String?
+  smtpPort        String?
+  smtpUsername    String?
+  smtpPassword    String?
+  smtpFromAddress String?
+  webhookUrl      String?
+  webhookSecret   String?
+  webhookEvents   String[] @default([])
   updatedAt       DateTime @default(now()) @updatedAt
-
   @@map("core_settings")
 }

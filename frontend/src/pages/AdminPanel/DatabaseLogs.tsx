@@ -1,13 +1,17 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import React, { useRef, useState, useEffect } from 'react';
 
-// --- MOCK DATA ---
-const MOCK_DB_DATA = Array.from({ length: 20 }).map((_, i) => ({
-  id: `rec_${1000 + i}`,
-  name: `System Segment ${i}`,
-  status: Math.random() > 0.3 ? 'active' : 'archived',
-  created_at: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
-}));
+import axios from 'axios';
+import toast from 'react-hot-toast';
+
+interface PlatformEntity {
+  id: string;
+  name: string;
+  status: string;
+  score: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
 const MOCK_LOGS = [
   '[INFO] System initialized successfully on port 8080.',
@@ -55,10 +59,10 @@ const MatrixCell = ({
   type,
   value,
 }: {
-  type: 'id' | 'timestamp' | 'status' | 'string';
-  value: string;
+  type: 'id' | 'timestamp' | 'status' | 'string' | 'number';
+  value: string | number;
 }) => {
-  if (type === 'id' || type === 'timestamp') {
+  if (type === 'id' || type === 'timestamp' || type === 'number') {
     return (
       <div className="flex-1 px-6 py-4">
         <span className="font-mono text-[13px] text-zinc-400 tracking-wider">{value}</span>
@@ -67,18 +71,18 @@ const MatrixCell = ({
   }
 
   if (type === 'status') {
-    const isActive = value === 'active';
+    const isActive = value === 'ACTIVE';
     return (
       <div className="flex-1 px-6 py-4 flex items-center">
         {isActive ? (
           <div className="flex items-center gap-2 px-2.5 py-1 rounded-full border bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-xs font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            {value.toUpperCase()}
+            {String(value).toUpperCase()}
           </div>
         ) : (
           <div className="flex items-center gap-2 px-2.5 py-1 rounded-full border bg-zinc-500/10 border-zinc-500/20 text-zinc-400 text-xs font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
-            {value.toUpperCase()}
+            {String(value).toUpperCase()}
           </div>
         )}
       </div>
@@ -183,41 +187,148 @@ const LiveLogTerminal = () => {
 
 // --- MAIN PAGE COMPONENT ---
 export default function DatabaseLogs() {
+  const [entities, setEntities] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newStatus, setNewStatus] = useState('ACTIVE');
+  const [selectedTable, setSelectedTable] = useState('User');
+  const [isDropdownMenuOpen, setIsDropdownMenuOpen] = useState(false);
+
+  const fetchEntities = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await axios.get('/api/v1/admin/explorer?table=' + selectedTable, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      setEntities(res.data.data);
+    } catch (err) {
+      toast.error('Failed to fetch entities');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEntities();
+  }, [selectedTable]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      await axios.post('/api/v1/admin/explorer', { name: newName, status: newStatus }, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      toast.success('Entity created');
+      setNewName('');
+      setNewStatus('ACTIVE');
+      setIsCreating(false);
+      fetchEntities();
+    } catch (err) {
+      toast.error('Failed to create entity');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      await axios.delete(`/api/v1/admin/explorer/${id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      toast.success('Entity deleted');
+      fetchEntities();
+    } catch (err) {
+      toast.error('Failed to delete entity');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white p-8 font-sans">
       <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row gap-8">
         {/* Left Side: Infinite Matrix */}
         <div className="flex-1 flex flex-col">
-          <h1 className="text-2xl font-bold mb-6 tracking-wide text-zinc-100">Database Engine</h1>
+          <div className="flex items-center justify-between mb-6">
+            <div className="relative">
+              <button 
+                onClick={() => setIsDropdownMenuOpen(!isDropdownMenuOpen)}
+                className="text-2xl font-bold tracking-wide text-zinc-100 flex items-center gap-2 hover:text-white transition-colors"
+              >
+                PUBLIC.{selectedTable.toUpperCase()}
+                <span className="text-[12px] text-zinc-500">▼</span>
+              </button>
+              {isDropdownMenuOpen && (
+                <div className="absolute top-full left-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl z-50 py-2">
+                  {['User', 'CoreSettings', 'AuditLog'].map(table => (
+                    <button
+                      key={table}
+                      onClick={() => {
+                        setSelectedTable(table);
+                        setIsDropdownMenuOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-2 text-[13px] text-zinc-300 hover:bg-white/5 hover:text-white transition-colors"
+                    >
+                      {table}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Read-only Explorer - Creation is disabled for real tables via this basic UI */}
+          </div>
 
           {/* STEP 3: THE GLASSMORPHISM WRAPPER */}
           <div className="bg-zinc-950/50 backdrop-blur-2xl border border-white/5 rounded-2xl shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] overflow-hidden flex flex-col h-[700px]">
             {/* Table Header */}
             <div className="flex px-2 sticky top-0 z-20 border-b border-white/10 bg-zinc-950/40 backdrop-blur-md">
-              <div className="flex-1 px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                Record ID
-              </div>
-              <div className="flex-[2] px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                Name
-              </div>
-              <div className="flex-1 px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                Status
-              </div>
-              <div className="flex-1 px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                Timestamp
+              {entities.length > 0 ? (
+                Object.keys(entities[0]).map(header => (
+                  <div key={header} className="flex-1 px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest truncate">
+                    {header}
+                  </div>
+                ))
+              ) : (
+                <div className="flex-1 px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                  Loading columns...
+                </div>
+              )}
+              <div className="flex-1 px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">
+                Actions
               </div>
             </div>
 
             {/* Table Body */}
             <div className="flex-1 overflow-y-auto custom-scrollbar relative px-2 pb-2">
-              {MOCK_DB_DATA.map((row) => (
-                <MatrixRow key={row.id}>
-                  <MatrixCell type="id" value={row.id} />
-                  <MatrixCell type="string" value={row.name} />
-                  <MatrixCell type="status" value={row.status} />
-                  <MatrixCell type="timestamp" value={row.created_at} />
-                </MatrixRow>
-              ))}
+              {loading ? (
+                <div className="p-8 text-center text-white/50 text-[13px]">Loading entities...</div>
+              ) : entities.length === 0 ? (
+                <div className="p-8 text-center text-white/50 text-[13px]">No entities found. Create one to begin.</div>
+              ) : (
+                entities.map((row) => (
+                  <MatrixRow key={row.id || Math.random().toString()}>
+                    {Object.keys(entities[0]).map(header => {
+                      const val = row[header];
+                      if (header === 'status') return <MatrixCell key={header} type="status" value={val as string} />;
+                      if (header === 'id' || header.toLowerCase().includes('time') || header.toLowerCase().includes('date')) {
+                        const strVal = String(val);
+                        const isDate = !isNaN(Date.parse(strVal)) && strVal.length > 10;
+                        return <MatrixCell key={header} type={header === 'id' ? 'id' : 'timestamp'} value={header === 'id' ? strVal.substring(0, 12) + '...' : isDate ? new Date(strVal).toISOString() : strVal} />;
+                      }
+                      if (typeof val === 'number') return <MatrixCell key={header} type="number" value={val} />;
+                      return <MatrixCell key={header} type="string" value={String(val || '')} />;
+                    })}
+                    <div className="flex-1 px-6 py-4 flex items-center justify-end">
+                      <button 
+                        onClick={() => row.id ? handleDelete(row.id) : toast.error("Cannot delete row without ID")}
+                        className="px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded text-[11px] font-bold uppercase transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </MatrixRow>
+                ))
+              )}
             </div>
           </div>
         </div>

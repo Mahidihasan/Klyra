@@ -100,7 +100,9 @@ router.use('/usage', adminUsageRouter);
 router.use('/activity', adminActivityRouter);
 
 import { adminSettingsRouter } from './admin.settings.routes';
+import { adminExplorerRouter } from './admin.explorer.routes';
 router.use('/settings', adminSettingsRouter);
+router.use('/explorer', adminExplorerRouter);
 
 import { AdminSecurityRoutes } from './admin.security.routes';
 router.use('/security', AdminSecurityRoutes);
