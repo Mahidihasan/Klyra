@@ -9,8 +9,8 @@ export const AdminDatabase = () => {
   const [activeView, setActiveView] = useState<'DATAGRID' | 'AUDIT' | 'TRASH'>('DATAGRID');
 
   return (
-    <div className="admin-database-container">
-      <div className="database-header">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-6 box-border admin-database-container">
+      <div className="w-full flex items-center justify-between flex-wrap gap-4 mb-6 database-header">
         <h1>Database & Logs</h1>
         
         <div className="view-tabs">

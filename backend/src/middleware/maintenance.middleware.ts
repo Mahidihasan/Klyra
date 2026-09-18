@@ -15,7 +15,7 @@ export const checkMaintenanceMode = (req: Request, res: Response, next: NextFunc
   if (token) {
     try {
       const payload = verifyJwt(token);
-      if (payload && payload.role && ['ADMIN', 'MODERATOR'].includes(payload.role.toUpperCase())) {
+      if (payload && payload.role && ['SUPER_ADMIN', 'ADMIN'].includes(payload.role.toUpperCase())) {
         return next();
       }
     } catch (err) {

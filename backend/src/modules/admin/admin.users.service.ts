@@ -634,7 +634,7 @@ async function countActiveAdmins(pool: QueryablePool): Promise<number> {
   const { rows } = await withTimeout(
     pool.query<Record<string, unknown>>(
       `SELECT COUNT(*) AS n FROM users
-       WHERE role = 'ADMIN' AND status = 'ACTIVE' AND deleted_at IS NULL`,
+       WHERE role IN ('SUPER_ADMIN', 'ADMIN') AND status = 'ACTIVE' AND deleted_at IS NULL`,
     ),
     QUERY_TIMEOUT_MS,
     'active admin count',

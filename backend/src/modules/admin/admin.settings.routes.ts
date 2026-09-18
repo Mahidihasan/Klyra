@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { checkPermission } from '../auth/auth.middleware';
+import { requireAdmin, requireSuperAdmin } from '../auth/auth.middleware';
 import { purgeEdgeCache, resetApiLimits, deleteOrganization } from './controllers/adminActions.controller';
 
 const prisma = new PrismaClient();
@@ -37,7 +37,7 @@ router.get('/gateway', async (req: Request, res: Response) => {
 });
 
 // PUT /api/v1/admin/settings/gateway
-router.put('/gateway', checkPermission('EDIT_SETTINGS'), async (req: Request, res: Response) => {
+router.put('/gateway', requireAdmin, async (req: Request, res: Response) => {
   try {
     const limits = req.body.limits;
 
@@ -99,7 +99,7 @@ router.get('/core', async (req: Request, res: Response) => {
 });
 
 // PUT /api/v1/admin/settings/core
-// Temporary bypass for dev testing (removed checkPermission('EDIT_SETTINGS'))
+// Temporary bypass for dev testing (removed requireAdmin)
 router.put('/core', async (req: Request, res: Response) => {
   try {
     const { 
@@ -176,6 +176,6 @@ router.put('/core', async (req: Request, res: Response) => {
 export const adminSettingsRouter = router;
 
 // Danger Zone Routes
-router.post('/danger/purge-cache', checkPermission('ADMIN'), purgeEdgeCache);
-router.post('/danger/reset-limits', checkPermission('ADMIN'), resetApiLimits);
-router.post('/danger/delete-org', checkPermission('ADMIN'), deleteOrganization);
+router.post('/danger/purge-cache', requireAdmin, purgeEdgeCache);
+router.post('/danger/reset-limits', requireAdmin, resetApiLimits);
+router.post('/danger/delete-org', requireAdmin, deleteOrganization);

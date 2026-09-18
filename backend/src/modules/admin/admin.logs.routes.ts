@@ -39,4 +39,17 @@ router.get('/system', async (req, res) => {
   }
 });
 
+// GET /api/v1/admin/logs/audit-logs
+router.get('/audit-logs', async (req, res) => {
+  try {
+    const logs = await (prisma as any).auditLog.findMany({
+      take: 100,
+      orderBy: { created_at: 'desc' }
+    });
+    return res.status(200).json({ success: true, data: logs });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 export const AdminLogsRoutes = router;

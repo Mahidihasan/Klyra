@@ -20,23 +20,19 @@ const PERMISSIONS = [
   { id: 'manage_plans',    label: 'Edit Subscription Plans',     category: 'Billing'         },
 ];
 
-const ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'SUPPORT', 'USER'] as const;
+const ROLES = ['SUPER_ADMIN', 'ADMIN', 'USER'] as const;
 
 type Role = typeof ROLES[number];
 
 const INITIAL_MATRIX: Record<Role, Record<string, boolean>> = {
   'SUPER_ADMIN': PERMISSIONS.reduce((a, p) => ({ ...a, [p.id]: true }), {}),
   'ADMIN':       {},
-  'MODERATOR':   {},
-  'SUPPORT':     {},
   'USER':        {},
 };
 
 const ROLE_COLORS: Record<Role, string> = {
   'SUPER_ADMIN': 'text-rose-400 bg-rose-500/10 border-rose-500/20',
   'ADMIN':       'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-  'MODERATOR':   'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  'SUPPORT':     'text-sky-400 bg-sky-500/10 border-sky-500/20',
   'USER':        'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
 };
 

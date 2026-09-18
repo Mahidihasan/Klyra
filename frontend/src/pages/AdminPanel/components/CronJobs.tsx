@@ -8,6 +8,45 @@ const CRON_JOBS = [
 ];
 
 export const CronJobs = () => {
+  const [jobs, setJobs] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    const fetchJobs = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/devops/cron', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) setJobs(json.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch cron jobs', err);
+      }
+    };
+    fetchJobs();
+    const interval = setInterval(fetchJobs, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleTrigger = async (id: string) => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch(`/api/v1/admin/devops/cron/${id}/trigger`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setJobs(prev => prev.map(j => j.id === id ? json.data : j));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to trigger cron job', err);
+    }
+  };
   return (
     <div style={{ background: 'rgba(20, 21, 36, 0.4)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 12, padding: 20 }}>
       <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: 8, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
@@ -15,14 +54,14 @@ export const CronJobs = () => {
       </h3>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {CRON_JOBS.map(job => (
+        {jobs.map(job => (
           <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '12px 16px', borderRadius: 8 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 {job.name}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>{job.schedule}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>{job.expression}</span>
                 <span>Last run: {job.lastRun}</span>
               </div>
             </div>
@@ -34,7 +73,10 @@ export const CronJobs = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#a78bfa', fontSize: 12, fontWeight: 600 }}><Clock3 size={14} /> Wait</div>
               )}
               
-              <button style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-primary)', border: '1px solid rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <button 
+                onClick={() => handleTrigger(job.id)}
+                style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-primary)', border: '1px solid rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+              >
                 <PlayCircle size={14} /> Trigger Now
               </button>
             </div>

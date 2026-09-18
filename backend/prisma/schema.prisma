@@ -1332,10 +1332,9 @@ enum subscription_status {
 }
 
 enum user_role {
-  USER
-  PROVIDER
-  MODERATOR
+  SUPER_ADMIN
   ADMIN
+  USER
 }
 
 enum user_status {
@@ -1437,4 +1436,65 @@ model CoreSettings {
   webhookEvents   String[] @default([])
   updatedAt       DateTime @default(now()) @updatedAt
   @@map("core_settings")
+}
+
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  isEnabled   Boolean  @default(false)
+  rollout     Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+model WebhookLog {
+  id         String   @id @default(uuid())
+  event      String
+  url        String
+  statusCode Int
+  createdAt  DateTime @default(now())
+}
+
+model CronJob {
+  id         String   @id @default(uuid())
+  name       String
+  expression String
+  status     String   @default("OK") // "OK" or "WAIT" / "PENDING"
+  lastRun    String   @default("Never")
+  updatedAt  DateTime @updatedAt
+}
+
+model Invoice {
+  id        String        @id @default(uuid())
+  status    String        @default("PENDING")
+  total     Float         @default(0.0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  items     InvoiceItem[]
+}
+
+model InvoiceItem {
+  id        String   @id @default(uuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  endpoint  String
+  calls     Int      @default(0)
+  rate      Float
+  total     Float
+  waived    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Dispute {
+  id             String   @id @default(uuid())
+  userId         String   @default("USR_992")
+  claimText      String
+  billedAmount   Float    @default(2500.00)
+  actualBillable Float    @default(602.05)
+  discrepancy    Float    @default(-1897.95)
+  status         String   @default("PENDING") // PENDING, REJECTED, APPROVED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

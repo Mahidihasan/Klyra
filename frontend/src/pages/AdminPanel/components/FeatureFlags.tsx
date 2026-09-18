@@ -8,14 +8,57 @@ const INITIAL_FLAGS = [
 ];
 
 export const FeatureFlags = () => {
-  const [flags, setFlags] = useState(INITIAL_FLAGS);
+  const [flags, setFlags] = useState<any[]>([]);
+  const timeoutRef = React.useRef<Record<string, NodeJS.Timeout>>({});
 
-  const toggleFlag = (id: string) => {
-    setFlags(prev => prev.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f));
+  React.useEffect(() => {
+    const fetchFlags = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/devops/feature-flags', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) setFlags(json.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch flags', err);
+      }
+    };
+    fetchFlags();
+  }, []);
+
+  const toggleFlag = async (id: string) => {
+    const flag = flags.find(f => f.id === id);
+    if (!flag) return;
+    const newState = !flag.isEnabled;
+    setFlags(prev => prev.map(f => f.id === id ? { ...f, isEnabled: newState } : f));
+    
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      await fetch(`/api/v1/admin/devops/feature-flags/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ isEnabled: newState })
+      });
+    } catch (e) { console.error(e); }
   };
 
   const updateRollout = (id: string, val: number) => {
     setFlags(prev => prev.map(f => f.id === id ? { ...f, rollout: val } : f));
+    
+    if (timeoutRef.current[id]) clearTimeout(timeoutRef.current[id]);
+    timeoutRef.current[id] = setTimeout(async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        await fetch(`/api/v1/admin/devops/feature-flags/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ rollout: val })
+        });
+      } catch (e) { console.error(e); }
+    }, 500);
   };
 
   return (
@@ -34,9 +77,9 @@ export const FeatureFlags = () => {
               </div>
               <button 
                 onClick={() => toggleFlag(flag.id)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: flag.enabled ? '#22c55e' : 'var(--text-muted)', padding: 0 }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: flag.isEnabled ? '#22c55e' : 'var(--text-muted)', padding: 0 }}
               >
-                {flag.enabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
+                {flag.isEnabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
               </button>
             </div>
             
@@ -47,10 +90,10 @@ export const FeatureFlags = () => {
                 min="0" max="100" 
                 value={flag.rollout}
                 onChange={(e) => updateRollout(flag.id, parseInt(e.target.value))}
-                disabled={!flag.enabled}
-                style={{ flex: 1, accentColor: flag.enabled ? '#a78bfa' : '#52525b', opacity: flag.enabled ? 1 : 0.5 }}
+                disabled={!flag.isEnabled}
+                style={{ flex: 1, accentColor: flag.isEnabled ? '#a78bfa' : '#52525b', opacity: flag.isEnabled ? 1 : 0.5 }}
               />
-              <span style={{ fontSize: 11, fontWeight: 600, color: flag.enabled ? '#a78bfa' : 'var(--text-muted)', width: 32, textAlign: 'right' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: flag.isEnabled ? '#a78bfa' : 'var(--text-muted)', width: 32, textAlign: 'right' }}>
                 {flag.rollout}%
               </span>
             </div>

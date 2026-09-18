@@ -19,7 +19,7 @@ export const adminAuth = (req: Request, res: Response, next: NextFunction) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as JwtPayload;
 
     // Strict role check
-    if (decoded.role !== 'ADMIN') {
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(decoded.role)) {
       return res.status(403).json({ error: 'Forbidden: Insufficient privileges, ADMIN role required' });
     }
 

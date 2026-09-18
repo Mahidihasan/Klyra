@@ -15,8 +15,8 @@ export const AdminEngineRoom = () => {
           <h1 className="text-[24px] font-bold m-0 flex items-center gap-3 tracking-tight">
             <TerminalSquare size={24} className="text-purple-400" /> API Engine Room
           </h1>
-          <p className="text-white/40 mt-1 text-[14px]">
-            Deep infrastructural control. Use extreme caution—actions here execute directly at the Edge Gateway.
+          <p className="text-gray-400 text-sm mt-1">
+            Real-time monitoring of incoming API requests and payloads.
           </p>
         </div>
         <div className="flex items-center gap-2 bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-lg text-[12px] font-bold border border-emerald-500/20">

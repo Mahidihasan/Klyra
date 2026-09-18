@@ -7,10 +7,10 @@
  * and every route calls them before touching a row.
  *
  * The policy is the "strict" one chosen on 2026-09-11:
- *   - only ADMIN may mutate; MODERATOR reads but never writes
+ *   - only SUPER_ADMIN and ADMIN may mutate; USER reads but never writes
  *   - nobody may change their own role or status
- *   - an ADMIN account cannot be deactivated by another admin
- *   - ADMIN and MODERATOR accounts cannot be impersonated
+ *   - an ADMIN/SUPER_ADMIN account cannot be deactivated by another admin
+ *   - ADMIN and SUPER_ADMIN accounts cannot be impersonated
  */
 
 import { GuardrailFailure, UserRoleValue, UserStatusValue } from './admin.users.types';
@@ -29,12 +29,12 @@ function deny(code: GuardrailFailure['code'], message: string): GuardrailFailure
   return { code, message };
 }
 
-/** Every write path starts here: MODERATOR can look, only ADMIN can touch. */
+/** Every write path starts here: only SUPER_ADMIN and ADMIN can touch. */
 export function canMutate(actor: PolicyActor): GuardrailFailure | null {
-  if (actor.role !== 'ADMIN') {
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) {
     return deny(
       'WRITE_REQUIRES_ADMIN',
-      'Only an ADMIN can modify accounts. MODERATOR access is read-only.',
+      'Only SUPER_ADMIN or ADMIN can modify accounts.',
     );
   }
   return null;
@@ -78,7 +78,7 @@ export function canChangeStatus(
 
   // Any non-ACTIVE status is a deactivation; admins are shielded from all of
   // them. Reactivating a fellow admin stays allowed.
-  if (target.role === 'ADMIN' && nextStatus !== 'ACTIVE') {
+  if (['SUPER_ADMIN', 'ADMIN'].includes(target.role) && nextStatus !== 'ACTIVE') {
     return deny(
       'ADMIN_TARGET_STATUS',
       'An ADMIN account cannot be deactivated. Change their role first, then suspend.',
@@ -99,10 +99,10 @@ export function canImpersonate(actor: PolicyActor, target: PolicyTarget): Guardr
 
   // Impersonating a peer would be a lateral privilege move that the audit
   // trail could not meaningfully constrain.
-  if (target.role === 'ADMIN' || target.role === 'MODERATOR') {
+  if (['SUPER_ADMIN', 'ADMIN'].includes(target.role)) {
     return deny(
       'IMPERSONATE_PRIVILEGED',
-      'Accounts with ADMIN or MODERATOR access cannot be impersonated.',
+      'Accounts with ADMIN or SUPER_ADMIN access cannot be impersonated.',
     );
   }
 
@@ -119,7 +119,7 @@ export function guardLastAdmin(
   nextRole: UserRoleValue,
   remainingActiveAdmins: number,
 ): GuardrailFailure | null {
-  const isDemotingAnAdmin = target.role === 'ADMIN' && nextRole !== 'ADMIN';
+  const isDemotingAnAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(target.role) && !['SUPER_ADMIN', 'ADMIN'].includes(nextRole);
   if (isDemotingAnAdmin && remainingActiveAdmins <= 1) {
     return deny(
       'LAST_ADMIN',
@@ -138,7 +138,7 @@ export function canDeleteUser(actor: PolicyActor, target: PolicyTarget): Guardra
   }
 
   // Admins cannot be deleted without being demoted first, similar to status changes.
-  if (target.role === 'ADMIN') {
+  if (['SUPER_ADMIN', 'ADMIN'].includes(target.role)) {
     return deny('ADMIN_TARGET_STATUS', 'An ADMIN account cannot be deleted. Change their role first.');
   }
 

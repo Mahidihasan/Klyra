@@ -25,7 +25,7 @@ import { QueueController } from './controllers/QueueController';
 const router = Router();
 
 /** Roles permitted to read platform-wide admin data. */
-const ADMIN_ROLES = new Set(['ADMIN', 'MODERATOR']);
+const ADMIN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN']);
 
 function fail(res: Response, status: number, code: string, message: string) {
   return res.status(status).json({ success: false, error: { code, message } });
@@ -121,6 +121,12 @@ router.use('/reports', adminReportsRouter);
 
 import { adminModerationRouter } from './admin.moderation.routes';
 router.use('/moderation', adminModerationRouter);
+
+import { adminEngineRouter } from './admin.engine.routes';
+router.use('/engine', adminEngineRouter);
+
+import { adminDevopsRouter } from './admin.devops.routes';
+router.use('/devops', adminDevopsRouter);
 
 // ============ Platform Overview (everything the screen needs) ============
 router.post('/platform/acknowledge-alerts', PlatformController.acknowledgeAlerts);

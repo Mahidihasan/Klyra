@@ -8,8 +8,6 @@ const router = Router();
 const DEFAULT_PERMISSIONS = {
   SUPER_ADMIN: ['*'],
   ADMIN: ['view_dashboard', 'view_revenue', 'manage_users', 'manage_roles', 'impersonate', 'approve_apis', 'delete_apis', 'curate_market', 'manage_gateway', 'revoke_keys', 'view_logs', 'manage_billing', 'manage_plans'],
-  MODERATOR: ['view_dashboard', 'manage_users', 'approve_apis', 'view_logs'],
-  SUPPORT: ['view_dashboard', 'view_logs', 'manage_billing'],
   USER: []
 };
 

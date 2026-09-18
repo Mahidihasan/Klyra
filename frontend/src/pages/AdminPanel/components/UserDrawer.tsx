@@ -49,7 +49,7 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
     }
   };
 
-  const SYSTEM_ROLES = ['USER', 'PROVIDER', 'MODERATOR', 'ADMIN'];
+  const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'USER'];
 
   // Helper to generate avatar color from initials
   const getAvatarColor = (name: string) => {

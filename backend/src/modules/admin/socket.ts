@@ -35,7 +35,7 @@ export const initAdminSocket = (server: HttpServer) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as JwtPayload;
 
       // Strict role enforcement
-      if (decoded.role !== 'ADMIN') {
+      if (!['SUPER_ADMIN', 'ADMIN'].includes(decoded.role)) {
         return next(new Error('Authentication error: Insufficient privileges, ADMIN role required'));
       }
 

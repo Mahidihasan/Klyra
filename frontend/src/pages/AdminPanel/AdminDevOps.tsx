@@ -36,7 +36,7 @@ export const AdminDevOps = () => {
             <Cpu size={24} color="#a78bfa" /> DevOps & Automation
           </h1>
           <p style={{ color: 'var(--text-muted)', margin: '4px 0 0 0', fontSize: 14 }}>
-            Manage feature flags, background jobs, webhooks, and monitor microservice health.
+            Manage feature flags, background jobs, webhooks, and system telemetry.
           </p>
         </div>
       </div>

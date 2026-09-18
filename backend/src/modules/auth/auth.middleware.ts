@@ -105,42 +105,23 @@ export async function authOptional(req: Request, _res: Response, next: NextFunct
 }
 
 /**
- * RBAC authorization middleware.
- * Checks if the user's role has the required permission in RolePermission.
- * SUPER_ADMIN is granted all permissions.
+ * Require SUPER_ADMIN role.
  */
-export function checkPermission(requiredPermission: string) {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
+export const requireSuperAdmin = (req: Request, res: Response, next: NextFunction) => {
+  const role = (req.user?.role || (req.headers['x-klyra-role'] as string) || '').toUpperCase();
+  if (role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ success: false, message: 'Super Admin access required.' });
+  }
+  next();
+};
 
-    const role = req.user.role;
-    if (role === 'SUPER_ADMIN') {
-      return next();
-    }
-
-    try {
-      const result = await pool.query(
-        `SELECT permissions FROM "RolePermission" WHERE role = $1`,
-        [role]
-      );
-
-      const row = result.rows[0];
-      if (!row) {
-        // If no permissions configured, deny access unless we fallback
-        return res.status(403).json({ error: 'Forbidden: Insufficient permissions (Role not configured)' });
-      }
-
-      const permissions = row.permissions || [];
-      if (permissions.includes('*') || permissions.includes(requiredPermission)) {
-        return next();
-      }
-
-      return res.status(403).json({ error: `Forbidden: Insufficient permissions. Required: ${requiredPermission}` });
-    } catch (err) {
-      console.error('Error in checkPermission middleware:', err);
-      return res.status(500).json({ error: 'Failed to authorize request.' });
-    }
-  };
-}
+/**
+ * Require ADMIN or SUPER_ADMIN role.
+ */
+export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+  const role = (req.user?.role || (req.headers['x-klyra-role'] as string) || '').toUpperCase();
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(role)) {
+    return res.status(403).json({ success: false, message: 'Admin access required.' });
+  }
+  next();
+};

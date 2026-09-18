@@ -8,7 +8,28 @@ const MOCK_WEBHOOKS = [
 ];
 
 export const WebhookLogs = () => {
+  const [webhooks, setWebhooks] = useState<any[]>(MOCK_WEBHOOKS);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const fetchWebhooks = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/devops/webhooks', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) setWebhooks(json.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch webhooks', err);
+      }
+    };
+    fetchWebhooks();
+    const interval = setInterval(fetchWebhooks, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleExpand = (id: string) => {
     setExpanded(prev => prev === id ? null : id);
@@ -21,7 +42,7 @@ export const WebhookLogs = () => {
       </h3>
 
       <div style={{ border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, overflow: 'hidden' }}>
-        {MOCK_WEBHOOKS.map(wh => (
+        {webhooks.map(wh => (
           <div key={wh.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <div 
               onClick={() => toggleExpand(wh.id)}
@@ -51,7 +72,20 @@ export const WebhookLogs = () => {
                     </pre>
                   </div>
                   <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <button style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+                          await fetch(`/api/v1/admin/devops/webhooks/${wh.id}/retry`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                          });
+                        } catch (e) {
+                          console.error(e);
+                        }
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, fontSize: 12, fontWeight: 600 }}
+                    >
                       <RefreshCw size={14} /> Retry Delivery
                     </button>
                   </div>

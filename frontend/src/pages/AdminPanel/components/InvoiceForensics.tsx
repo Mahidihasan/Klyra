@@ -10,14 +10,51 @@ const MOCK_LINE_ITEMS = [
 
 export const InvoiceForensics = () => {
   const [invoiceId, setInvoiceId] = useState('inv_8B9X2Y');
-  const [items, setItems] = useState(MOCK_LINE_ITEMS);
+  const [items, setItems] = useState<any[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [totalBilled, setTotalBilled] = useState(0);
 
-  const toggleWaive = (id: string) => {
-    setItems(prev => prev.map(item => item.id === id ? { ...item, waived: !item.waived } : item));
+  React.useEffect(() => {
+    const fetchInvoice = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch(`/api/v1/admin/finances/forensics/invoice/${invoiceId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setItems(json.data.items);
+            setTotalBilled(json.data.adjustedTotal);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch invoice data', err);
+      }
+    };
+    fetchInvoice();
+  }, [invoiceId]);
+
+  const toggleWaive = async (id: string) => {
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      const res = await fetch(`/api/v1/admin/finances/forensics/invoice/waive/${id}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        // Optimistically update local state to avoid refetching
+        setItems(prev => {
+          const newItems = prev.map(item => item.id === id ? { ...item, waived: !item.waived } : item);
+          const newTotal = newItems.reduce((acc, curr) => curr.waived ? acc : acc + curr.total, 0);
+          setTotalBilled(newTotal);
+          return newItems;
+        });
+      }
+    } catch (err) {
+      console.error('Failed to waive item', err);
+    }
   };
-
-  const totalBilled = items.reduce((acc, curr) => curr.waived ? acc : acc + curr.total, 0);
 
   return (
     <div className="bg-zinc-950/60 backdrop-blur-2xl border border-white/5 rounded-2xl p-6 shadow-2xl flex flex-col h-full">

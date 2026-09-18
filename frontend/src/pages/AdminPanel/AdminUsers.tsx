@@ -343,10 +343,9 @@ export const AdminUsers = () => {
               onChange={(e) => setRoleFilter(e.target.value)}
             >
               <option value="ALL" className="bg-[#12121a]">Role: All</option>
-              <option value="USER" className="bg-[#12121a]">User</option>
-              <option value="PROVIDER" className="bg-[#12121a]">Provider</option>
-              <option value="MODERATOR" className="bg-[#12121a]">Moderator</option>
+              <option value="SUPER_ADMIN" className="bg-[#12121a]">Super Admin</option>
               <option value="ADMIN" className="bg-[#12121a]">Admin</option>
+              <option value="USER" className="bg-[#12121a]">User</option>
             </select>
             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/40 group-hover:text-white/70">
               <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>

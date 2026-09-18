@@ -11,7 +11,7 @@
 
 import { AdminDataSource } from './admin';
 
-export const USER_ROLES = ['USER', 'PROVIDER', 'MODERATOR', 'ADMIN'] as const;
+export const USER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'USER'] as const;
 export type UserRoleValue = (typeof USER_ROLES)[number];
 
 export const USER_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED'] as const;
@@ -149,8 +149,7 @@ export interface AdminUserDetails extends AdminUserProfile {
 /** UI label for each role. `USER` reads as "Consumer" everywhere on screen. */
 export const ROLE_LABELS: Record<UserRoleValue, string> = {
   USER: 'Consumer / Developer',
-  PROVIDER: 'Provider',
-  MODERATOR: 'Moderator',
+  SUPER_ADMIN: 'Super Admin',
   ADMIN: 'Admin',
 };
 
@@ -224,8 +223,8 @@ function canWrite(viewer: ViewerIdentity): GuardCheck | null {
   if (viewer.id === null) {
     return denied('Sign in with a real admin account to modify users.');
   }
-  if (viewer.role !== 'ADMIN') {
-    return denied('Only an admin can modify accounts. Moderator access is read-only.');
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(viewer.role)) {
+    return denied('Only an admin or super admin can modify accounts.');
   }
   return null;
 }
@@ -249,7 +248,7 @@ export function canChangeStatus(
   if (viewer.id && viewer.id === target.id) {
     return denied('You cannot change your own status.');
   }
-  if (target.role === 'ADMIN' && nextStatus !== 'ACTIVE') {
+  if (['SUPER_ADMIN', 'ADMIN'].includes(target.role) && nextStatus !== 'ACTIVE') {
     return denied('Admin accounts cannot be deactivated. Change their role first.');
   }
   return ALLOWED;
@@ -261,7 +260,7 @@ export function canImpersonate(viewer: ViewerIdentity, target: AdminUserRow): Gu
   if (viewer.id && viewer.id === target.id) {
     return denied('You are already signed in as this account.');
   }
-  if (target.role === 'ADMIN' || target.role === 'MODERATOR') {
+  if (['SUPER_ADMIN', 'ADMIN'].includes(target.role)) {
     return denied('Privileged accounts cannot be impersonated.');
   }
   if (target.status !== 'ACTIVE') {

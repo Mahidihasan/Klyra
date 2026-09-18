@@ -2,7 +2,7 @@
  * Admin user-management routes.
  *
  * Mounted at /api/v1/admin/users by admin.routes.ts, *after* its `requireAdmin`
- * middleware, so every handler here is already known to be ADMIN or MODERATOR.
+ * middleware, so every handler here is already known to be SUPER_ADMIN or ADMIN.
  * The finer-grained "may this specific actor do this specific thing" question
  * is answered by admin.users.policy.ts, not here.
  *
@@ -76,7 +76,7 @@ function parseListQuery(req: Request, res: Response): AdminUserListQuery | null 
   const { search, role, status, subscriptionTier, sort, direction } = req.query;
 
   if (role !== undefined && role !== '' && !isUserRole(role)) {
-    fail(res, 400, 'INVALID_ROLE', 'role must be one of: USER, PROVIDER, MODERATOR, ADMIN');
+    fail(res, 400, 'INVALID_ROLE', 'role must be one of: SUPER_ADMIN, ADMIN, USER');
     return null;
   }
 
@@ -217,7 +217,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     if (!isUserRole(role)) {
-      return fail(res, 400, 'INVALID_ROLE', 'role must be one of: USER, PROVIDER, MODERATOR, ADMIN');
+      return fail(res, 400, 'INVALID_ROLE', 'role must be one of: SUPER_ADMIN, ADMIN, USER');
     }
 
     const cleanEmail = email.trim().toLowerCase();
@@ -433,7 +433,7 @@ router.patch('/:id/role', async (req: Request, res: Response) => {
     if (!isUserRole(role)) {
       return res.status(400).json({
         error: 'INVALID_ROLE',
-        message: 'role must be one of: USER, PROVIDER, MODERATOR, ADMIN',
+        message: 'role must be one of: SUPER_ADMIN, ADMIN, USER',
       });
     }
 

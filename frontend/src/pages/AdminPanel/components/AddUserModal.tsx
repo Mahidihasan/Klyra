@@ -77,9 +77,8 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({ onClose, onAdd }) =>
               onChange={(e) => setRole(e.target.value as UserRoleValue)}
             >
               <option value="USER">User</option>
-              <option value="PROVIDER">Provider</option>
-              <option value="MODERATOR">Moderator</option>
               <option value="ADMIN">Admin</option>
+              <option value="SUPER_ADMIN">Super Admin</option>
             </select>
           </div>
 

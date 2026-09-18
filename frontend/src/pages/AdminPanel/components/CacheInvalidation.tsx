@@ -156,9 +156,25 @@ export const CacheInvalidation = () => {
   const [missRate, setMissRate] = useState(12);
 
   useEffect(() => {
-    const i = setInterval(() => {
-      setMissRate(Math.random() > 0.85 ? Math.floor(Math.random() * 40) + 35 : Math.floor(Math.random() * 15) + 5);
-    }, 3000);
+    const fetchMetrics = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/engine/metrics', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setMissRate(100 - (json.data.cacheHitRate || 85));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch cache metrics', err);
+      }
+    };
+    
+    fetchMetrics();
+    const i = setInterval(fetchMetrics, 5000);
     return () => clearInterval(i);
   }, []);
 

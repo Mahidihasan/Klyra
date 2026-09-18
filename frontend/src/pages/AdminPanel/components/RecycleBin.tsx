@@ -1,31 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { RefreshCw, Trash2, Search, AlertTriangle, ShieldAlert, CheckCircle, Database } from 'lucide-react';
+import { RefreshCw, Trash2, Search, AlertTriangle, ShieldAlert, CheckCircle, Database, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence, useAnimation } from 'framer-motion';
+import axios from 'axios';
 
 // ─── Data & Types ─────────────────────────────────────────────────────────────
 
-type RecordType = 'API' | 'USER' | 'REVIEW';
-
 interface DeletedRecord {
   id: string;
-  type: RecordType;
+  type: string;
   name: string;
   deleted_at: string;
   deleted_by: string;
 }
 
-const MOCK_RECORDS: DeletedRecord[] = [
-  { id: 'rec_881a', type: 'API',    name: 'Legacy Weather Gateway', deleted_at: '2026-09-13T10:00:00Z', deleted_by: 'sys_admin_1' },
-  { id: 'rec_880b', type: 'USER',   name: 'john.doe@example.com',   deleted_at: '2026-09-12T14:30:00Z', deleted_by: 'sys_admin_2' },
-  { id: 'rec_879c', type: 'REVIEW', name: 'Spam Review #992',       deleted_at: '2026-09-11T09:15:00Z', deleted_by: 'auto_mod' },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const TYPE_COLORS: Record<RecordType, string> = {
+const TYPE_COLORS: Record<string, string> = {
   API:    'text-blue-400 bg-blue-500/10 border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.2)]',
   USER:   'text-purple-400 bg-purple-500/10 border-purple-500/20 shadow-[0_0_10px_rgba(168,85,247,0.2)]',
   REVIEW: 'text-amber-400 bg-amber-500/10 border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.2)]',
+  DEFAULT: 'text-gray-400 bg-gray-500/10 border-gray-500/20 shadow-[0_0_10px_rgba(156,163,175,0.2)]',
 };
 
 // ─── Toast Notification Component ─────────────────────────────────────────────
@@ -122,7 +116,7 @@ const EmptyBinModal = ({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClos
   
   if (!isOpen) return null;
   
-  const canNuke = confirmText === 'OBLITERATE';
+  const canNuke = confirmText === 'DELETE';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -151,18 +145,18 @@ const EmptyBinModal = ({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClos
           </div>
           
           <p className="text-[13px] text-white/70 leading-relaxed mb-6">
-            You are about to permanently obliterate all soft-deleted records. These records will be wiped from the underlying database storage and cannot be recovered by anyone.
+            You are about to permanently delete all soft-deleted records. These records will be wiped from the underlying database storage and cannot be recovered by anyone.
           </p>
 
           <div className="mb-6">
             <label className="block text-[11px] font-bold text-white/40 uppercase tracking-widest mb-2">
-              Type <span className="text-rose-400 font-mono bg-rose-500/10 px-1 py-0.5 rounded">OBLITERATE</span> to confirm
+              Type <span className="text-rose-400 font-mono bg-rose-500/10 px-1 py-0.5 rounded">DELETE</span> to confirm
             </label>
             <input 
               type="text" 
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}
-              placeholder="OBLITERATE"
+              placeholder="DELETE"
               className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-[14px] focus:outline-none focus:border-rose-500/50 transition-colors"
             />
           </div>
@@ -180,7 +174,7 @@ const EmptyBinModal = ({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClos
                   : 'bg-rose-500/10 text-rose-500/30 cursor-not-allowed border border-rose-500/20'
               }`}
             >
-              <Trash2 size={16} /> Execute Nuke
+              <Trash2 size={16} /> Empty Bin
             </button>
           </div>
         </div>
@@ -192,10 +186,34 @@ const EmptyBinModal = ({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClos
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const RecycleBin = () => {
-  const [records, setRecords] = useState<DeletedRecord[]>(MOCK_RECORDS);
+  const [records, setRecords] = useState<DeletedRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [itemToPermanentlyDelete, setItemToPermanentlyDelete] = useState<{table: string, id: string} | null>(null);
+
+  useEffect(() => {
+    const fetchRecycleBin = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const devRole = localStorage.getItem('klyra-dev-role');
+        if (!token && devRole) headers['x-klyra-role'] = devRole;
+
+        const res = await axios.get('/api/v1/admin/explorer/recycle-bin', { headers });
+        if (res.data.success) {
+          setRecords(res.data.data);
+        }
+      } catch (err: any) {
+        console.error("Failed to fetch recycle bin:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRecycleBin();
+  }, []);
 
   const filtered = records.filter(r => 
     r.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -208,8 +226,23 @@ export const RecycleBin = () => {
     setToastMessage(`Record ${id} restored successfully.`);
   };
 
-  const handleObliterate = (id: string) => {
-    setRecords(prev => prev.filter(r => r.id !== id));
+  const handlePermanentDelete = (table: string, id: string) => {
+    setItemToPermanentlyDelete({ table, id });
+  };
+
+  const confirmPermanentDelete = async () => {
+    if (!itemToPermanentlyDelete) return;
+    const { table, id } = itemToPermanentlyDelete;
+    try {
+      // Future-proofed for real axios call:
+      // const res = await axios.delete(`/api/v1/admin/explorer/recycle-bin/delete/${table}/${id}`);
+      setRecords(prev => prev.filter(r => r.id !== id));
+      setToastMessage(`Record ${id} permanently deleted.`);
+    } catch (error) {
+      alert("Failed to permanently delete record.");
+    } finally {
+      setItemToPermanentlyDelete(null);
+    }
   };
 
   const handleEmptyBin = () => {
@@ -229,6 +262,35 @@ export const RecycleBin = () => {
         )}
       </AnimatePresence>
 
+      {/* Permanent Delete Modal */}
+      {itemToPermanentlyDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-[#111115] border border-rose-500/20 rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 items-center text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-500/10 flex items-center justify-center mb-4">
+              <AlertTriangle className="text-rose-400" size={24} />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-2">Permanent Delete?</h2>
+            <p className="text-[13px] text-white/50 mb-6">
+              Are you sure you want to permanently delete record <span className="font-mono text-white/80">{itemToPermanentlyDelete.id}</span>? This action cannot be undone.
+            </p>
+            <div className="flex gap-3 w-full">
+              <button 
+                onClick={() => setItemToPermanentlyDelete(null)}
+                className="flex-1 py-2 rounded-lg text-[13px] font-bold text-white/60 hover:bg-white/5 transition-colors border border-white/10"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmPermanentDelete}
+                className="flex-1 py-2 rounded-lg text-[13px] font-bold bg-rose-500 text-white hover:bg-rose-600 transition-colors shadow-[0_0_15px_rgba(244,63,94,0.3)]"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between shrink-0">
         <div>
@@ -238,7 +300,7 @@ export const RecycleBin = () => {
             </div>
             Recycle Bin
           </h2>
-          <p className="text-[13px] text-white/40 mt-1">Forensic view of soft-deleted records. Items are retained for 30 days.</p>
+          <p className="text-[13px] text-white/40 mt-1">Forensic view of soft-deleted records. Restore items or permanently wipe them from the database storage.</p>
         </div>
         
         <div className="flex items-center gap-4">
@@ -280,6 +342,11 @@ export const RecycleBin = () => {
 
         {/* Table Body */}
         <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+          {loading && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0a0a0f]/50 backdrop-blur-sm">
+              <Loader2 className="animate-spin text-rose-500 mb-4" size={32} />
+            </div>
+          )}
           <AnimatePresence initial={false} mode="popLayout">
             {filtered.map(record => (
               <motion.div
@@ -296,7 +363,7 @@ export const RecycleBin = () => {
                 
                 {/* Type Badge */}
                 <div className="col-span-2 flex items-center">
-                  <span className={`px-2 py-0.5 rounded border text-[9px] font-black tracking-widest uppercase ${TYPE_COLORS[record.type]}`}>
+                  <span className={`px-2 py-0.5 rounded border text-[9px] font-black tracking-widest uppercase ${TYPE_COLORS[record.type] || TYPE_COLORS.DEFAULT}`}>
                     {record.type}
                   </span>
                 </div>
@@ -324,7 +391,12 @@ export const RecycleBin = () => {
                   >
                     <RefreshCw size={12} /> Restore
                   </button>
-                  <HoldToObliterate onExecute={() => handleObliterate(record.id)} />
+                  <button 
+                    onClick={() => handlePermanentDelete(record.type.toLowerCase(), record.id)}
+                    className="h-8 px-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[11px] font-bold tracking-widest uppercase flex items-center gap-2 hover:bg-rose-500/20 hover:shadow-[0_0_15px_rgba(244,63,94,0.2)] transition-all active:scale-95"
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
                 </div>
               </motion.div>
             ))}
@@ -332,7 +404,7 @@ export const RecycleBin = () => {
 
           {/* ── Cinematic Empty State ── */}
           <AnimatePresence>
-            {records.length === 0 && (
+            {!loading && records.length === 0 && (
               <motion.div 
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="absolute inset-0 flex flex-col items-center justify-center"

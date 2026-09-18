@@ -156,23 +156,71 @@ const MOCK_QUERIES = [
 
 export const SystemHealth = () => {
   const [latency, setLatency] = useState(24);
-  const [queries, setQueries] = useState(MOCK_QUERIES);
+  const [cacheHitRatio, setCacheHitRatio] = useState(94);
+  const [queries, setQueries] = useState<any[]>([]);
 
-  // Simulate latency spikes
+  // Poll DB Metrics
   useEffect(() => {
-    const timer = setInterval(() => {
-      setLatency(prev => {
-        const spike = Math.random() > 0.8;
-        return spike ? Math.floor(Math.random() * 200) + 100 : Math.floor(Math.random() * 15) + 20;
-      });
-    }, 4000);
+    const fetchMetrics = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/devops/db-metrics', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setLatency(json.data.queryLatency);
+            setCacheHitRatio(json.data.cacheHitRatio);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch DB metrics', err);
+      }
+    };
+    
+    fetchMetrics();
+    const timer = setInterval(fetchMetrics, 4000);
     return () => clearInterval(timer);
   }, []);
 
-  const handleKill = (id: string) => {
-    setTimeout(() => {
-      setQueries(prev => prev.filter(q => q.id !== id));
-    }, 1500);
+  // Poll Active Connections
+  useEffect(() => {
+    const fetchConnections = async () => {
+      try {
+        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+        const res = await fetch('/api/v1/admin/devops/connections', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setQueries(json.data);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch active queries', err);
+      }
+    };
+    
+    fetchConnections();
+    const timer = setInterval(fetchConnections, 3000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleKill = async (dbPid: number, uiId: string) => {
+    // Optimistic UI update
+    setQueries(prev => prev.filter(q => q.id !== uiId));
+    
+    try {
+      const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+      await fetch(`/api/v1/admin/devops/connections/kill/${dbPid}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (err) {
+      console.error('Failed to kill query', err);
+    }
   };
 
   const isLatencySpike = latency > 100;
@@ -188,7 +236,7 @@ export const SystemHealth = () => {
         </div>
         <div>
           <h2 className="text-[18px] font-bold text-white tracking-tight">Database Health & Telemetry</h2>
-          <p className="text-[13px] text-white/40">Real-time performance metrics and active query termination.</p>
+          <p className="text-[13px] text-white/40">Real-time database performance metrics and query telemetry.</p>
         </div>
       </div>
 
@@ -227,7 +275,7 @@ export const SystemHealth = () => {
             </div>
             <div className="flex justify-center pb-2">
               <RadialRing 
-                value={94} 
+                value={cacheHitRatio} 
                 label="%" 
                 subLabel="Redis Edge Nodes"
                 isAnomalous={false}
@@ -293,7 +341,7 @@ export const SystemHealth = () => {
                       </div>
                       
                       {q.anomalous && (
-                        <HoldToKillButton queryId={q.id} onKill={() => handleKill(q.id)} />
+                        <HoldToKillButton queryId={q.id} onKill={() => handleKill(q.dbPid, q.id)} />
                       )}
                     </div>
                   </div>

@@ -319,11 +319,8 @@ function formatDateTime(value: string | null): string {
 }
 
 function roleDescription(role: string): string {
-  if (role === 'ADMIN') {
+  if (['SUPER_ADMIN', 'ADMIN'].includes(role)) {
     return 'Admin — full platform control';
-  }
-  if (role === 'MODERATOR') {
-    return 'Moderator — content and API review';
   }
   return 'Member — build and publish APIs';
 }
@@ -975,10 +972,8 @@ export const ProfilePage: React.FC = () => {
                 </span>
               ) : null}
               <span className="profile-role-chip">
-                {profile.role === 'ADMIN'
-                  ? 'Admin'
-                  : profile.role === 'MODERATOR'
-                  ? 'Moderator'
+                {['SUPER_ADMIN', 'ADMIN'].includes(profile.role)
+                  ? (profile.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin')
                   : 'Member'}
               </span>
             </div>

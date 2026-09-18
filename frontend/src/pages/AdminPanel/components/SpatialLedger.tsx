@@ -149,7 +149,7 @@ export const SpatialLedger = () => {
     const fetchDisputes = async () => {
       try {
         const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-        const res = await fetch('/api/v1/admin/financials/disputes', {
+        const res = await fetch('/api/v1/admin/finances/forensics/ledger', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
@@ -157,13 +157,13 @@ export const SpatialLedger = () => {
           const json = await res.json();
           // Map Prisma models to frontend UI structure
           const mapped: Transaction[] = json.data.map((tx: any) => ({
-            id: tx.id,
-            type: tx.type === 'DISPUTE' ? 'CHARGEBACK' : tx.type, // Map DISPUTE to CHARGEBACK for UI
-            amount: parseFloat(tx.amount || 0),
+            id: tx.id || Math.random().toString(),
+            type: (tx.type === 'FLAG_TRANSACTION' ? 'SUSPICIOUS' : tx.type) as any,
+            amount: parseFloat(tx.details?.amount || 0),
             currency: 'USD',
-            user: tx.userId,
-            timestamp: new Date(tx.createdAt).toISOString().replace('T', ' ').substring(0, 19),
-            stripeId: `pi_${tx.id.substring(0, 8)}...`
+            user: tx.actor || 'system',
+            timestamp: new Date(tx.timestamp || new Date()).toISOString().replace('T', ' ').substring(0, 19),
+            stripeId: `pi_${(tx.id || '').substring(0, 8)}...`
           }));
           setTransactions(mapped);
         } else {

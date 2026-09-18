@@ -85,16 +85,16 @@ const AdminLayoutInner: React.FC<AdminLayoutProps> = ({ activeTab, setActiveTab 
         <CommandSidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
 
         {/* The main workspace requires ml-20 to accommodate the fixed w-20 sidebar */}
-        <div className="ml-20 flex-1 h-full w-full">
-          <PanelGroup orientation="horizontal" className="h-full w-full">
+        <div className="ml-20 flex-1 min-w-0 h-full w-full">
+          <PanelGroup orientation="horizontal" className="h-full w-full min-w-0">
             
             {/* Panel 2: Main Content */}
             <Panel defaultSize={isDrawerOpen ? 60 : 100}>
-              <div className="admin-main h-full flex flex-col">
+              <div className="admin-main h-full flex flex-col min-w-0">
                 <CommandHeader />
-                <div className="admin-page-content stagger-2 flex-1 overflow-y-auto">
+                <main className="admin-page-content stagger-2 flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
                   {renderContent()}
-                </div>
+                </main>
               </div>
             </Panel>
 

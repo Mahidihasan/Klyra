@@ -11,7 +11,7 @@
 import { AdminDataSource } from './admin.types';
 
 /** Mirrors the `user_role` enum. Order is least → most privileged. */
-export const USER_ROLES = ['USER', 'PROVIDER', 'MODERATOR', 'ADMIN'] as const;
+export const USER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'USER'] as const;
 export type UserRoleValue = (typeof USER_ROLES)[number];
 
 export interface ViewerIdentity {
@@ -37,10 +37,10 @@ export const USER_STATUS_FILTERS = [...USER_STATUSES, 'PENDING'] as const;
 export type UserStatusFilter = (typeof USER_STATUS_FILTERS)[number];
 
 /** Roles that may reach any admin endpoint at all. */
-export const ADMIN_READ_ROLES: readonly UserRoleValue[] = ['ADMIN', 'MODERATOR'];
+export const ADMIN_READ_ROLES: readonly UserRoleValue[] = ['SUPER_ADMIN', 'ADMIN'];
 
 /** Roles that may mutate another account. Deliberately narrower than the above. */
-export const ADMIN_WRITE_ROLES: readonly UserRoleValue[] = ['ADMIN'];
+export const ADMIN_WRITE_ROLES: readonly UserRoleValue[] = ['SUPER_ADMIN', 'ADMIN'];
 
 export function isUserRole(value: unknown): value is UserRoleValue {
   return typeof value === 'string' && (USER_ROLES as readonly string[]).includes(value);
