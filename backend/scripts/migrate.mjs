@@ -18,6 +18,8 @@
 //   0010_session_activity      2026_09_13_002_session_activity.sql
 //   0011_marketplace_enhancements 2026_09_14_001_marketplace_enhancements.sql
 //   0011_api_keys_system       2026_09_16_001_api_keys_system.sql
+//   0012_wallet                2026_09_16_001_wallet.sql
+//   0013_wallet_topup_sessions 2026_09_16_002_wallet_topup_sessions.sql
 //
 // The repository (kr_* ) tables self-bootstrap at runtime via
 // repos.db.ensureReposSchema(); this runner reconciles the base + application
@@ -59,6 +61,13 @@ const MIGRATIONS = [
   { name: '0010_session_activity', file: '2026_09_13_002_session_activity.sql' },
   { name: '0011_marketplace_enhancements', file: '2026_09_14_001_marketplace_enhancements.sql' },
   { name: '0011_api_keys_system', file: '2026_09_16_001_api_keys_system.sql' },
+  // `guard` names a table the migration must have left behind. See the loop.
+  { name: '0012_wallet', file: '2026_09_16_001_wallet.sql', guard: 'wallets' },
+  {
+    name: '0013_wallet_topup_sessions',
+    file: '2026_09_16_002_wallet_topup_sessions.sql',
+    guard: 'wallet_topup_sessions',
+  },
 ];
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });
@@ -97,13 +106,26 @@ async function main() {
     const status = process.argv.includes('--status');
 
     for (const m of MIGRATIONS) {
-      if (done.has(m.name)) {
+      // A migration recorded as applied whose table is no longer there is not
+      // applied, whatever the bookkeeping says. On 18 Sep 2026 the three
+      // wallet tables were dropped from the shared database twice while their
+      // rows stayed in _klyra_migrations; going by the ledger alone, this
+      // runner would have reported "DB is up to date" over a missing schema
+      // and never rebuilt it. `guard` lets a migration be checked against
+      // reality instead. Migrations without one behave exactly as before.
+      const recorded = done.has(m.name);
+      const healing = recorded && m.guard ? !(await tableExists(m.guard)) : false;
+
+      if (recorded && !healing) {
         console.log(`  [skip]  ${m.name}`);
         continue;
       }
       if (status) {
-        console.log(`  [pending] ${m.name}`);
+        console.log(`  [${healing ? 'missing' : 'pending'}] ${m.name}`);
         continue;
+      }
+      if (healing) {
+        console.log(`  [heal]  ${m.name} (recorded, but ${m.guard} is gone)`);
       }
 
       // Baseline schema.sql uses plain CREATE TABLE (not IF NOT EXISTS). If it
@@ -122,7 +144,10 @@ async function main() {
           return;
         }
       }
-      await client.query('INSERT INTO _klyra_migrations (name) VALUES ($1)', [m.name]);
+      await client.query(
+        'INSERT INTO _klyra_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
+        [m.name],
+      );
       done.add(m.name);
     }
 

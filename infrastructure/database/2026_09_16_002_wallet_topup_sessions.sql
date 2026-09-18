@@ -18,16 +18,24 @@
 -- trigger, inlined current_setting() in the policies, because
 -- update_updated_at_column(), current_user_id() and is_admin() do not exist in
 -- this database. No shared object is created, altered or dropped.
+--
+-- Re-runnable, for the same reason as 001: recovery is only possible if the
+-- file can be applied again over a schema that partly survived.
 -- ============================================================================
 
-CREATE TYPE wallet_topup_session_status AS ENUM (
-    'PENDING',     -- Checkout session created, no payment confirmed yet
-    'COMPLETED',   -- webhook verified the payment and credited the wallet
-    'EXPIRED',     -- Stripe's session window closed without payment
-    'FAILED'       -- Stripe reported the payment as failed
-);
+DO $$
+BEGIN
+    CREATE TYPE wallet_topup_session_status AS ENUM (
+        'PENDING',     -- Checkout session created, no payment confirmed yet
+        'COMPLETED',   -- webhook verified the payment and credited the wallet
+        'EXPIRED',     -- Stripe's session window closed without payment
+        'FAILED'       -- Stripe reported the payment as failed
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END
+$$;
 
-CREATE TABLE wallet_topup_sessions (
+CREATE TABLE IF NOT EXISTS wallet_topup_sessions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     wallet_id           UUID NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
     user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -60,19 +68,22 @@ COMMENT ON COLUMN wallet_topup_sessions.stripe_session_id IS
 COMMENT ON COLUMN wallet_topup_sessions.transaction_id IS
     'Ledger row produced by this session. NULL until the webhook credits.';
 
-CREATE INDEX idx_wallet_topup_sessions_user_created
+CREATE INDEX IF NOT EXISTS idx_wallet_topup_sessions_user_created
     ON wallet_topup_sessions (user_id, created_at DESC);
-CREATE INDEX idx_wallet_topup_sessions_pending
+CREATE INDEX IF NOT EXISTS idx_wallet_topup_sessions_pending
     ON wallet_topup_sessions (user_id)
     WHERE status = 'PENDING';
 
+DROP TRIGGER IF EXISTS trg_wallet_topup_sessions_updated_at ON wallet_topup_sessions;
 CREATE TRIGGER trg_wallet_topup_sessions_updated_at
     BEFORE UPDATE ON wallet_topup_sessions
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 ALTER TABLE wallet_topup_sessions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS wallet_topup_sessions_select ON wallet_topup_sessions;
 CREATE POLICY wallet_topup_sessions_select ON wallet_topup_sessions
     FOR SELECT USING (user_id = current_setting('app.current_user_id', TRUE)::UUID OR
                       current_setting('app.current_user_role', TRUE) = 'ADMIN');
+DROP POLICY IF EXISTS wallet_topup_sessions_admin ON wallet_topup_sessions;
 CREATE POLICY wallet_topup_sessions_admin ON wallet_topup_sessions TO app_admin USING (true);
