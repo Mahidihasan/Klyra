@@ -19,29 +19,51 @@
 -- Note: 2026_09_11_001_payout_requests.sql calls current_user_id() and
 -- is_admin(), so that migration has the same defect and is presumably
 -- unapplied or partially applied. Fixing it is out of Wallet's scope.
+--
+-- Every statement below is safe to re-run. That is not decoration: on 18 Sep
+-- 2026 these three tables were dropped from the shared database twice, and the
+-- first recovery attempt failed because DROP TABLE leaves the enum types
+-- behind, so a bare CREATE TYPE aborted the file halfway through and left the
+-- schema half-built. A migration you cannot run twice is a migration you
+-- cannot recover with.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
 -- 1. Enums
 -- ---------------------------------------------------------------------------
 
-CREATE TYPE wallet_transaction_type AS ENUM (
-    'TOPUP',       -- user added funds
-    'SPEND',       -- consumed by usage or an invoice
-    'REFUND',      -- reversal of a SPEND
-    'BONUS',       -- promotional credit
-    'ADJUSTMENT'   -- manual correction by an admin
-);
+DO $$
+BEGIN
+    CREATE TYPE wallet_transaction_type AS ENUM (
+        'TOPUP',       -- user added funds
+        'SPEND',       -- consumed by usage or an invoice
+        'REFUND',      -- reversal of a SPEND
+        'BONUS',       -- promotional credit
+        'ADJUSTMENT'   -- manual correction by an admin
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END
+$$;
 
-CREATE TYPE wallet_transaction_direction AS ENUM ('CREDIT', 'DEBIT');
+DO $$
+BEGIN
+    CREATE TYPE wallet_transaction_direction AS ENUM ('CREDIT', 'DEBIT');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END
+$$;
 
-CREATE TYPE wallet_transaction_status AS ENUM ('PENDING', 'COMPLETED', 'FAILED');
+DO $$
+BEGIN
+    CREATE TYPE wallet_transaction_status AS ENUM ('PENDING', 'COMPLETED', 'FAILED');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 2. Tables
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE wallets (
+CREATE TABLE IF NOT EXISTS wallets (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     balance         DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -60,7 +82,7 @@ COMMENT ON COLUMN wallets.balance IS
 COMMENT ON COLUMN wallets.is_locked IS
     'Set by an admin to freeze spending during a dispute.';
 
-CREATE TABLE wallet_transactions (
+CREATE TABLE IF NOT EXISTS wallet_transactions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     wallet_id           UUID NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
     user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -94,11 +116,11 @@ COMMENT ON COLUMN wallet_transactions.external_reference IS
 -- 3. Indexes
 -- ---------------------------------------------------------------------------
 
-CREATE INDEX idx_wallet_transactions_wallet_created
+CREATE INDEX IF NOT EXISTS idx_wallet_transactions_wallet_created
     ON wallet_transactions (wallet_id, created_at DESC);
-CREATE INDEX idx_wallet_transactions_user_created
+CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user_created
     ON wallet_transactions (user_id, created_at DESC);
-CREATE INDEX idx_wallet_transactions_type
+CREATE INDEX IF NOT EXISTS idx_wallet_transactions_type
     ON wallet_transactions (type);
 
 -- ---------------------------------------------------------------------------
@@ -107,6 +129,7 @@ CREATE INDEX idx_wallet_transactions_type
 --    (schema.sql line 799). Naming follows trg_<table>_updated_at.
 -- ---------------------------------------------------------------------------
 
+DROP TRIGGER IF EXISTS trg_wallets_updated_at ON wallets;
 CREATE TRIGGER trg_wallets_updated_at
     BEFORE UPDATE ON wallets
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -123,12 +146,16 @@ CREATE TRIGGER trg_wallets_updated_at
 ALTER TABLE wallets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS wallets_select ON wallets;
 CREATE POLICY wallets_select ON wallets
     FOR SELECT USING (user_id = current_setting('app.current_user_id', TRUE)::UUID OR
                       current_setting('app.current_user_role', TRUE) = 'ADMIN');
+DROP POLICY IF EXISTS wallets_admin ON wallets;
 CREATE POLICY wallets_admin ON wallets TO app_admin USING (true);
 
+DROP POLICY IF EXISTS wallet_transactions_select ON wallet_transactions;
 CREATE POLICY wallet_transactions_select ON wallet_transactions
     FOR SELECT USING (user_id = current_setting('app.current_user_id', TRUE)::UUID OR
                       current_setting('app.current_user_role', TRUE) = 'ADMIN');
+DROP POLICY IF EXISTS wallet_transactions_admin ON wallet_transactions;
 CREATE POLICY wallet_transactions_admin ON wallet_transactions TO app_admin USING (true);
