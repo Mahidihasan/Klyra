@@ -227,9 +227,6 @@ export const ApiKeysPage: React.FC = () => {
       <div className="apikeys-kpis">
         {kpis.map(({ tone, icon: Icon, value, label }) => (
           <div key={tone} className="apikeys-kpi" data-tone={tone}>
-            <span className="apikeys-kpi-icon">
-              <Icon size={15} />
-            </span>
             <div>
               <div className="apikeys-kpi-value">{value}</div>
               <div className="apikeys-kpi-label">{label}</div>

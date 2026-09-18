@@ -2767,8 +2767,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
     return (
       <div className="pg-ai-card">
         <div className="pg-ai-card-head">
-          <Bot size={12} />
-          <span>{label || 'AI Copilot'}</span>
+          <span>{label || 'Klyra Copilot'}</span>
         </div>
         <div className="pg-ai-card-body">{text}</div>
       </div>
@@ -2875,7 +2874,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       <aside className="pg-right-sidebar">
         <div className="pg-ai-header">
           <div className="pg-ai-title">
-            <Bot size={16} /> <span>AI Copilot</span>
+            <Bot size={14} /> <span>Klyra Copilot</span>
           </div>
           <button
             className="pg-icon-btn"
@@ -2980,7 +2979,8 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
     <div className="pg-topbar">
       <div className="pg-topbar-left">
         <button className="pg-back-btn" onClick={onBackToKlyra} title="Back to Klyra">
-          <ArrowLeft size={16} />
+          <ArrowLeft size={16}/>
+          <span>Back</span>
         </button>
         <div className="pg-topbar-divider" />
         <input

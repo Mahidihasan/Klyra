@@ -67,7 +67,6 @@ export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
             <div className="kly-analytics-kpi-card">
               <div className="kly-analytics-kpi-header">
                 <span className="kly-analytics-kpi-title">P50 Latency (Median)</span>
-                <Server size={14} color="var(--kly-text-dim)" />
               </div>
               <div className="kly-analytics-kpi-val">110<small>ms</small></div>
               <div className="kly-analytics-kpi-trend positive"><TrendingDown size={11} /> 12ms faster</div>
@@ -76,7 +75,6 @@ export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
             <div className="kly-analytics-kpi-card">
               <div className="kly-analytics-kpi-header">
                 <span className="kly-analytics-kpi-title">P90 Latency</span>
-                <Server size={14} color="var(--kly-text-dim)" />
               </div>
               <div className="kly-analytics-kpi-val">240<small>ms</small></div>
               <div className="kly-analytics-kpi-trend positive"><TrendingDown size={11} /> 5ms faster</div>
@@ -85,7 +83,6 @@ export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
             <div className="kly-analytics-kpi-card">
               <div className="kly-analytics-kpi-header">
                 <span className="kly-analytics-kpi-title">P95 Latency</span>
-                <Server size={14} color="var(--kly-text-dim)" />
               </div>
               <div className="kly-analytics-kpi-val">421<small>ms</small></div>
               <div className="kly-analytics-kpi-trend neutral"><Activity size={11} /> Stable</div>
@@ -94,7 +91,6 @@ export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
             <div className="kly-analytics-kpi-card">
               <div className="kly-analytics-kpi-header">
                 <span className="kly-analytics-kpi-title">P99 Latency (Tail)</span>
-                <Server size={14} color="var(--kly-text-dim)" />
               </div>
               <div className="kly-analytics-kpi-val">890<small>ms</small></div>
               <div className="kly-analytics-kpi-trend negative"><TrendingUp size={11} /> 45ms slower</div>
@@ -135,7 +131,7 @@ export const TabAnalytics: React.FC<TabAnalyticsProps> = ({ project }) => {
             <div className="kly-card kly-analytics-geo-panel">
               <div className="kly-analytics-chart-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Map size={16} color="#38bdf8" />
+                  <Map size={16} color="white" />
                   <h4>Edge Node Routing Map</h4>
                 </div>
               </div>

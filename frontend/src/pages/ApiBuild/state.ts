@@ -5,10 +5,16 @@ import { DUMMY_PROJECT } from './dummyApi';
 
 export type BuildView = 'dash' | 'new' | 'source' | 'detect' | 'configure' | 'deploy' | 'product' | 'pricing' | 'publish' | 'success' | 'workspace';
 
-export function useApiBuild(onPlayground: () => void) {
+export function useApiBuild(onPlayground: () => void, initialView?: BuildView) {
   // The backend is the single source of truth — start empty and hydrate.
   const [projects, setProjects] = useState<ProviderProject[]>([]);
-  const [view, setView] = useState<BuildView>('dash');
+  const [view, setView] = useState<BuildView>(initialView || 'dash');
+
+  useEffect(() => {
+    if (initialView) {
+      setView(initialView);
+    }
+  }, [initialView]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [tab, setTab] = useState<ProjectTab>('overview');
   const [draft, setDraft] = useState<CreateProjectInput>({ name: '', description: '', category: 'AI / Developer Tools' });

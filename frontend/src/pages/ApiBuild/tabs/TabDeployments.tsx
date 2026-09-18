@@ -5,6 +5,7 @@ import {
   Cpu, Shield, Zap, ArrowUpRight, Layers, RefreshCw, Info, XCircle
 } from 'lucide-react';
 import { DeploymentRecord } from '../types';
+import { deployedDateLabel, deployedRelativeLabel, deployedTooltipLabel } from '../format';
 import { ProviderProject } from '../../../types/apibuild';
 
 interface TabDeploymentsProps {
@@ -16,22 +17,22 @@ interface TabDeploymentsProps {
 }
 
 const ENV_COLORS: Record<string, { dot: string; badge: string; text: string }> = {
-  production:  { dot: '#10b981', badge: 'rgba(16,185,129,.12)',  text: '#34d399' },
-  staging:     { dot: '#f59e0b', badge: 'rgba(245,158,11,.12)', text: '#fbbf24' },
+  production: { dot: '#10b981', badge: 'rgba(16,185,129,.12)', text: '#34d399' },
+  staging: { dot: '#f59e0b', badge: 'rgba(245,158,11,.12)', text: '#fbbf24' },
   development: { dot: '#38bdf8', badge: 'rgba(56,189,248,.12)', text: '#7dd3fc' },
 };
 
 const STATUS_META: Record<string, { icon: React.ReactNode; color: string; bg: string; label: string }> = {
-  healthy:  { icon: <CheckCircle2 size={11} />, color: '#34d399', bg: 'rgba(16,185,129,.12)',   label: 'Healthy' },
-  building: { icon: <RefreshCw   size={11} className="kly-spin" />, color: '#fbbf24', bg: 'rgba(245,158,11,.12)', label: 'Building' },
-  failed:   { icon: <XCircle     size={11} />, color: '#fb7185', bg: 'rgba(244,63,94,.12)',    label: 'Failed' },
-  paused:   { icon: <Pause       size={11} />, color: '#94a3b8', bg: 'rgba(148,163,184,.1)',   label: 'Paused' },
+  healthy: { icon: <CheckCircle2 size={11} />, color: '#34d399', bg: 'rgba(16,185,129,.12)', label: 'Healthy' },
+  building: { icon: <RefreshCw size={11} className="kly-spin" />, color: '#fbbf24', bg: 'rgba(245,158,11,.12)', label: 'Building' },
+  failed: { icon: <XCircle size={11} />, color: '#fb7185', bg: 'rgba(244,63,94,.12)', label: 'Failed' },
+  paused: { icon: <Pause size={11} />, color: '#94a3b8', bg: 'rgba(148,163,184,.1)', label: 'Paused' },
 };
 
 const ENV_DEFS = [
-  { id: 'production',  label: 'Production',  icon: <Shield size={13} />, color: '#34d399' },
-  { id: 'staging',     label: 'Staging',     icon: <Zap    size={13} />, color: '#fbbf24' },
-  { id: 'development', label: 'Development', icon: <Cpu    size={13} />, color: '#7dd3fc' },
+  { id: 'production', label: 'Production', icon: <Shield size={13} />, color: '#34d399' },
+  { id: 'staging', label: 'Staging', icon: <Zap size={13} />, color: '#fbbf24' },
+  { id: 'development', label: 'Development', icon: <Cpu size={13} />, color: '#7dd3fc' },
 ];
 
 export const TabDeployments: React.FC<TabDeploymentsProps> = ({
@@ -53,9 +54,9 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
     (!searchQuery || d.id.toLowerCase().includes(searchQuery.toLowerCase()) || (d.commitMessage || '').toLowerCase().includes(searchQuery.toLowerCase()))
   ), [deployments, envFilter, statusFilter, searchQuery]);
 
-  const healthyCount  = deployments.filter(d => d.status === 'healthy').length;
+  const healthyCount = deployments.filter(d => d.status === 'healthy').length;
   const buildingCount = deployments.filter(d => d.status === 'building').length;
-  const failedCount   = deployments.filter(d => d.status === 'failed').length;
+  const failedCount = deployments.filter(d => d.status === 'failed').length;
 
   const envStats = ENV_DEFS.map(env => {
     const envDeps = deployments.filter(d => d.environment === env.id);
@@ -114,7 +115,6 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
             onKeyDown={e => e.key === 'Enter' && setEnvFilter(f => f === env.id ? 'ALL' : env.id)}
           >
             <div className="kly-dep-env-header">
-              <span className="kly-dep-env-icon" style={{ color: env.color }}>{env.icon}</span>
               <span className="kly-dep-env-name">{env.label}</span>
               {env.hasIssue && <AlertTriangle size={11} color="#fb7185" />}
             </div>
@@ -132,25 +132,25 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
 
         {/* Global KPI stats */}
         <div className="kly-dep-global-stats">
-          <div className="kly-dep-stat">
-            <CheckCircle2 size={14} color="#34d399" />
-            <div><strong style={{ color: '#34d399' }}>{healthyCount}</strong><small>Healthy</small></div>
+          <div className='kly-dep-sub-stats1'>
+            <div className="kly-dep-stat">
+              <div><strong style={{ color: '#34d399' }}>{healthyCount}</strong><small>Healthy</small></div>
+            </div>
+            <div className="kly-dep-stat">
+              <div><strong style={{ color: '#fbbf24' }}>{buildingCount}</strong><small>Building</small></div>
+            </div>
+            <div className="kly-dep-stat">
+              <div><strong style={{ color: '#fb7185' }}>{failedCount}</strong><small>Failed</small></div>
+            </div>
           </div>
-          <div className="kly-dep-stat">
-            <Activity size={14} color="#fbbf24" />
-            <div><strong style={{ color: '#fbbf24' }}>{buildingCount}</strong><small>Building</small></div>
-          </div>
-          <div className="kly-dep-stat">
-            <XCircle size={14} color="#fb7185" />
-            <div><strong style={{ color: '#fb7185' }}>{failedCount}</strong><small>Failed</small></div>
-          </div>
-          <div className="kly-dep-stat">
-            <Globe size={14} color="#a78bfa" />
-            <div><strong style={{ color: '#a78bfa' }}>42</strong><small>Edges</small></div>
-          </div>
-          <div className="kly-dep-stat">
-            <Clock3 size={14} color="var(--kly-text-dim)" />
-            <div><strong>2m ago</strong><small>Health check</small></div>
+          <div className='kly-dep-sub-stats2'>
+
+            <div className="kly-dep-stat">
+              <div><strong style={{ color: '#a78bfa' }}>42</strong><small>Edges</small></div>
+            </div>
+            <div className="kly-dep-stat">
+              <div><strong>2m ago</strong><small>Health check</small></div>
+            </div>
           </div>
         </div>
       </div>
@@ -214,6 +214,8 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
               const sm = STATUS_META[d.status] || STATUS_META.paused;
               const ec = ENV_COLORS[d.environment] || ENV_COLORS.development;
               const expanded = expandedRow === d.id;
+              const deployedRel = deployedRelativeLabel(d.deployedAt);
+              const deployedDate = deployedDateLabel(d.deployedAt);
               return (
                 <React.Fragment key={d.id}>
                   <tr className={`kly-dep-row ${expanded ? 'is-expanded' : ''}`} onClick={() => setExpandedRow(expanded ? null : d.id)}>
@@ -258,18 +260,17 @@ export const TabDeployments: React.FC<TabDeploymentsProps> = ({
                       </div>
                     </td>
                     <td>
-                      <span className="kly-badge kly-dep-status-badge" style={{ background: sm.bg, color: sm.color, borderColor: `${sm.color}33` }}>
-                        {sm.icon}
+                      <span className="kly-badge " style={{color: sm.color}}>
                         {sm.label}
-                        {(d.status === 'healthy' || d.status === 'building') && (
-                          <span className="kly-pulse-dot" style={{ background: sm.color }} />
-                        )}
+                        {(d.status === 'healthy' || d.status === 'building')}
                       </span>
                     </td>
                     <td>
-                      <div className="kly-dep-time-cell">
+                      <div className="kly-dep-time-cell" title={deployedTooltipLabel(d.deployedAt)}>
                         <Clock3 size={11} color="var(--kly-text-dim)" />
-                        <span>{d.deployedAt}</span>
+                        <span className="kly-dep-time-rel">{deployedRel}</span>
+                        <span className="kly-dep-time-sep" aria-hidden="true">·</span>
+                        <span className="kly-dep-time-date">{deployedDate}</span>
                       </div>
                     </td>
                     <td>

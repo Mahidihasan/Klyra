@@ -12,7 +12,7 @@
     "test": "node --require ts-node/register/transpile-only --test src/__tests__/otp.test.ts src/__tests__/operations.test.ts src/__tests__/login-totp.test.ts src/__tests__/account-deactivation.test.ts",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:status": "node scripts/migrate.mjs --status",
-    "seed:billing": "node -r dotenv/config -r ts-node/register/transpile-only scripts/seed-billing.ts dotenv_config_path=../.env.development",
+    "seed:marketplace": "node -r dotenv/config -r ts-node/register/transpile-only scripts/seed-marketplace.ts dotenv_config_path=../.env.development",
     "seed:api-build": "node -r dotenv/config -r ts-node/register/transpile-only scripts/seed-api-build-project.ts dotenv_config_path=../.env.development"
   },
   "dependencies": {

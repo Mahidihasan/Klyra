@@ -23,7 +23,6 @@ import { TabDevelopment } from './tabs/TabDevelopment';
 import { TabAudit } from './tabs/TabAudit';
 import { useOperations } from './hooks/useOperations';
 import { OperationRecord } from '../../types/operations';
-import { OperationsMonitor } from './components/OperationsMonitor';
 import { OperationDrawer } from './components/OperationDrawer';
 import { TabPlans } from './tabs/TabPlans';
 import { TabConsumers } from './tabs/TabConsumers';
@@ -539,14 +538,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
         onShowToast={showToast}
         onOpenAudit={() => setTab('audit')}
       />
-      <OperationsMonitor
-        operations={ops.operations}
-        onSelect={setSelectedOperation}
-        onOpenAll={() => {
-          if (ops.operations.length > 0) setSelectedOperation(ops.operations[0]);
-          else showToast('No operations recorded yet for this project.');
-        }}
-      />
+
 
       {/* 6. Toast System */}
       <div className="kly-toast-container">

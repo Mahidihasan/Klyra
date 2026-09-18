@@ -413,7 +413,7 @@ export const TabApi: React.FC<TabApiProps> = ({
       <div className="kly-card kly-ctrl-plane" aria-label="Gateway control plane">
         <div className="kly-card-header">
           <div>
-            <h4 className="kly-card-title"><SlidersHorizontal size={15} /> Gateway Control Plane</h4>
+            <h4 className="kly-card-title">Gateway Control Plane</h4>
             <p className="kly-card-subtitle">Changes apply to the running gateway immediately — every action is audited.</p>
           </div>
           <span className="kly-badge kly-badge-healthy"><Wifi size={11} /> Connected</span>
@@ -423,7 +423,6 @@ export const TabApi: React.FC<TabApiProps> = ({
           {/* Rate limiting */}
           <div className="kly-ctrl-item">
             <div className="kly-ctrl-head">
-              <Activity size={13} className="kly-ctrl-ic is-violet" />
               <b>Global rate limit</b>
               <small>{endpoints.length} routes</small>
             </div>
@@ -454,7 +453,6 @@ export const TabApi: React.FC<TabApiProps> = ({
           {/* Security */}
           <div className="kly-ctrl-item">
             <div className="kly-ctrl-head">
-              <ShieldCheck size={13} className="kly-ctrl-ic is-green" />
               <b>Authentication</b>
               <small>{endpoints.length - protectedCount} route{endpoints.length - protectedCount === 1 ? '' : 's'} unprotected</small>
             </div>
@@ -467,7 +465,6 @@ export const TabApi: React.FC<TabApiProps> = ({
           {/* Traffic shaping */}
           <div className="kly-ctrl-item">
             <div className="kly-ctrl-head">
-              <FlaskConical size={13} className="kly-ctrl-ic is-cyan" />
               <b>Upstream traffic</b>
               <small>{mockCount} mocked · {fallbackCount} fallback</small>
             </div>
@@ -502,7 +499,6 @@ export const TabApi: React.FC<TabApiProps> = ({
           {/* Gateway runtime config */}
           <div className="kly-ctrl-item">
             <div className="kly-ctrl-head">
-              <Settings2 size={13} className="kly-ctrl-ic is-amber" />
               <b>Gateway runtime</b>
               <small>cache · timeout</small>
             </div>

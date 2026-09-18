@@ -96,9 +96,6 @@ export const TabPlans: React.FC<TabPlansProps> = ({
       {/* ── Monetization KPIs ── */}
       <div className="kly-plans-kpi-strip">
         <div className="kly-plans-kpi">
-          <div className="kly-plans-kpi-icon" style={{ background: 'rgba(52,211,153,.12)', color: '#34d399' }}>
-            <Users size={14} />
-          </div>
           <div>
             <div className="kly-plans-kpi-val">{totalSubscribers.toLocaleString()}</div>
             <div className="kly-plans-kpi-label">Total Subscribers</div>
@@ -106,9 +103,6 @@ export const TabPlans: React.FC<TabPlansProps> = ({
           </div>
         </div>
         <div className="kly-plans-kpi">
-          <div className="kly-plans-kpi-icon" style={{ background: 'rgba(139,92,246,.12)', color: '#c4b5fd' }}>
-            <DollarSign size={14} />
-          </div>
           <div>
             <div className="kly-plans-kpi-val">${totalMrr.toLocaleString()}</div>
             <div className="kly-plans-kpi-label">Active MRR</div>
@@ -116,9 +110,6 @@ export const TabPlans: React.FC<TabPlansProps> = ({
           </div>
         </div>
         <div className="kly-plans-kpi">
-          <div className="kly-plans-kpi-icon" style={{ background: 'rgba(56,189,248,.12)', color: '#38bdf8' }}>
-            <BarChart3 size={14} />
-          </div>
           <div>
             <div className="kly-plans-kpi-val">${(totalMrr / (totalSubscribers || 1)).toFixed(2)}</div>
             <div className="kly-plans-kpi-label">ARPU Blend</div>
@@ -126,9 +117,6 @@ export const TabPlans: React.FC<TabPlansProps> = ({
           </div>
         </div>
         <div className="kly-plans-kpi">
-          <div className="kly-plans-kpi-icon" style={{ background: 'rgba(245,158,11,.12)', color: '#fbbf24' }}>
-            <Zap size={14} />
-          </div>
           <div>
             <div className="kly-plans-kpi-val">18.4%</div>
             <div className="kly-plans-kpi-label">Trial Conversion</div>
@@ -192,9 +180,6 @@ export const TabPlans: React.FC<TabPlansProps> = ({
               {/* Card Header */}
               <div className="kly-plans-card-header">
                 <div className="kly-plans-card-title">
-                  <span className="kly-plans-card-icon" style={{ color: accent, background: `${accent}18` }}>
-                    {planIcon}
-                  </span>
                   <div>
                     <h4 className="kly-plans-name" style={{ color: accent }}>{p.name}</h4>
                     <div className="kly-plans-subscriber-count">
@@ -209,15 +194,6 @@ export const TabPlans: React.FC<TabPlansProps> = ({
                       {p.trialDays}d trial
                     </span>
                   )}
-                  <button
-                    className="kly-plans-publish-toggle"
-                    id={`plan-toggle-${p.id}`}
-                    onClick={() => handleTogglePublish(p.id, p.name)}
-                    title={isPublished ? 'Unpublish plan' : 'Publish plan'}
-                    style={{ color: isPublished ? '#34d399' : 'var(--kly-text-dim)' }}
-                  >
-                    {isPublished ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-                  </button>
                 </div>
               </div>
 
@@ -232,10 +208,6 @@ export const TabPlans: React.FC<TabPlansProps> = ({
                   ) : (
                     <span className="kly-plans-price-free">Free</span>
                   )}
-                </div>
-                <div className="kly-plans-mrr-chip">
-                  <DollarSign size={10} />
-                  <span>${planMrr.toLocaleString()} MRR</span>
                 </div>
               </div>
 

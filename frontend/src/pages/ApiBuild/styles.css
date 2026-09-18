@@ -5,7 +5,7 @@
 .ab2-sub{color:var(--text-secondary);font-size:13px;margin-top:4px;max-width:640px}
 .ab2-primary{background:var(--accent-gradient);color:#fff;font-weight:700;font-size:13px;padding:10px 16px;border-radius:10px;display:inline-flex;gap:8px;align-items:center;box-shadow:0 4px 16px rgba(99,102,241,.35)}
 .ab2-primary:hover{background:var(--accent-gradient-hover);transform:translateY(-1px)}
-.ab2-ghost{background:var(--bg-card);color:var(--text-secondary);padding:9px 14px;border-radius:10px;font-size:13px;display:inline-flex;gap:8px;align-items:center}
+.ab2-ghost{color:var(--text-secondary);font-size:13px;display:inline-flex;gap:8px;align-items:center}
 .ab2-ghost:hover{color:var(--text-primary);border-color:rgba(139,92,246,.4)}
 .ab2-card{background:var(--bg-card);border:1px solid var(--border-card);border-radius:var(--radius-lg);padding:20px}
 .ab2-card:hover{border-color:rgba(139,92,246,.25)}

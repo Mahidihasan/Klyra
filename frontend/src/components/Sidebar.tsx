@@ -56,7 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const discoverNav = [
     { id: 'home', label: 'Home', icon: Home },
-    { id: 'apis', label: 'APIs', icon: Cpu },
+    { id: 'apis', label: 'Marketplace', icon: Store },
   ];
 
   const workspaceNav = [
