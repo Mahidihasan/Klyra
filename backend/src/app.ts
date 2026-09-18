@@ -16,6 +16,7 @@ import apiBuildGateway from './modules/api-build/api-build.gateway';
 import apiKeysRouter from './modules/api-keys/api-keys.routes';
 import walletRouter from './modules/wallet/wallet.routes';
 import walletWebhookRouter from './modules/wallet/wallet.webhook';
+import usageRouter from './modules/usage/usage.routes';
 
 const app = express();
 
@@ -68,6 +69,10 @@ app.use('/api/playground', playgroundRouter);
 // Billing routes
 app.use('/api/billing', billingRouter);
 app.use('/api/wallet', walletRouter);
+// requireAuth is applied per route inside the router, as the wallet module
+// does. authOptional would let an unauthenticated request through, and the
+// router used to fall back to a ?userId= query parameter when it did.
+app.use('/api/usage', usageRouter);
 
 // API Build module (projects, endpoints, versions, …) and its dev gateway.
 // The gateway answers /api/gateway/{slug}/* — the same path the project's

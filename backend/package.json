@@ -13,7 +13,9 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:status": "node scripts/migrate.mjs --status",
     "seed:billing": "node -r dotenv/config -r ts-node/register/transpile-only scripts/seed-billing.ts dotenv_config_path=../.env.development",
-    "seed:api-build": "node -r dotenv/config -r ts-node/register/transpile-only scripts/seed-api-build-project.ts dotenv_config_path=../.env.development"
+    "seed:api-build": "node -r dotenv/config -r ts-node/register/transpile-only scripts/seed-api-build-project.ts dotenv_config_path=../.env.development",
+    "seed:usage": "node -r dotenv/config -r ts-node/register/transpile-only scripts/seed-usage.ts dotenv_config_path=../.env.development",
+    "clean:usage": "node -r dotenv/config -r ts-node/register/transpile-only scripts/clean-usage.ts dotenv_config_path=../.env.development"
   },
   "dependencies": {
     "@google/genai": "^2.17.1",
