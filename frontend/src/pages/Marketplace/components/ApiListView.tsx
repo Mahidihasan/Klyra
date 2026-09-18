@@ -1,6 +1,6 @@
 import React from 'react';
-import { Star, Zap, Shield, Activity, ArrowRight, Clock, Users } from 'lucide-react';
-import { CatalogApi } from '../../../services/api/catalog';
+import { Star, Zap, Shield, Activity, ArrowRight, Clock, Users, ShoppingCart, Check } from 'lucide-react';
+import { CatalogApi, getApiCartPrice } from '../../../services/api/catalog';
 import { useCart } from '../../../context/CartContext';
 import { ApiThumbnail } from './ApiThumbnail';
 
@@ -140,22 +140,33 @@ export const ApiListView: React.FC<ApiListViewProps> = ({
 
             <span className="alv-col alv-col-cart">
               <button
-                className="alv-cart-btn"
+                className={`alv-cart-btn ${isInCart(api.id) ? 'in-cart' : ''}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   addToCart({
                     id: api.id,
                     name: api.name,
                     category: api.categoryName,
-                    price: api.pricingPlans?.find((plan) => plan.price > 0)?.price || 0,
+                    price: getApiCartPrice(api),
                     pricingModel: api.pricingModel,
                     logoUrl: api.logoUrl,
                     slug: api.slug,
                   });
                 }}
                 disabled={isInCart(api.id)}
+                title={isInCart(api.id) ? 'Already in cart' : `Add ${api.name} to cart ($${getApiCartPrice(api)}/mo)`}
               >
-                {isInCart(api.id) ? 'In cart' : 'Add'}
+                {isInCart(api.id) ? (
+                  <>
+                    <Check size={11} className="alv-cart-icon" />
+                    <span>In Cart</span>
+                  </>
+                ) : (
+                  <>
+                    <ShoppingCart size={11} className="alv-cart-icon" />
+                    <span>Add</span>
+                  </>
+                )}
               </button>
             </span>
 
@@ -320,8 +331,37 @@ export const ApiListView: React.FC<ApiListViewProps> = ({
         .alv-pricing-badge.paid { background: rgba(245,158,11,0.15); color: #f59e0b; }
         .alv-pricing-badge.enterprise { background: rgba(59,130,246,0.15); color: #3b82f6; }
         .alv-pricing-badge.other { background: var(--bg-pill); color: var(--text-secondary); }
-        .alv-cart-btn { background: var(--accent-subtle); border: 1px solid var(--accent-subtle-border); border-radius: var(--radius-sm); color: var(--text-accent); font-size: 10px; padding: 5px 7px; white-space: nowrap; }
-        .alv-cart-btn:disabled { cursor: default; opacity: .6; }
+        .alv-cart-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.16) 0%, rgba(99, 102, 241, 0.22) 100%);
+          border: 1px solid rgba(139, 92, 246, 0.42);
+          border-radius: var(--radius-sm);
+          color: #c4b5fd;
+          font-size: 10px;
+          font-weight: 600;
+          padding: 5px 9px;
+          white-space: nowrap;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          box-shadow: 0 1px 6px rgba(139, 92, 246, 0.12);
+        }
+        .alv-cart-btn:hover:not(:disabled) {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.35) 0%, rgba(99, 102, 241, 0.45) 100%);
+          border-color: rgba(167, 139, 250, 0.85);
+          color: #ffffff;
+          transform: translateY(-1px);
+        }
+        .alv-cart-btn.in-cart, .alv-cart-btn:disabled {
+          background: rgba(34, 197, 94, 0.12);
+          border-color: rgba(34, 197, 94, 0.4);
+          color: #4ade80;
+          cursor: default;
+          box-shadow: none;
+          opacity: 1;
+        }
+        .alv-cart-icon { flex-shrink: 0; }
 
         /* Skeleton */
         .alv-skeleton { pointer-events: none; }

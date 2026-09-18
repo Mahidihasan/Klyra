@@ -30,6 +30,8 @@ import { ApiKeysPage } from './pages/ApiKeys';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { CartProvider } from './context/CartContext';
+import { CartDrawer } from './pages/Marketplace/components/CartDrawer';
 import { AuthPage, AuthMode } from './pages/Auth/AuthPage';
 import { DemoInboxPage } from './pages/Auth/DemoInboxPage';
 
@@ -189,6 +191,7 @@ function AppContent() {
   const [selectedApi, setSelectedApi] = useState<ApiItem | null>(null);
   const [isTesterOpen, setIsTesterOpen] = useState<boolean>(false);
   const [testerApi, setTesterApi] = useState<ApiItem | null>(null);
+  const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [isCreateColOpen, setIsCreateColOpen] = useState<boolean>(false);
   const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
@@ -219,6 +222,7 @@ function AppContent() {
   // repository bridge) so the arriving request starts with the API's URL.
   // The Playground consumes it via onPrefillConsumed once applied.
   const [playgroundPrefill, setPlaygroundPrefill] = useState<PlaygroundOpenPayload | null>(null);
+  const [apiBuildInitialView, setApiBuildInitialView] = useState<'dash' | 'new'>('dash');
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -237,7 +241,31 @@ function AppContent() {
       }
     };
     window.addEventListener('klyra:open-playground', handler);
-    return () => window.removeEventListener('klyra:open-playground', handler);
+
+    const navHandler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.tab) {
+        if (detail.tab === 'api-build' && detail.apiBuildView) {
+          setApiBuildInitialView(detail.apiBuildView);
+        }
+        setActiveTab(detail.tab);
+        try {
+          localStorage.setItem('activeTab', detail.tab);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    window.addEventListener('klyra:navigate', navHandler);
+
+    const openCartHandler = () => setIsCartOpen(true);
+    window.addEventListener('klyra:open-cart', openCartHandler);
+
+    return () => {
+      window.removeEventListener('klyra:open-playground', handler);
+      window.removeEventListener('klyra:navigate', navHandler);
+      window.removeEventListener('klyra:open-cart', openCartHandler);
+    };
   }, []);
 
   // Persist active tab to localStorage
@@ -466,7 +494,11 @@ function AppContent() {
         >
           <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}></div>
           <ApiBuildPage
-            onBack={() => goBack()}
+            initialView={apiBuildInitialView}
+            onBack={() => {
+              setApiBuildInitialView('dash');
+              goBack();
+            }}
             onOpenPlayground={(prefill) => {
               setPlaygroundContext({
                 repoId: prefill?.apiId || activeApiProject?.id || '',
@@ -864,6 +896,9 @@ function AppContent() {
         />
       )}
 
+      {/* 6. Global Cart Drawer */}
+      <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
+
       <style>{`
         .center-column {
           display: flex;
@@ -1020,7 +1055,9 @@ function AppContent() {
 export function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <CartProvider>
+        <AppContent />
+      </CartProvider>
     </AuthProvider>
   );
 }

@@ -13,8 +13,6 @@ import { ApiListView } from './components/ApiListView';
 import { ApiDetailPage } from './ApiDetailPage';
 import { ProviderProfileModal } from './ProviderProfileModal';
 import { PublishApiModal } from './PublishApiModal';
-import { CartProvider } from '../../context/CartContext';
-import { CartDrawer } from './components/CartDrawer';
 
 interface MarketplacePageProps {
   initialSearch?: string;
@@ -28,13 +26,11 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   onOpenTester,
 }) => {
   return (
-    <CartProvider>
-      <MarketplaceContent
-        initialSearch={initialSearch}
-        initialCategory={initialCategory}
-        onOpenTester={onOpenTester}
-      />
-    </CartProvider>
+    <MarketplaceContent
+      initialSearch={initialSearch}
+      initialCategory={initialCategory}
+      onOpenTester={onOpenTester}
+    />
   );
 };
 
@@ -69,7 +65,6 @@ const MarketplaceContent: React.FC<MarketplacePageProps> = ({
   const [selectedApi, setSelectedApi] = useState<CatalogApi | null>(null);
   const [providerModalId, setProviderModalId] = useState<string | null>(null);
   const [showPublish, setShowPublish] = useState(false);
-  const [isCartOpen, setIsCartOpen] = useState(false);
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
 
@@ -79,12 +74,6 @@ const MarketplaceContent: React.FC<MarketplacePageProps> = ({
       .getCategories()
       .then(setCategories)
       .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const openCart = () => setIsCartOpen(true);
-    window.addEventListener('klyra:open-cart', openCart);
-    return () => window.removeEventListener('klyra:open-cart', openCart);
   }, []);
 
   // Fetch APIs whenever query state changes
@@ -225,7 +214,13 @@ const MarketplaceContent: React.FC<MarketplacePageProps> = ({
         onClearFilters={() =>
           handleApplyFilters({ category: 'all', pricingModel: 'all', minRating: 0, maxLatency: 0 })
         }
-        onOpenPublish={() => setShowPublish(true)}
+        onOpenPublish={() =>
+          window.dispatchEvent(
+            new CustomEvent('klyra:navigate', {
+              detail: { tab: 'api-build', apiBuildView: 'new' },
+            })
+          )
+        }
       />
 
       {/* Main Content Area */}
@@ -300,9 +295,6 @@ const MarketplaceContent: React.FC<MarketplacePageProps> = ({
           )}
         </div>
       </div>
-
-      {/* Provider Profile Modal */}
-      <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
 
       {/* Provider Profile Modal */}
       {providerModalId && (

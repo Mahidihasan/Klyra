@@ -37,6 +37,7 @@ export const MarketplaceHeader: React.FC<MarketplaceHeaderProps> = ({
   onClearFilters,
   onOpenPublish,
 }) => {
+
   return (
     <div className="marketplace-header-bar">
       <div className="mp-top-row">
@@ -53,10 +54,27 @@ export const MarketplaceHeader: React.FC<MarketplaceHeaderProps> = ({
           </p>
         </div>
 
-        <button className="mp-publish-btn" onClick={onOpenPublish}>
-          <Plus size={15} />
-          <span>Publish API</span>
-        </button>
+        <div className="mp-header-actions">
+          <button
+            className="mp-publish-btn"
+            onClick={() => {
+              if (onOpenPublish) {
+                onOpenPublish();
+              } else {
+                window.dispatchEvent(
+                  new CustomEvent('klyra:navigate', {
+                    detail: { tab: 'api-build', apiBuildView: 'new' },
+                  })
+                );
+              }
+            }}
+            title="Publish API to Marketplace"
+          >
+            <span className="mp-publish-shimmer" />
+            <Plus size={15} />
+            <span>Publish API</span>
+          </button>
+        </div>
       </div>
 
       <div className="mp-controls-row">
@@ -273,28 +291,157 @@ export const MarketplaceHeader: React.FC<MarketplaceHeaderProps> = ({
           animation: mp-sub-calibrate 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
         }
 
-        .mp-publish-btn {
+        .mp-cart-btn {
           height: 38px;
-          padding: 0 15px;
+          padding: 0 14px;
           border-radius: var(--radius-md);
-          background: var(--accent-gradient);
-          color: #ffffff;
+          background: var(--bg-card);
+          border: 1px solid var(--border-card);
+          color: var(--text-secondary);
           font-size: 13px;
           font-weight: 600;
-          border: none;
           cursor: pointer;
           display: flex;
           align-items: center;
-          gap: 6px;
-          box-shadow: var(--shadow-purple);
-          transition: all 0.2s ease;
+          gap: 8px;
+          position: relative;
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+          flex-shrink: 0;
+          align-self: flex-start;
+        }
+
+        .mp-cart-btn:hover {
+          color: var(--text-primary);
+          border-color: rgba(139, 92, 246, 0.45);
+          background: var(--bg-card-hover);
+          transform: translateY(-1px);
+        }
+
+        .mp-cart-btn.has-items {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.14) 0%, rgba(99, 102, 241, 0.22) 100%);
+          border-color: rgba(167, 139, 250, 0.6);
+          color: #ffffff;
+          box-shadow: 0 0 16px rgba(139, 92, 246, 0.25);
+          animation: cartBreathingGlow 3s ease-in-out infinite;
+        }
+
+        .mp-cart-btn.just-added {
+          animation: cartBouncePop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes cartBreathingGlow {
+          0%, 100% {
+            border-color: rgba(139, 92, 246, 0.45);
+            box-shadow: 0 0 14px rgba(139, 92, 246, 0.2);
+          }
+          50% {
+            border-color: rgba(192, 132, 252, 0.85);
+            box-shadow: 0 0 24px rgba(192, 132, 252, 0.45), 0 0 6px rgba(139, 92, 246, 0.35);
+          }
+        }
+
+        @keyframes cartBouncePop {
+          0% { transform: scale(1); }
+          30% { transform: scale(1.14); }
+          60% { transform: scale(0.96); }
+          100% { transform: scale(1); }
+        }
+
+        .mp-cart-icon-wrap {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .mp-cart-count {
+          position: absolute;
+          top: -8px;
+          right: -10px;
+          background: linear-gradient(135deg, #a855f7, #ec4899);
+          color: #ffffff;
+          font-size: 10px;
+          font-weight: 800;
+          min-width: 17px;
+          height: 17px;
+          border-radius: 999px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 3px;
+          box-shadow: 0 2px 6px rgba(236, 72, 153, 0.4);
+          animation: badgePulse 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes badgePulse {
+          0% { transform: scale(1); }
+          100% { transform: scale(1.08); }
+        }
+
+        .mp-cart-beacon {
+          position: absolute;
+          top: 6px;
+          right: 6px;
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #22c55e;
+          box-shadow: 0 0 8px #22c55e;
+          animation: beaconPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes beaconPulse {
+          0%, 100% { opacity: 0.7; transform: scale(0.9); }
+          50% { opacity: 1; transform: scale(1.3); }
+        }
+
+        .mp-publish-btn {
+          position: relative;
+          overflow: hidden;
+          height: 38px;
+          padding: 0 16px;
+          border-radius: var(--radius-md);
+          background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 600;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
           flex-shrink: 0;
           align-self: flex-start;
         }
 
         .mp-publish-btn:hover {
-          transform: translateY(-1px);
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5);
           filter: brightness(1.08);
+        }
+
+        .mp-publish-shimmer {
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 60%;
+          height: 100%;
+          background: linear-gradient(
+            90deg,
+            transparent,
+            rgba(255, 255, 255, 0.28),
+            transparent
+          );
+          transform: skewX(-20deg);
+          animation: publishShimmerSweep 3.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+          pointer-events: none;
+        }
+
+        @keyframes publishShimmerSweep {
+          0% { left: -100%; }
+          35%, 100% { left: 160%; }
         }
 
 

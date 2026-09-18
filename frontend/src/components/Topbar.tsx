@@ -44,6 +44,31 @@ export const Topbar: React.FC<TopbarProps> = ({
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showLoginHistory, setShowLoginHistory] = useState(false);
   const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
+  const [cartItemCount, setCartItemCount] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem('klyra_cart_items');
+      return stored ? JSON.parse(stored).length : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [cartJustAdded, setCartJustAdded] = useState(false);
+
+  useEffect(() => {
+    const handleCartUpdated = (e: any) => {
+      setCartItemCount(e.detail?.count ?? 0);
+    };
+    const handleCartAdded = () => {
+      setCartJustAdded(true);
+      setTimeout(() => setCartJustAdded(false), 800);
+    };
+    window.addEventListener('klyra:cart-updated', handleCartUpdated);
+    window.addEventListener('klyra:cart-item-added', handleCartAdded);
+    return () => {
+      window.removeEventListener('klyra:cart-updated', handleCartUpdated);
+      window.removeEventListener('klyra:cart-item-added', handleCartAdded);
+    };
+  }, []);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
@@ -117,6 +142,16 @@ export const Topbar: React.FC<TopbarProps> = ({
 
       {/* Right: Authentication or User Profile */}
       <div className="topbar-right">
+        <button
+          className={`topbar-btn topbar-cart-btn ${cartItemCount > 0 ? 'has-items' : ''} ${cartJustAdded ? 'just-added' : ''}`}
+          onClick={() => window.dispatchEvent(new Event('klyra:open-cart'))}
+          title={cartItemCount > 0 ? `API Cart (${cartItemCount} item${cartItemCount === 1 ? '' : 's'})` : 'API Cart is empty'}
+          aria-label="Open API cart"
+        >
+          <ShoppingCart size={18} />
+          {cartItemCount > 0 && <span className="topbar-cart-badge">{cartItemCount}</span>}
+        </button>
+
         {!isAuthenticated ? (
           <div className="topbar-auth-group">
             <button
@@ -140,14 +175,6 @@ export const Topbar: React.FC<TopbarProps> = ({
           </div>
         ) : (
           <>
-            <button
-              className="topbar-btn topbar-cart-btn"
-              onClick={() => window.dispatchEvent(new Event('klyra:open-cart'))}
-              title="API Cart"
-              aria-label="Open API cart"
-            >
-              <ShoppingCart size={18} />
-            </button>
 
             {/* Notifications Popover Container */}
             <div className="popover-wrapper" ref={notifRef}>
@@ -631,6 +658,59 @@ export const Topbar: React.FC<TopbarProps> = ({
     background: rgba(255, 255, 255, 0.045);
 
     border-color: rgba(255, 255, 255, 0.065);
+  }
+
+  .topbar-cart-btn {
+    position: relative;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .topbar-cart-btn.has-items {
+    color: #c4b5fd;
+    background: rgba(139, 92, 246, 0.16);
+    border-color: rgba(167, 139, 250, 0.5);
+    box-shadow: 0 0 14px rgba(139, 92, 246, 0.25);
+    animation: topbarCartGlow 3s ease-in-out infinite;
+  }
+
+  .topbar-cart-btn.just-added {
+    animation: topbarCartBounce 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  @keyframes topbarCartGlow {
+    0%, 100% {
+      border-color: rgba(139, 92, 246, 0.4);
+      box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
+    }
+    50% {
+      border-color: rgba(192, 132, 252, 0.85);
+      box-shadow: 0 0 20px rgba(192, 132, 252, 0.45);
+    }
+  }
+
+  @keyframes topbarCartBounce {
+    0% { transform: scale(1); }
+    30% { transform: scale(1.2); }
+    60% { transform: scale(0.95); }
+    100% { transform: scale(1); }
+  }
+
+  .topbar-cart-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: linear-gradient(135deg, #a855f7, #ec4899);
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 800;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+    box-shadow: 0 2px 6px rgba(236, 72, 153, 0.45);
   }
 
 

@@ -1,6 +1,7 @@
-import React from 'react';
-import { ArrowRight, ShoppingCart, Trash2, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowRight, ShoppingCart, Trash2, X, Check, Sparkles } from 'lucide-react';
 import { useCart } from '../../../context/CartContext';
+import { getSubscribedApisFromStorage, saveSubscribedApisToStorage } from '../useSubscription';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -9,6 +10,26 @@ interface CartDrawerProps {
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
   const { items, cartTotal, removeFromCart, clearCart } = useCart();
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+
+  const handleCheckout = () => {
+    setIsCheckingOut(true);
+    setTimeout(() => {
+      // Provision subscriptions for all items in cart
+      const currentSubs = getSubscribedApisFromStorage();
+      const newSubs = Array.from(new Set([...currentSubs, ...items.map((i) => i.id)]));
+      saveSubscribedApisToStorage(newSubs);
+
+      setIsCheckingOut(false);
+      setCheckoutSuccess(true);
+      clearCart();
+      setTimeout(() => {
+        setCheckoutSuccess(false);
+        onClose();
+      }, 1600);
+    }, 900);
+  };
 
   return (
     <>
@@ -28,7 +49,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
           </button>
         </header>
         <div className="cart-drawer-body">
-          {items.length === 0 ? (
+          {checkoutSuccess ? (
+            <div className="cart-drawer-empty">
+              <div className="cart-success-badge">
+                <Check size={32} color="#22c55e" />
+              </div>
+              <h3 style={{ color: '#4ade80' }}>Subscriptions Activated!</h3>
+              <p>Your API access credentials and sandbox environments are now fully unlocked.</p>
+            </div>
+          ) : items.length === 0 ? (
             <div className="cart-drawer-empty">
               <ShoppingCart size={28} />
               <h3>Your cart is ready</h3>
@@ -49,7 +78,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
                   </span>
                 </div>
                 <div className="cart-item-end">
-                  <b>{item.price === 0 ? 'Free' : `$${item.price.toFixed(2)}`}</b>
+                  <b>{item.price === 0 ? 'Free' : `$${item.price.toFixed(2)}/mo`}</b>
                   <button
                     onClick={() => removeFromCart(item.id)}
                     aria-label={`Remove ${item.name}`}
@@ -69,8 +98,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
               <small>/mo</small>
             </strong>
           </div>
-          <button className="cart-checkout-btn" disabled={items.length === 0} onClick={onClose}>
-            Continue to checkout <ArrowRight size={14} />
+          <button
+            className="cart-checkout-btn"
+            disabled={items.length === 0 || isCheckingOut}
+            onClick={handleCheckout}
+          >
+            {isCheckingOut ? (
+              <span>Activating Subscriptions...</span>
+            ) : (
+              <>
+                Activate & Checkout <ArrowRight size={14} />
+              </>
+            )}
           </button>
           {items.length > 0 && (
             <button className="cart-clear-btn" onClick={clearCart}>
@@ -89,7 +128,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
           .cart-drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 20px; }
           .cart-drawer-empty { align-items: center; color: var(--text-muted); display: flex; flex-direction: column; gap: 8px; justify-content: center; min-height: 300px; text-align: center; }
           .cart-drawer-empty h3 { color: var(--text-primary); font-size: 16px; }
-          .cart-drawer-empty p { font-size: 12px; line-height: 1.5; max-width: 220px; }
+          .cart-drawer-empty p { font-size: 12px; line-height: 1.5; max-width: 260px; }
+          .cart-success-badge { width: 60px; height: 60px; border-radius: 50%; background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.35); display: flex; align-items: center; justify-content: center; margin-bottom: 6px; animation: popIn 0.35s cubic-bezier(0.16, 1, 0.3, 1); box-shadow: 0 0 24px rgba(34, 197, 94, 0.25); }
+          @keyframes popIn { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
           .cart-item { align-items: center; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 12px; justify-content: space-between; padding: 14px 0; }
           .cart-item-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
           .cart-item-copy strong { color: var(--text-primary); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

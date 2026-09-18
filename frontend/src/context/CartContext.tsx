@@ -46,6 +46,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     saveCartToStorage(items);
+    window.dispatchEvent(new CustomEvent('klyra:cart-updated', { detail: { count: items.length, total: items.reduce((sum, i) => sum + (Number(i.price) || 0), 0) } }));
   }, [items]);
 
   const addToCart = useCallback((item: CartItem) => {
@@ -54,7 +55,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return [...prev, item];
     });
     setJustAdded(true);
-    setTimeout(() => setJustAdded(false), 700);
+    window.dispatchEvent(new CustomEvent('klyra:cart-item-added'));
+    setTimeout(() => setJustAdded(false), 800);
   }, []);
 
   const removeFromCart = useCallback((apiId: string) => {
@@ -70,7 +72,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [items],
   );
 
-  const cartTotal = items.reduce((sum, item) => sum + item.price, 0);
+  const cartTotal = Number(items.reduce((sum, item) => sum + (Number(item.price) || 0), 0).toFixed(2));
 
   return (
     <CartContext.Provider

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Check,
   Zap,
@@ -58,6 +58,38 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
   const [showComparison, setShowComparison] = useState(false);
   const [monthlyRequests, setMonthlyRequests] = useState<number>(250000);
   const [promoCopied, setPromoCopied] = useState(false);
+  const [activePromoIndex, setActivePromoIndex] = useState(0);
+
+  const promoHighlights = [
+    {
+      badge: 'Zero Take-Rate',
+      title: '0% Platform Overheads',
+      desc: '100% of revenue flows to API builders with zero commission on standard workloads.',
+    },
+    {
+      badge: 'Founder Credits',
+      title: '$500 Instant Sandbox Grant',
+      desc: 'Pre-loaded developer balance auto-applied to any annual tier or test call.',
+    },
+    {
+      badge: 'Direct Advisory',
+      title: '1-on-1 Architecture Review',
+      desc: 'Direct consultation with Klyra core systems engineers to review OpenAPI reliability.',
+    },
+    {
+      badge: 'VIP Early Access',
+      title: 'Private Preview Model APIs',
+      desc: 'Instant access to upcoming frontier models and experimental endpoint features.',
+    },
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActivePromoIndex((prev) => (prev + 1) % promoHighlights.length);
+    }, 3600);
+    return () => clearInterval(timer);
+  }, [promoHighlights.length]);
+
   const [isEnterpriseModalOpen, setIsEnterpriseModalOpen] = useState(false);
   const [enterpriseSubmitted, setEnterpriseSubmitted] = useState(false);
   const [enterpriseFormData, setEnterpriseFormData] = useState({
@@ -455,7 +487,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           </button>
         </div>
 
-        {/* Klyra Promotional & Marketing Accelerator Banner */}
+        {/* Klyra Promotional & Marketing Accelerator Banner - Spanning 3 panels beside Enterprise */}
         <div className="aps-tier-card aps-promo-banner-card">
           <div className="aps-promo-ambient-glow" />
           <div className="aps-popular-badge promo">
@@ -463,66 +495,100 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
             <span>KLYRA ECOSYSTEM ADVANTAGE</span>
           </div>
 
-          <div className="aps-card-header">
-            <h3 className="aps-plan-name promo">$500 Free Credits & Perks</h3>
-            <p className="aps-plan-desc">
-              Accelerate production AI workflows with zero platform take-rate and bundled
-              architecture perks.
-            </p>
-          </div>
+          <div className="aps-promo-3panel-grid">
+            {/* Panel 1: Offer & Founder Balance */}
+            <div className="aps-promo-panel-left">
+              <div className="aps-card-header">
+                <span className="aps-card-kicker promo">FOUNDER ACCELERATOR</span>
+                <h3 className="aps-plan-name promo">$500 Free Credits & Perks</h3>
+                <p className="aps-plan-desc">
+                  Accelerate production AI workflows with zero platform take-rate and bundled perks.
+                </p>
+              </div>
 
-          <div className="aps-promo-credit-box">
-            <div className="aps-pcb-top">
-              <span className="aps-pcb-kicker">INSTANT FOUNDER CREDIT</span>
-              <div className="aps-pcb-amount">
-                <span className="aps-pcb-sym">$</span>
-                <span className="aps-pcb-num">500</span>
-                <span className="aps-pcb-lbl">FREE BALANCE</span>
+              <div className="aps-promo-credit-box">
+                <div className="aps-pcb-top">
+                  <span className="aps-pcb-kicker">INSTANT FOUNDER CREDIT</span>
+                  <div className="aps-pcb-amount">
+                    <span className="aps-pcb-sym">$</span>
+                    <span className="aps-pcb-num">500</span>
+                    <span className="aps-pcb-lbl">FREE BALANCE</span>
+                  </div>
+                </div>
+                <p className="aps-pcb-note">Auto-applied to any annual tier or live test calls</p>
               </div>
             </div>
-            <p className="aps-pcb-note">Auto-applied to any annual tier or test calls</p>
-          </div>
 
-          <div className="aps-features-list promo-features">
-            <div className="aps-feature-item">
-              <Sparkles size={14} className="aps-feature-check promo" />
-              <span>
-                <b>20% Annual Bundle Savings</b> across all tiers
-              </span>
-            </div>
-            <div className="aps-feature-item">
-              <Shield size={14} className="aps-feature-check promo" />
-              <span>
-                <b>Free 1-on-1 Architecture Review</b> with Klyra Leads
-              </span>
-            </div>
-            <div className="aps-feature-item">
-              <Zap size={14} className="aps-feature-check promo" />
-              <span>
-                <b>0% Platform Overheads</b> for verified builders
-              </span>
-            </div>
-            <div className="aps-feature-item">
-              <Award size={14} className="aps-feature-check promo" />
-              <span>Early VIP access to private preview APIs</span>
-            </div>
-          </div>
+            {/* Panel 2: Natural Animated Messaging */}
+            <div className="aps-promo-panel-mid">
+              <div className="aps-promo-animated-box">
+                <div className="aps-pam-header">
+                  <span className="aps-pam-live-dot" />
+                  <span className="aps-pam-badge">{promoHighlights[activePromoIndex].badge}</span>
+                  <span className="aps-pam-step">{activePromoIndex + 1} of {promoHighlights.length}</span>
+                </div>
+                <div className="aps-pam-body" key={activePromoIndex}>
+                  <h4 className="aps-pam-title">{promoHighlights[activePromoIndex].title}</h4>
+                  <p className="aps-pam-desc">{promoHighlights[activePromoIndex].desc}</p>
+                </div>
+                <div className="aps-pam-dots">
+                  {promoHighlights.map((_, i) => (
+                    <button
+                      key={i}
+                      className={`aps-pam-dot ${activePromoIndex === i ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActivePromoIndex(i);
+                      }}
+                      aria-label={`Show perk ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
 
-          <div className="aps-promo-cta-box">
-            <button className="aps-subscribe-btn promo-btn" onClick={handleCopyPromo}>
-              {promoCopied ? (
-                <>
-                  <Check size={14} color="#22c55e" />
-                  <span>Code KLYRA-ACCEL-2026 Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={14} />
-                  <span>Claim $500 Voucher (Copy Code)</span>
-                </>
-              )}
-            </button>
-            <span className="aps-promo-subtext">✨ No card required for sandbox claims</span>
+              <div className="aps-features-list promo-features compact">
+                <div className="aps-feature-item">
+                  <Sparkles size={13} className="aps-feature-check promo" />
+                  <span><b>20% Annual Bundle Savings</b> across all tiers</span>
+                </div>
+                <div className="aps-feature-item">
+                  <Shield size={13} className="aps-feature-check promo" />
+                  <span><b>Free Architecture Review</b> with Klyra Leads</span>
+                </div>
+                <div className="aps-feature-item">
+                  <Zap size={13} className="aps-feature-check promo" />
+                  <span><b>Zero Platform Take-Rate</b> on standard workloads</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Panel 3: Exclusive Voucher & CTA */}
+            <div className="aps-promo-panel-right">
+              <div className="aps-promo-code-box" onClick={handleCopyPromo}>
+                <span className="aps-pcb-label">EXCLUSIVE VOUCHER CODE</span>
+                <div className="aps-pcb-code-row">
+                  <code className="aps-pcb-code">KLYRA-ACCEL-2026</code>
+                  <Copy size={13} className="aps-pcb-copy-icon" />
+                </div>
+              </div>
+
+              <div className="aps-promo-cta-box">
+                <button className="aps-subscribe-btn promo-btn" onClick={handleCopyPromo}>
+                  {promoCopied ? (
+                    <>
+                      <Check size={14} color="#22c55e" />
+                      <span>Code Copied to Clipboard!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={14} />
+                      <span>Claim $500 Voucher</span>
+                    </>
+                  )}
+                </button>
+                <span className="aps-promo-subtext">✨ Instant activation · No credit card required</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -981,6 +1047,12 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           gap: 16px;
         }
 
+        @media (min-width: 1080px) {
+          .aps-tiers-grid {
+            grid-template-columns: repeat(4, 1fr);
+          }
+        }
+
         .aps-tier-card {
           background: var(--bg-card);
           border: 1px solid var(--border-card);
@@ -1019,24 +1091,236 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           border-color: rgba(59, 130, 246, 0.25);
         }
 
-        /* Promo Banner Card */
+        /* Promo Banner Card - Spanning 3 Panels beside Enterprise */
         .aps-tier-card.aps-promo-banner-card {
           align-self: stretch;
-          grid-column: -2;
-          grid-row: span 3;
+          height: 100%;
           min-height: 100%;
           width: 100%;
-          background: linear-gradient(145deg, rgba(20, 21, 36, 0.95), rgba(17, 18, 32, 0.98)),
-                      radial-gradient(ellipse at top left, rgba(217, 70, 239, 0.25), transparent 70%);
+          background: linear-gradient(145deg, rgba(20, 21, 36, 0.96), rgba(17, 18, 32, 0.98)),
+                      radial-gradient(ellipse at top left, rgba(217, 70, 239, 0.22), transparent 70%);
           border: 1px solid rgba(217, 70, 239, 0.4);
           position: relative;
-          overflow: hidden;
+          overflow: visible;
           box-shadow: 0 8px 32px rgba(217, 70, 239, 0.15);
           animation: promoBorderShimmer 6s ease-in-out infinite;
+          box-sizing: border-box;
+          padding: 24px;
+          display: flex;
+          flex-direction: column;
         }
 
-        @media (max-width: 1050px) {
-          .aps-tier-card.aps-promo-banner-card { grid-column: 1 / -1; grid-row: auto; }
+        @media (min-width: 1080px) {
+          .aps-tier-card.aps-promo-banner-card {
+            grid-column: 2 / span 3;
+            grid-row: auto;
+          }
+        }
+
+        @media (max-width: 1079px) {
+          .aps-tier-card.aps-promo-banner-card {
+            grid-column: 1 / -1;
+          }
+        }
+
+        .aps-promo-3panel-grid {
+          display: grid;
+          grid-template-columns: 1fr 1.15fr 1fr;
+          gap: 20px;
+          align-items: stretch;
+          height: 100%;
+          width: 100%;
+          flex: 1;
+        }
+
+        @media (max-width: 1079px) {
+          .aps-promo-3panel-grid {
+            grid-template-columns: 1fr;
+            gap: 18px;
+          }
+        }
+
+        .aps-promo-panel-left,
+        .aps-promo-panel-mid,
+        .aps-promo-panel-right {
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          height: 100%;
+          min-width: 0;
+          gap: 14px;
+        }
+
+        .aps-promo-panel-left .aps-card-header {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-start;
+          gap: 6px;
+        }
+
+        /* Animated messaging container */
+        .aps-promo-animated-box {
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(217, 70, 239, 0.2);
+          border-radius: var(--radius-md);
+          padding: 14px 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          position: relative;
+          flex: 1;
+          min-height: 120px;
+          justify-content: space-between;
+          box-sizing: border-box;
+        }
+
+        .aps-pam-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .aps-pam-live-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #ec4899;
+          box-shadow: 0 0 8px #ec4899;
+          animation: pamDotBreathe 2s infinite ease-in-out;
+        }
+
+        @keyframes pamDotBreathe {
+          0%, 100% { transform: scale(0.9); opacity: 0.7; }
+          50% { transform: scale(1.3); opacity: 1; }
+        }
+
+        .aps-pam-badge {
+          font-size: 10px;
+          font-weight: 700;
+          color: #f472b6;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .aps-pam-step {
+          font-size: 10px;
+          color: var(--text-muted);
+          margin-left: auto;
+          font-family: var(--font-mono);
+        }
+
+        .aps-pam-body {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          animation: pamBodyFade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes pamBodyFade {
+          from { opacity: 0; transform: translateY(5px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .aps-pam-title {
+          font-size: 13.5px;
+          font-weight: 700;
+          color: #ffffff;
+          margin: 0;
+        }
+
+        .aps-pam-desc {
+          font-size: 11.5px;
+          color: var(--text-secondary);
+          line-height: 1.45;
+          margin: 0;
+        }
+
+        .aps-pam-dots {
+          display: flex;
+          gap: 5px;
+          align-items: center;
+          margin-top: 4px;
+        }
+
+        .aps-pam-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          padding: 0;
+          cursor: pointer;
+          transition: all 0.25s ease;
+        }
+
+        .aps-pam-dot.active {
+          width: 18px;
+          background: #ec4899;
+          box-shadow: 0 0 8px rgba(236, 72, 153, 0.5);
+        }
+
+        .aps-features-list.promo-features.compact {
+          gap: 8px;
+          padding: 12px 14px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: var(--radius-md);
+          min-height: 96px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          box-sizing: border-box;
+        }
+
+        .aps-promo-code-box {
+          background: rgba(0, 0, 0, 0.25);
+          border: 1px dashed rgba(217, 70, 239, 0.35);
+          border-radius: var(--radius-md);
+          padding: 14px 16px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 8px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          flex: 1;
+          min-height: 120px;
+          box-sizing: border-box;
+        }
+
+        .aps-promo-code-box:hover {
+          background: rgba(217, 70, 239, 0.08);
+          border-color: rgba(217, 70, 239, 0.6);
+        }
+
+        .aps-pcb-label {
+          font-size: 9.5px;
+          font-weight: 700;
+          color: var(--text-muted);
+          letter-spacing: 0.06em;
+        }
+
+        .aps-pcb-code-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .aps-pcb-code {
+          font-family: var(--font-mono);
+          font-size: 13px;
+          font-weight: 700;
+          color: #f472b6;
+          letter-spacing: 0.05em;
+        }
+
+        .aps-pcb-copy-icon {
+          color: var(--text-muted);
+        }
+
+        .aps-promo-code-box:hover .aps-pcb-copy-icon {
+          color: #f472b6;
         }
 
         @keyframes promoBorderShimmer {
@@ -1070,6 +1354,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
 
         .aps-popular-badge.promo {
           background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 50%, #6366f1 100%);
+          z-index: 2;
         }
 
         .aps-card-kicker.promo {
@@ -1086,10 +1371,13 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           background: rgba(217, 70, 239, 0.08);
           border: 1px solid rgba(217, 70, 239, 0.25);
           border-radius: var(--radius-md);
-          padding: 12px 14px;
+          padding: 14px 16px;
           display: flex;
           flex-direction: column;
-          gap: 4px;
+          justify-content: center;
+          gap: 6px;
+          min-height: 96px;
+          box-sizing: border-box;
         }
 
         .aps-pcb-top {
@@ -1144,7 +1432,9 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           display: flex;
           flex-direction: column;
           gap: 6px;
-          margin-top: auto;
+          min-height: 96px;
+          justify-content: center;
+          box-sizing: border-box;
         }
 
         .aps-subscribe-btn.promo-btn {

@@ -182,7 +182,50 @@ const DEMO_PRICING: Record<string, CatalogApi['pricingModel']> = {
   'slack-api': 'FREEMIUM',
   'twilio-api': 'PAID',
   'sendgrid-api': 'FREEMIUM',
+  'supabase-api': 'FREEMIUM',
+  'resend-api': 'FREEMIUM',
+  'perplexity-api': 'PAID',
+  'elevenlabs-api': 'PAID',
+  'pinecone-api': 'FREEMIUM',
+  'mapbox-api': 'FREEMIUM',
+  'coingecko-api': 'FREEMIUM',
+  'news-api': 'FREEMIUM',
+  'ip-geo-api': 'FREE',
+  'whatsapp-api': 'PAID',
+  'paypal-api': 'PAID',
 };
+
+export function getApiCartPrice(api: {
+  id?: string;
+  slug?: string;
+  pricingModel?: string;
+  pricingPlans?: Array<{ price: number }>;
+}): number {
+  if (api.pricingPlans && api.pricingPlans.length > 0) {
+    const paid = api.pricingPlans.find((p) => p.price > 0);
+    if (paid && paid.price > 0) return paid.price;
+  }
+  const slug = (api.slug || api.id || '').toLowerCase();
+  if (slug.includes('claude')) return 49;
+  if (slug.includes('openai')) return 20;
+  if (slug.includes('stripe')) return 29;
+  if (slug.includes('google-maps')) return 29;
+  if (slug.includes('twilio')) return 25;
+  if (slug.includes('supabase')) return 25;
+  if (slug.includes('resend')) return 20;
+  if (slug.includes('elevenlabs')) return 45;
+  if (slug.includes('pinecone')) return 30;
+  if (slug.includes('perplexity')) return 40;
+  if (slug.includes('mapbox')) return 35;
+  if (slug.includes('whatsapp') || slug.includes('paypal')) return 39;
+  if (slug.includes('weather') || slug.includes('github') || slug.includes('ip-geo')) return 0;
+
+  if (api.pricingModel === 'FREE') return 0;
+  if (api.pricingModel === 'PAID') return 49;
+  if (api.pricingModel === 'FREEMIUM') return 29;
+  if (api.pricingModel === 'ENTERPRISE') return 199;
+  return 29;
+}
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -295,37 +338,93 @@ export function toApiItem(api: CatalogApi): ApiItem {
 
 /** Fallback adapter mapping mock data to CatalogApi if backend is unreachable */
 function mockCatalogFallback(): CuratedRailsResponse {
-  const mapMock = (item: ApiItem): CatalogApi => ({
-    id: item.id,
-    name: item.name,
-    slug: item.id,
-    description: item.description,
-    longDescription: item.longDescription,
-    currentVersion: item.version,
-    baseUrl: item.baseUrl,
-    docsUrl: item.baseUrl,
-    logoUrl: undefined,
-    categoryId: item.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    categoryName: item.category,
-    categorySlug: item.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    categoryIcon: 'Layers',
-    ownerId: 'official-provider',
-    ownerName: item.provider,
-    pricingModel: DEMO_PRICING[item.id] || 'FREEMIUM',
-    status: 'PUBLISHED',
-    isPublic: true,
-    rating: item.rating,
-    totalReviews: 84,
-    totalSubscribers: 3200,
-    totalRequests: 1200000,
-    latencyMs: item.latencyMs,
-    uptimePercentage: parseFloat(item.uptime.replace('%', '')) || 99.9,
-    tags: [item.category.toLowerCase()],
-    endpointsCount: item.endpointsCount,
-    endpoints: item.endpoints,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
+  const mapMock = (item: ApiItem): CatalogApi => {
+    const model = DEMO_PRICING[item.id] || 'FREEMIUM';
+    const basePrice = getApiCartPrice({ id: item.id, slug: item.id, pricingModel: model });
+    const plans: CatalogPricingPlan[] =
+      model === 'FREE'
+        ? [
+            {
+              id: `${item.id}-free`,
+              name: 'Developer Sandbox',
+              slug: 'free',
+              description: 'Zero-cost sandbox environment for testing and prototyping.',
+              price: 0,
+              currency: 'USD',
+              billingInterval: 'MONTHLY',
+              features: ['10,000 sandbox requests / mo', 'Rate limit: 60 req/min', 'Community support'],
+              rateLimit: 60,
+            },
+          ]
+        : [
+            {
+              id: `${item.id}-free`,
+              name: 'Developer Sandbox',
+              slug: 'free',
+              description: 'Zero-cost sandbox environment for testing.',
+              price: 0,
+              currency: 'USD',
+              billingInterval: 'MONTHLY',
+              features: ['10,000 sandbox requests / mo', 'Rate limit: 60 req/min', 'Community support'],
+              rateLimit: 60,
+            },
+            {
+              id: `${item.id}-starter`,
+              name: 'Starter Pro',
+              slug: 'starter',
+              description: 'Essential production volume with full endpoint access.',
+              price: basePrice,
+              currency: 'USD',
+              billingInterval: 'MONTHLY',
+              features: ['250,000 requests / mo', 'Rate limit: 300 req/min', 'Standard email SLA'],
+              rateLimit: 300,
+            },
+            {
+              id: `${item.id}-scale`,
+              name: 'Scale & Team',
+              slug: 'scale',
+              description: 'High concurrency, sub-millisecond edge routing and dedicated quota.',
+              price: Math.max(basePrice * 2.5, 79),
+              currency: 'USD',
+              billingInterval: 'MONTHLY',
+              features: ['2,000,000 requests / mo', 'Rate limit: 1,200 req/min', 'Priority support'],
+              rateLimit: 1200,
+            },
+          ];
+
+    return {
+      id: item.id,
+      name: item.name,
+      slug: item.id,
+      description: item.description,
+      longDescription: item.longDescription,
+      currentVersion: item.version,
+      baseUrl: item.baseUrl,
+      docsUrl: item.baseUrl,
+      logoUrl: undefined,
+      categoryId: item.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      categoryName: item.category,
+      categorySlug: item.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      categoryIcon: 'Layers',
+      ownerId: 'official-provider',
+      ownerName: item.provider,
+      pricingModel: model,
+      status: 'PUBLISHED',
+      isPublic: true,
+      rating: item.rating,
+      totalReviews: 84,
+      totalSubscribers: 3200,
+      totalRequests: 1200000,
+      latencyMs: item.latencyMs,
+      uptimePercentage: parseFloat(item.uptime.replace('%', '')) || 99.9,
+      tags: [item.category.toLowerCase()],
+      endpointsCount: item.endpointsCount,
+      endpoints: item.endpoints,
+      pricingPlans: plans,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  };
 
   return {
     featured: MOCK_TRENDING_APIS.slice(0, 4).map(mapMock),

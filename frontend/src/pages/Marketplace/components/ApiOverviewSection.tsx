@@ -24,9 +24,18 @@ import { CatalogApi } from '../../../services/api/catalog';
 interface ApiOverviewSectionProps {
   api: CatalogApi;
   onOpenTester?: (api: CatalogApi) => void;
+  isSubscribed?: boolean;
+  onSubscribe?: () => void;
 }
 
-export const ApiOverviewSection: React.FC<ApiOverviewSectionProps> = ({ api, onOpenTester }) => {
+export const ApiOverviewSection: React.FC<ApiOverviewSectionProps> = ({
+  api,
+  onOpenTester,
+  isSubscribed = false,
+  onSubscribe,
+}) => {
+  const isFreeApi = api.pricingModel === 'FREE';
+  const canAccess = isSubscribed || isFreeApi;
   const [activeWorkflowTab, setActiveWorkflowTab] = useState<'agent' | 'stream' | 'batch'>('agent');
   const [copiedCode, setCopiedCode] = useState(false);
   const [activePillar, setActivePillar] = useState<number | null>(null);
@@ -105,6 +114,10 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
   const currentScenario = workflowScenarios[activeWorkflowTab];
 
   const handleCopy = (text: string) => {
+    if (!canAccess) {
+      onSubscribe?.();
+      return;
+    }
     navigator.clipboard.writeText(text);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
@@ -160,7 +173,7 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
   return (
     <div className="aos-container">
       {/* Capability Highlights Bar */}
-      <div className="aos-meta-strip">
+      <div className="aos-meta-strip" style={{ flexWrap: "nowrap" }}>
         <div className="aos-meta-item">
           <Sparkles size={15} className="aos-meta-icon purple" />
           <span>AI Tool-Calling Ready</span>
@@ -255,11 +268,36 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
 
               {onOpenTester && (
                 <div className="aos-sandbox-action">
-                  <button className="aos-test-btn" onClick={() => onOpenTester(api)}>
-                    <Terminal size={14} />
-                    <span>Run Live In API Tester</span>
-                    <ChevronRight size={14} />
-                  </button>
+                  {canAccess ? (
+                    <button
+                      className="aos-test-btn subscribed"
+                      onClick={() => {
+                        window.dispatchEvent(
+                          new CustomEvent('klyra:open-playground', {
+                            detail: {
+                              repoId: api.id,
+                              repoName: api.name,
+                              baseUrl: api.baseUrl,
+                            },
+                          })
+                        );
+                      }}
+                    >
+                      <Terminal size={14} />
+                      <span>Open in Playground</span>
+                      <ChevronRight size={14} />
+                    </button>
+                  ) : (
+                    <button
+                      className="aos-test-btn locked"
+                      onClick={onSubscribe}
+                      title="Subscription required to run live tests"
+                    >
+                      <Lock size={14} className="aos-lock-icon" />
+                      <span>Subscription Required</span>
+                      <span className="aos-sub-pill">Unlock Tester</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -275,17 +313,38 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
                   </div>
                   <span className="aos-code-title">{currentScenario.inputLabel}</span>
                   <button
-                    className="aos-copy-code-btn"
+                    className={`aos-copy-code-btn ${!canAccess ? 'locked' : ''}`}
                     onClick={() => handleCopy(currentScenario.inputPayload)}
-                    title="Copy code snippet"
+                    title={canAccess ? 'Copy code snippet' : 'Subscribe to copy full code'}
                   >
-                    {copiedCode ? <Check size={12} color="#22c55e" /> : <Copy size={12} />}
-                    <span>{copiedCode ? 'Copied' : 'Copy'}</span>
+                    {!canAccess ? (
+                      <Lock size={12} />
+                    ) : copiedCode ? (
+                      <Check size={12} color="#22c55e" />
+                    ) : (
+                      <Copy size={12} />
+                    )}
+                    <span>{!canAccess ? 'Locked' : copiedCode ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
-                <pre className="aos-code-block">
-                  <code>{currentScenario.inputPayload}</code>
-                </pre>
+                <div className="aos-code-body-wrapper">
+                  <pre className={`aos-code-block ${!canAccess ? 'blurred-code' : ''}`}>
+                    <code>
+                      {canAccess
+                        ? currentScenario.inputPayload
+                        : currentScenario.inputPayload.split('\n').slice(0, 3).join('\n') +
+                        '\n// ... [remaining lines hidden]'}
+                    </code>
+                  </pre>
+                  {!canAccess && (
+                    <div className="aos-code-blur-overlay">
+                      <button className="aos-unlock-code-btn" onClick={onSubscribe}>
+                        <Lock size={13} />
+                        <span>Subscribe to unlock full code</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="aos-code-window output-window">
@@ -296,9 +355,24 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
                   </div>
                   <span className="aos-pill-latency">{api.latencyMs}ms</span>
                 </div>
-                <pre className="aos-code-block output">
-                  <code>{currentScenario.outputPayload}</code>
-                </pre>
+                <div className="aos-code-body-wrapper">
+                  <pre className={`aos-code-block output ${!canAccess ? 'blurred-code' : ''}`}>
+                    <code>
+                      {canAccess
+                        ? currentScenario.outputPayload
+                        : currentScenario.outputPayload.split('\n').slice(0, 3).join('\n') +
+                        '\n// ... [payload hidden]'}
+                    </code>
+                  </pre>
+                  {!canAccess && (
+                    <div className="aos-code-blur-overlay">
+                      <button className="aos-unlock-code-btn" onClick={onSubscribe}>
+                        <Lock size={13} />
+                        <span>Subscribe to unlock full response</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -668,6 +742,110 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
         .aos-test-btn:hover {
           transform: translateY(-1px);
           filter: brightness(1.1);
+        }
+
+        .aos-test-btn.locked {
+          background: rgba(245, 158, 11, 0.1);
+          border: 1px solid rgba(245, 158, 11, 0.4);
+          color: #fbbf24;
+          box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);
+          animation: testBtnLockedPulse 2.4s ease-in-out infinite;
+        }
+
+        .aos-test-btn.locked:hover {
+          background: rgba(245, 158, 11, 0.18);
+          border-color: rgba(245, 158, 11, 0.7);
+          color: #fef08a;
+          transform: translateY(-1px);
+        }
+
+        @keyframes testBtnLockedPulse {
+          0%, 100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.12); }
+          50% { box-shadow: 0 0 18px rgba(245, 158, 11, 0.3); }
+        }
+
+        .aos-sub-pill {
+          background: rgba(245, 158, 11, 0.2);
+          color: #fde68a;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 2px 7px;
+          border-radius: 4px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          margin-left: 4px;
+        }
+
+        .aos-code-body-wrapper {
+          position: relative;
+          overflow: hidden;
+        }
+
+        .aos-code-block.blurred-code {
+          filter: blur(3px);
+          user-select: none;
+          -webkit-user-select: none;
+          pointer-events: none;
+          opacity: 0.55;
+        }
+
+        .aos-code-blur-overlay {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(180deg, rgba(9, 10, 16, 0.2) 0%, rgba(9, 10, 16, 0.82) 55%, rgba(9, 10, 16, 0.95) 100%);
+          backdrop-filter: blur(2px);
+          z-index: 5;
+        }
+
+        .aos-unlock-code-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          background: rgba(139, 92, 246, 0.22);
+          border: 1px solid rgba(167, 139, 250, 0.55);
+          color: #e2e8f0;
+          font-size: 11.5px;
+          font-weight: 600;
+          padding: 7px 16px;
+          border-radius: 999px;
+          cursor: pointer;
+          box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35);
+          backdrop-filter: blur(8px);
+          transition: all 0.2s ease;
+          animation: pulseUnlockPill 2.8s ease-in-out infinite;
+        }
+
+        .aos-unlock-code-btn:hover {
+          background: rgba(139, 92, 246, 0.4);
+          border-color: rgba(192, 132, 252, 0.9);
+          color: #fff;
+          transform: translateY(-1px) scale(1.02);
+          box-shadow: 0 6px 24px rgba(139, 92, 246, 0.55);
+        }
+
+        @keyframes pulseUnlockPill {
+          0%, 100% {
+            border-color: rgba(167, 139, 250, 0.4);
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.25);
+          }
+          50% {
+            border-color: rgba(192, 132, 252, 0.85);
+            box-shadow: 0 4px 24px rgba(192, 132, 252, 0.45);
+          }
+        }
+
+        .aos-copy-code-btn.locked {
+          cursor: pointer;
+          color: #fbbf24;
+          border-color: rgba(245, 158, 11, 0.3);
+          background: rgba(245, 158, 11, 0.08);
+        }
+        .aos-copy-code-btn.locked:hover {
+          border-color: rgba(245, 158, 11, 0.6);
+          background: rgba(245, 158, 11, 0.15);
         }
 
         /* Code Column */

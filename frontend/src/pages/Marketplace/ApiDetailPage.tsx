@@ -13,12 +13,14 @@ import {
   Globe,
   BookOpen,
   ShoppingCart,
+  Lock,
 } from 'lucide-react';
 import {
   CatalogApi,
   CatalogPricingPlan,
   ApiReviewsResponse,
   catalogApi,
+  getApiCartPrice,
 } from '../../services/api/catalog';
 import { ReviewList } from './components/ReviewList';
 import { ApiOverviewSection } from './components/ApiOverviewSection';
@@ -26,6 +28,7 @@ import { ApiShowcaseSection } from './components/ApiShowcaseSection';
 import { ApiPricingSection } from './components/ApiPricingSection';
 import { useCart } from '../../context/CartContext';
 import { ApiThumbnail } from './components/ApiThumbnail';
+import { useSubscription } from './useSubscription';
 
 type DetailTab = 'overview' | 'demo' | 'pricing' | 'reviews';
 
@@ -43,6 +46,10 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
   onOpenTester,
 }) => {
   const { addToCart, isInCart } = useCart();
+  const { isCurrentSubscribed, subscribe: subscribeToApi } = useSubscription(api.id);
+  const isFreeApi = api.pricingModel === 'FREE';
+  const canTest = isFreeApi || isCurrentSubscribed;
+  const [showSubRequiredToast, setShowSubRequiredToast] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [reviewsData, setReviewsData] = useState<ApiReviewsResponse | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState(false);
@@ -142,9 +149,12 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
               <span className="adp-metric-label">{api.totalReviews} reviews</span>
             </div>
             <div
-              className="adp-metric-card metric-latency"
-              title="Real-Time Anycast Latency Telemetry"
+              className={`adp-metric-card metric-latency ${!isCurrentSubscribed ? 'locked' : ''}`}
+              title={isCurrentSubscribed ? 'Real-Time Anycast Latency Telemetry' : 'Subscribe to view live latency'}
+              onClick={() => { if (!isCurrentSubscribed) { setShowSubRequiredToast(true); setTimeout(() => setShowSubRequiredToast(false), 2400); } }}
+              style={{ cursor: !isCurrentSubscribed ? 'pointer' : 'default' }}
             >
+              {!isCurrentSubscribed && <Lock size={11} className="adp-lock-overlay" />}
               <Zap size={16} className="adp-metric-icon zap" />
               <span className="adp-metric-value">{api.latencyMs}ms</span>
               <span className="adp-metric-label">Avg Latency</span>
@@ -166,16 +176,25 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
           </div>
         </div>
 
+        {/* Subscription Required Toast */}
+        {showSubRequiredToast && (
+          <div className="adp-sub-required-toast">
+            <Lock size={14} />
+            <span>Subscription required to access this feature</span>
+            <button className="adp-sub-toast-btn" onClick={() => { subscribeToApi(api.id); setShowSubRequiredToast(false); }}>Subscribe Now</button>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="adp-hero-actions">
           <button
-            className="adp-action-btn"
+            className={`adp-action-btn adp-cart-action ${isInCart(api.id) ? 'in-cart' : ''}`}
             onClick={() =>
               addToCart({
                 id: api.id,
                 name: api.name,
                 category: api.categoryName,
-                price: api.pricingPlans?.find((plan) => plan.price > 0)?.price || 0,
+                price: getApiCartPrice(api),
                 pricingModel: api.pricingModel,
                 logoUrl: api.logoUrl,
                 slug: api.slug,
@@ -183,12 +202,21 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
             }
             disabled={isInCart(api.id)}
           >
-            <ShoppingCart size={14} /> {isInCart(api.id) ? 'In Cart' : 'Add to Cart'}
+            <ShoppingCart size={14} /> {isInCart(api.id) ? 'In Cart ✓' : `Add to Cart${getApiCartPrice(api) > 0 ? ` · $${getApiCartPrice(api)}/mo` : ''}`}
           </button>
           {onOpenTester && (
-            <button className="adp-action-btn primary" onClick={() => onOpenTester(api)}>
-              <Code size={14} /> Try in Tester
-            </button>
+            canTest ? (
+              <button className="adp-action-btn primary" onClick={() => {
+                window.dispatchEvent(new CustomEvent('klyra:open-playground', { detail: { repoId: api.id, repoName: api.name, baseUrl: api.baseUrl } }));
+              }}>
+                <Code size={14} /> Open in Playground
+              </button>
+            ) : (
+              <button className="adp-action-btn locked-action" onClick={() => { setShowSubRequiredToast(true); setTimeout(() => setShowSubRequiredToast(false), 2400); }}>
+                <Lock size={13} /> Try in Tester
+                <span className="adp-locked-pill">Subscribe</span>
+              </button>
+            )
           )}
           {api.docsUrl && (
             <a href={api.docsUrl} target="_blank" rel="noreferrer" className="adp-action-btn">
@@ -217,13 +245,15 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
 
       {/* Tab Content */}
       <div className="adp-tab-content">
-        {activeTab === 'overview' && <ApiOverviewSection api={api} onOpenTester={onOpenTester} />}
+        {activeTab === 'overview' && <ApiOverviewSection api={api} onOpenTester={onOpenTester} isSubscribed={canTest} onSubscribe={() => subscribeToApi(api.id)} />}
 
         {activeTab === 'demo' && (
           <ApiShowcaseSection
             api={api}
             onOpenProvider={onOpenProvider}
             onOpenTester={onOpenTester}
+            isSubscribed={canTest}
+            onSubscribe={() => subscribeToApi(api.id)}
           />
         )}
 
@@ -402,11 +432,14 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
           flex-direction: column;
           align-items: center;
           gap: 3px;
-          padding: 11px 14px;
+          padding: 14px 16px;
           background: var(--bg-card);
           border: 1px solid var(--border-card);
           border-radius: var(--radius-lg);
-          min-width: 90px;
+          min-width: 100px;
+          min-height: 82px;
+          flex: 1 1 0;
+          justify-content: center;
           position: relative;
           transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
           cursor: default;
@@ -414,6 +447,106 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
 
         .adp-metric-card:hover {
           transform: translateY(-2px);
+        }
+
+        .adp-metric-card.locked {
+          opacity: 0.7;
+        }
+        .adp-metric-card.locked::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: repeating-linear-gradient(135deg, transparent, transparent 6px, rgba(139, 92, 246, 0.04) 6px, rgba(139, 92, 246, 0.04) 12px);
+          pointer-events: none;
+        }
+        .adp-lock-overlay {
+          position: absolute;
+          top: 6px;
+          right: 6px;
+          color: rgba(245, 158, 11, 0.75);
+        }
+
+        /* Subscription Required Toast */
+        .adp-sub-required-toast {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(139, 92, 246, 0.12));
+          border: 1px solid rgba(245, 158, 11, 0.35);
+          border-radius: var(--radius-md);
+          padding: 10px 16px;
+          color: #fbbf24;
+          font-size: 12.5px;
+          font-weight: 600;
+          animation: adpToastSlide 0.35s cubic-bezier(0.16, 1, 0.3, 1), adpToastGlow 1.5s ease-in-out infinite;
+        }
+        .adp-sub-toast-btn {
+          background: var(--accent-gradient);
+          border: none;
+          border-radius: var(--radius-sm);
+          color: #fff;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 5px 12px;
+          cursor: pointer;
+          white-space: nowrap;
+          margin-left: auto;
+          transition: filter 0.15s;
+        }
+        .adp-sub-toast-btn:hover { filter: brightness(1.15); }
+        @keyframes adpToastSlide {
+          from { opacity: 0; transform: translateY(-6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes adpToastGlow {
+          0%, 100% { box-shadow: 0 0 12px rgba(245, 158, 11, 0.1); }
+          50% { box-shadow: 0 0 22px rgba(245, 158, 11, 0.25); }
+        }
+
+        /* Cart action distinct styling */
+        .adp-cart-action {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.14), rgba(99, 102, 241, 0.2)) !important;
+          border-color: rgba(139, 92, 246, 0.42) !important;
+          color: #c4b5fd !important;
+          font-weight: 600 !important;
+          box-shadow: 0 2px 8px rgba(139, 92, 246, 0.12);
+        }
+        .adp-cart-action:hover:not(:disabled) {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(99, 102, 241, 0.4)) !important;
+          border-color: rgba(167, 139, 250, 0.8) !important;
+          color: #fff !important;
+          box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
+        }
+        .adp-cart-action.in-cart {
+          background: rgba(34, 197, 94, 0.1) !important;
+          border-color: rgba(34, 197, 94, 0.4) !important;
+          color: #4ade80 !important;
+          cursor: default;
+        }
+
+        /* Locked action button */
+        .adp-action-btn.locked-action {
+          background: rgba(245, 158, 11, 0.08);
+          border-color: rgba(245, 158, 11, 0.3);
+          color: rgba(251, 191, 36, 0.85);
+          position: relative;
+        }
+        .adp-action-btn.locked-action:hover {
+          border-color: rgba(245, 158, 11, 0.6);
+          color: #fbbf24;
+          background: rgba(245, 158, 11, 0.14);
+        }
+        .adp-locked-pill {
+          font-size: 9px;
+          font-weight: 700;
+          background: rgba(139, 92, 246, 0.25);
+          color: #c4b5fd;
+          padding: 1px 6px;
+          border-radius: 4px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          margin-left: 4px;
         }
 
         /* 1. Rating: Warm golden twinkle & amber aura pulse */

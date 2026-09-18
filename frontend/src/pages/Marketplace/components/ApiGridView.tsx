@@ -1,6 +1,6 @@
 import React from 'react';
-import { Star, Zap, Clock, Users, ArrowRight, Shield, Activity } from 'lucide-react';
-import { CatalogApi } from '../../../services/api/catalog';
+import { Star, Zap, Clock, Users, ArrowRight, Shield, Activity, ShoppingCart, Check } from 'lucide-react';
+import { CatalogApi, getApiCartPrice } from '../../../services/api/catalog';
 import { useCart } from '../../../context/CartContext';
 import { ApiThumbnail } from './ApiThumbnail';
 
@@ -143,22 +143,33 @@ export const ApiGridView: React.FC<ApiGridViewProps> = ({
               </div>
               <div className="agv-card-actions">
                 <button
-                  className="agv-cart-btn"
+                  className={`agv-cart-btn ${isInCart(api.id) ? 'in-cart' : ''}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     addToCart({
                       id: api.id,
                       name: api.name,
                       category: api.categoryName,
-                      price: api.pricingPlans?.find((plan) => plan.price > 0)?.price || 0,
+                      price: getApiCartPrice(api),
                       pricingModel: api.pricingModel,
                       logoUrl: api.logoUrl,
                       slug: api.slug,
                     });
                   }}
                   disabled={isInCart(api.id)}
+                  title={isInCart(api.id) ? 'Already in cart' : `Add ${api.name} to cart ($${getApiCartPrice(api)}/mo)`}
                 >
-                  {isInCart(api.id) ? 'In cart' : 'Add to Cart'}
+                  {isInCart(api.id) ? (
+                    <>
+                      <Check size={12} className="agv-cart-icon" />
+                      <span>In Cart</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart size={12} className="agv-cart-icon" />
+                      <span>Add to Cart</span>
+                    </>
+                  )}
                 </button>
                 <button className="agv-explore-btn">
                   Explore <ArrowRight size={13} />
@@ -452,9 +463,39 @@ export const ApiGridView: React.FC<ApiGridViewProps> = ({
           white-space: nowrap;
         }
 
-        .agv-card-actions { align-items: center; display: flex; gap: 6px; }
-        .agv-cart-btn { background: var(--accent-subtle); border: 1px solid var(--accent-subtle-border); border-radius: var(--radius-md); color: var(--text-accent); font-size: 11px; font-weight: 600; padding: 5px 8px; white-space: nowrap; }
-        .agv-cart-btn:disabled { cursor: default; opacity: .6; }
+        .agv-card-actions { align-items: center; display: flex; gap: 8px; margin-top: 4px; }
+        .agv-cart-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.16) 0%, rgba(99, 102, 241, 0.22) 100%);
+          border: 1px solid rgba(139, 92, 246, 0.42);
+          border-radius: var(--radius-md);
+          color: #c4b5fd;
+          font-size: 11px;
+          font-weight: 600;
+          padding: 6px 11px;
+          white-space: nowrap;
+          cursor: pointer;
+          transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+          box-shadow: 0 2px 8px rgba(139, 92, 246, 0.12);
+        }
+        .agv-cart-btn:hover:not(:disabled) {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.35) 0%, rgba(99, 102, 241, 0.45) 100%);
+          border-color: rgba(167, 139, 250, 0.85);
+          color: #ffffff;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
+        }
+        .agv-cart-btn.in-cart, .agv-cart-btn:disabled {
+          background: rgba(34, 197, 94, 0.12);
+          border-color: rgba(34, 197, 94, 0.4);
+          color: #4ade80;
+          cursor: default;
+          box-shadow: none;
+          opacity: 1;
+        }
+        .agv-cart-icon { flex-shrink: 0; }
 
         .agv-explore-btn:hover {
           border-color: var(--accent-purple);

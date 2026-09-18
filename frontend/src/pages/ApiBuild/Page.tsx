@@ -12,13 +12,17 @@ import { StepProduct } from './Wizard6';
 import { StepPricing } from './Wizard7';
 import { StepPublish, PublishSuccess } from './Wizard8';
 import { WorkspaceRedesignWithDraft } from './WorkspaceRedesignWithDraft';
-import { useApiBuild, ApiBuildState } from './state';
+import { useApiBuild, ApiBuildState, BuildView } from './state';
 import { DetailedEndpoint } from './types';
 import './styles.css';
 import './styles2.css';
 import './styles-professional.css';
 
-export const ApiBuildPage: React.FC<{ onOpenPlayground: (prefill?: PlaygroundOpenPayload) => void; onBack?: () => void }> = ({ onOpenPlayground, onBack }) => {
+export const ApiBuildPage: React.FC<{
+  onOpenPlayground: (prefill?: PlaygroundOpenPayload) => void;
+  onBack?: () => void;
+  initialView?: BuildView;
+}> = ({ onOpenPlayground, onBack, initialView }) => {
   // The playground lives outside this page, so the navigation callback must
   // carry the API's URL with it. The active project is captured through a ref
   // (same pattern as AdminApis' listRef) so the wrapper below can always read
@@ -34,7 +38,7 @@ export const ApiBuildPage: React.FC<{ onOpenPlayground: (prefill?: PlaygroundOpe
       endpoint: ep ? { method: ep.method, path: ep.path } : undefined,
     });
   };
-  const s = useApiBuild(openPlaygroundWithUrl);
+  const s = useApiBuild(openPlaygroundWithUrl, initialView);
   const { active } = s;
   activeRef.current = active || null;
 

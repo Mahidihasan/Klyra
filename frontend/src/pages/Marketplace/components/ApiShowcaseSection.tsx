@@ -19,6 +19,7 @@ import {
   Clock,
   Radio,
   FileCode,
+  Lock,
 } from 'lucide-react';
 import { CatalogApi } from '../../../services/api/catalog';
 
@@ -26,6 +27,8 @@ interface ApiShowcaseSectionProps {
   api: CatalogApi;
   onOpenProvider?: (providerId: string) => void;
   onOpenTester?: (api: CatalogApi) => void;
+  isSubscribed?: boolean;
+  onSubscribe?: () => void;
 }
 
 interface ShowcaseChapter {
@@ -43,7 +46,11 @@ export const ApiShowcaseSection: React.FC<ApiShowcaseSectionProps> = ({
   api,
   onOpenProvider,
   onOpenTester,
+  isSubscribed = false,
+  onSubscribe,
 }) => {
+  const isFreeApi = api.pricingModel === 'FREE';
+  const canAccess = isSubscribed || isFreeApi;
   const chapters: ShowcaseChapter[] = [
     {
       id: 'quickstart',
@@ -354,19 +361,61 @@ const result = await generateText({
                   <FileCode size={12} />
                   <span>Runnable Snapshot</span>
                 </div>
-                <span className="ass-es-badge">Ready to execute</span>
+                <span className={`ass-es-badge ${!canAccess ? 'locked' : ''}`}>
+                  {canAccess ? 'Ready to execute' : 'Preview (Locked)'}
+                </span>
               </div>
-              <pre className="ass-es-code">
-                <code>{activeChapter.sampleEndpoint}</code>
-              </pre>
+              <div className="ass-code-body-wrapper">
+                <pre className={`ass-es-code ${!canAccess ? 'blurred-code' : ''}`}>
+                  <code>
+                    {canAccess
+                      ? activeChapter.sampleEndpoint
+                      : activeChapter.sampleEndpoint.split('\n').slice(0, 2).join('\n') +
+                        '\n// ... [remaining snippet locked]'}
+                  </code>
+                </pre>
+                {!canAccess && (
+                  <div className="ass-code-blur-overlay">
+                    <button className="ass-unlock-code-btn" onClick={onSubscribe}>
+                      <Lock size={13} />
+                      <span>Subscribe to unlock full code</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {onOpenTester && (
-              <button className="ass-launch-tester-btn" onClick={() => onOpenTester(api)}>
-                <Terminal size={15} />
-                <span>Open in API Sandbox Tester</span>
-                <ChevronRight size={15} />
-              </button>
+              canAccess ? (
+                <button
+                  className="ass-launch-tester-btn subscribed"
+                  onClick={() => {
+                    window.dispatchEvent(
+                      new CustomEvent('klyra:open-playground', {
+                        detail: {
+                          repoId: api.id,
+                          repoName: api.name,
+                          baseUrl: api.baseUrl,
+                        },
+                      })
+                    );
+                  }}
+                >
+                  <Terminal size={15} />
+                  <span>Open in Playground</span>
+                  <ChevronRight size={15} />
+                </button>
+              ) : (
+                <button
+                  className="ass-launch-tester-btn locked"
+                  onClick={onSubscribe}
+                  title="Subscription required to launch interactive sandbox"
+                >
+                  <Lock size={14} className="ass-lock-icon" />
+                  <span>Subscription Required</span>
+                  <span className="ass-sub-pill">Unlock Sandbox</span>
+                </button>
+              )
             )}
           </div>
         </div>
@@ -442,6 +491,7 @@ const result = await generateText({
           grid-template-columns: 1.35fr 1fr;
           gap: 20px;
           align-items: stretch;
+          min-height: 480px;
         }
 
         /* Player Column */
@@ -754,7 +804,7 @@ const result = await generateText({
           flex-direction: column;
           gap: 14px;
           height: 100%;
-          justify-content: space-between;
+          min-height: 0;
         }
 
         .ass-provider-card {
@@ -765,6 +815,7 @@ const result = await generateText({
           display: flex;
           flex-direction: column;
           gap: 12px;
+          flex: 0 0 auto;
         }
 
         .ass-chapter-details-card {
@@ -782,13 +833,13 @@ const result = await generateText({
         .ass-provider-header {
           display: flex;
           align-items: center;
-          gap: 14px;
+          gap: 12px;
         }
 
         .ass-provider-avatar-box {
           position: relative;
-          width: 46px;
-          height: 46px;
+          width: 44px;
+          height: 44px;
           flex-shrink: 0;
         }
 
@@ -829,31 +880,38 @@ const result = await generateText({
         .ass-provider-titles {
           display: flex;
           flex-direction: column;
-          gap: 2px;
+          gap: 3px;
+          min-width: 0;
+          flex: 1;
         }
 
         .ass-provider-name-row {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 7px;
+          flex-wrap: wrap;
         }
 
         .ass-provider-name-row h4 {
-          font-size: 15px;
+          font-size: 14.5px;
           font-weight: 700;
           color: var(--text-primary);
+          white-space: nowrap;
         }
 
         .ass-verified-label {
           display: inline-flex;
           align-items: center;
-          gap: 4px;
+          gap: 3px;
           font-size: 10px;
           font-weight: 700;
           color: #3b82f6;
           background: rgba(59, 130, 246, 0.12);
-          padding: 2px 7px;
+          padding: 2px 8px;
           border-radius: 999px;
+          white-space: nowrap;
+          line-height: 1.4;
+          flex-shrink: 0;
         }
 
         .ass-provider-company {
@@ -1032,6 +1090,103 @@ const result = await generateText({
         .ass-launch-tester-btn:hover {
           transform: translateY(-1px);
           filter: brightness(1.1);
+        }
+
+        .ass-code-body-wrapper {
+          position: relative;
+          overflow: hidden;
+        }
+
+        .ass-es-code.blurred-code {
+          filter: blur(3px);
+          user-select: none;
+          -webkit-user-select: none;
+          pointer-events: none;
+          opacity: 0.55;
+        }
+
+        .ass-code-blur-overlay {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(180deg, rgba(9, 10, 16, 0.2) 0%, rgba(9, 10, 16, 0.82) 55%, rgba(9, 10, 16, 0.95) 100%);
+          backdrop-filter: blur(2px);
+          z-index: 5;
+        }
+
+        .ass-unlock-code-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          background: rgba(139, 92, 246, 0.22);
+          border: 1px solid rgba(167, 139, 250, 0.55);
+          color: #e2e8f0;
+          font-size: 11.5px;
+          font-weight: 600;
+          padding: 7px 16px;
+          border-radius: 999px;
+          cursor: pointer;
+          box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35);
+          backdrop-filter: blur(8px);
+          transition: all 0.2s ease;
+          animation: assPulseUnlockPill 2.8s ease-in-out infinite;
+        }
+
+        .ass-unlock-code-btn:hover {
+          background: rgba(139, 92, 246, 0.4);
+          border-color: rgba(192, 132, 252, 0.9);
+          color: #fff;
+          transform: translateY(-1px) scale(1.02);
+          box-shadow: 0 6px 24px rgba(139, 92, 246, 0.55);
+        }
+
+        @keyframes assPulseUnlockPill {
+          0%, 100% {
+            border-color: rgba(167, 139, 250, 0.4);
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.25);
+          }
+          50% {
+            border-color: rgba(192, 132, 252, 0.85);
+            box-shadow: 0 4px 24px rgba(192, 132, 252, 0.45);
+          }
+        }
+
+        .ass-es-badge.locked {
+          color: #fbbf24;
+        }
+
+        .ass-launch-tester-btn.locked {
+          background: rgba(245, 158, 11, 0.1);
+          border: 1px solid rgba(245, 158, 11, 0.4);
+          color: #fbbf24;
+          box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);
+          animation: assBtnLockedPulse 2.4s ease-in-out infinite;
+        }
+
+        .ass-launch-tester-btn.locked:hover {
+          background: rgba(245, 158, 11, 0.18);
+          border-color: rgba(245, 158, 11, 0.7);
+          color: #fef08a;
+          transform: translateY(-1px);
+        }
+
+        @keyframes assBtnLockedPulse {
+          0%, 100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.12); }
+          50% { box-shadow: 0 0 18px rgba(245, 158, 11, 0.3); }
+        }
+
+        .ass-sub-pill {
+          background: rgba(245, 158, 11, 0.2);
+          color: #fde68a;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 2px 7px;
+          border-radius: 4px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          margin-left: 4px;
         }
 
         /* Responsive */
