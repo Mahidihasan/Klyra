@@ -43,7 +43,26 @@ export const DUMMY_PROJECT: ProviderProject = {
 };
 
 export const getDummyEndpoints = () => endpoints;
-export const getDummyVersions = (): ExtendedVersion[] => versions.map((version, index) => ({ id: version.id, semver: version.semver, status: index === 0 ? 'Current' : 'Deprecated', isDefault: index === 0, releasedAt: version.createdAt, endpointsCount: version.endpoints, consumersCount: index === 0 ? 3 : 1, trafficPercentage: index === 0 ? 91 : index === 1 ? 8 : 1, successRate: index === 0 ? 99.2 : 98.4, avgLatencyMs: index === 0 ? 112 : 168, changelog: { added: index === 0 ? ['/v2/refunds'] : [], modified: index === 0 ? ['Idempotent order creation'] : [], deprecated: index === 1 ? ['/v1/orders/{orderId}'] : [], breaking: [] } }));
+export const getDummyVersions = (): ExtendedVersion[] => versions.map((version, index) => ({
+  id: version.id,
+  semver: version.semver,
+  status: index === 0 ? 'Current' : 'Deprecated',
+  isDefault: index === 0,
+  releasedAt: version.createdAt,
+  endpointsCount: version.endpoints,
+  consumersCount: index === 0 ? 3 : 1,
+  trafficPercentage: index === 0 ? 91 : index === 1 ? 8 : 1,
+  successRate: index === 0 ? 99.2 : 98.4,
+  avgLatencyMs: index === 0 ? 112 : 168,
+  runtimeState: index === 0 ? 'running' : index === 1 ? 'running' : 'stopped',
+  canaryWeight: index === 0 ? 91 : index === 1 ? 8 : 1,
+  changelog: {
+    added: index === 0 ? ['/v2/refunds'] : [],
+    modified: index === 0 ? ['Idempotent order creation'] : [],
+    deprecated: index === 1 ? ['/v1/orders/{orderId}'] : [],
+    breaking: [],
+  },
+}));
 export const getDummyDeployments = () => [deployment];
 export const getDummyLogs = () => logs;
 export const getDummyInsights = (): KlyraInsightItem[] => [{ id: 'insight-1', category: 'Performance', severity: 'warning', title: 'Refund latency is above your SLO', description: 'P95 latency crossed 400ms in ap-southeast-1.', actionText: 'Inspect logs', actionType: 'navigate_tab', targetTab: 'logs' }, { id: 'insight-2', category: 'Version', severity: 'info', title: '8% of traffic still uses v2.4.0', description: 'Set a sunset date to move remaining consumers.', actionText: 'Review versions', actionType: 'navigate_tab', targetTab: 'versions' }];

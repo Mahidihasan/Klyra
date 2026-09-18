@@ -71,6 +71,11 @@ import {
   getRestoreSnapshot,
   recordResourceHistory,
 } from './api-build.history';
+import {
+  buildGatewayUrl,
+  sanitizeProjectForClient,
+  slugFromProjectId,
+} from './api-build.deployment';
 
 const router = Router();
 
@@ -81,6 +86,14 @@ const fail = (res: express.Response, status: number, code: string, message: stri
 const validId = (id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 160;
 const str = (v: unknown, fallback = '') => (typeof v === 'string' ? v : fallback);
 const numField = (v: unknown, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+
+/**
+ * Canonical gateway URL construction lives in ./api-build.deployment.ts — the
+ * single source of truth shared by project creation, read-time healing and the
+ * deploy pipeline. The gateway router is mounted at `/api/gateway` (app.ts) and
+ * every advertised URL is built from the same GATEWAY_ROUTE_PREFIX, so the
+ * advertised URL and the actual Express route can never diverge again.
+ */
 
 const newProjectRecord = (body: Record<string, unknown>) => {
   const name = str(body.name).trim() || 'Untitled API';
@@ -104,7 +117,7 @@ const newProjectRecord = (body: Record<string, unknown>) => {
     sourceKind: str(body.sourceKind, 'existing'),
     baseUrl: '',
     openApiUrl: '',
-    gatewayUrl: `https://api.klyra.com/${slug}`,
+    gatewayUrl: buildGatewayUrl(slug),
     authKind: 'apiKey' as const,
     rateLimitPerMin: 100,
     healthCheckPath: '/health',
@@ -150,7 +163,12 @@ const newProjectRecord = (body: Record<string, unknown>) => {
 /* Projects — full lifecycle. POST creates the record AND its defaults. */
 router.get('/projects', async (_req, res) => {
   try {
-    ok(res, await listProjects());
+    ok(
+      res,
+      (await listProjects()).map((project) =>
+        sanitizeProjectForClient(project as Record<string, unknown>),
+      ),
+    );
   } catch {
     fail(res, 503, 'DATABASE_UNAVAILABLE', 'Project storage is unavailable.');
   }
@@ -158,7 +176,12 @@ router.get('/projects', async (_req, res) => {
 
 router.post('/projects', async (req, res) => {
   try {
-    ok(res, await createProject(newProjectRecord(req.body || {})));
+    ok(
+      res,
+      sanitizeProjectForClient(
+        (await createProject(newProjectRecord(req.body || {}))) as Record<string, unknown>,
+      ),
+    );
   } catch (error) {
     fail(
       res,
@@ -172,7 +195,7 @@ router.post('/projects', async (req, res) => {
 router.get('/projects/:id', async (req, res) => {
   const project = await composeProject(req.params.id);
   if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
-  ok(res, project);
+  ok(res, sanitizeProjectForClient(project as Record<string, unknown>));
 });
 
 router.put('/projects/:id', async (req, res) => {
@@ -224,7 +247,7 @@ router.put('/projects/:id', async (req, res) => {
     }).catch(() => undefined);
   }
 
-  ok(res, project);
+  ok(res, sanitizeProjectForClient(project as Record<string, unknown>));
 });
 
 router.delete('/projects/:id', async (req, res) => {
@@ -402,9 +425,20 @@ router.post('/projects/:id/activity', async (req, res) => {
   ok(res, await listActivity(req.params.id), 201);
 });
 
-/* Deployments — queue + real records. */
+/* Deployments — queue + real records. Row URLs are normalized on read too:
+ * deployments deployed before the canonical `/api/gateway` URL existed carry
+ * the old `/gateway/{slug}` (or fictional klyra.com) form in their url field. */
 router.get('/projects/:id/deployments', async (req, res) => {
-  ok(res, await listDeployments(req.params.id));
+  const rows = await listDeployments(req.params.id);
+  const canonicalUrl = buildGatewayUrl(slugFromProjectId(req.params.id));
+  ok(
+    res,
+    rows.map((row) => {
+      const stale =
+        !row.url || /klyra\.(com|dev)\//i.test(row.url) || /\/(api\/)?gateway\//.test(row.url);
+      return stale ? { ...row, url: canonicalUrl } : row;
+    }),
+  );
 });
 router.post('/projects/:id/deployments', async (req, res) => {
   const project = await getProject(req.params.id);
@@ -739,7 +773,10 @@ router.post('/projects/:id/draft/save', async (req, res) => {
       );
     }
 
-    ok(res, { project: result.project, version: result.newVersion });
+    ok(res, {
+      project: sanitizeProjectForClient((result.project || {}) as Record<string, unknown>),
+      version: result.newVersion,
+    });
   } catch (error) {
     fail(res, 500, 'SAVE_FAILED', error instanceof Error ? error.message : 'Failed to save draft');
   }
@@ -989,7 +1026,7 @@ router.post('/projects/:id/history/restore', async (req, res) => {
       after: snapshot.after,
       summary: `Restore of version ${versionNo}`,
     });
-    ok(res, project);
+    ok(res, sanitizeProjectForClient(project as Record<string, unknown>));
   } catch (error) {
     fail(
       res,

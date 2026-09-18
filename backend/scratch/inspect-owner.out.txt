@@ -1,0 +1,268 @@
+(node:16076) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ENUMS: [
+  {
+    "typname": "api_pricing_model",
+    "labels": "FREE, FREEMIUM, PAID, ENTERPRISE"
+  },
+  {
+    "typname": "api_status",
+    "labels": "DRAFT, PENDING, PUBLISHED, REJECTED, ARCHIVED"
+  }
+]
+APIS: [
+  {
+    "slug": "supabase-api",
+    "status": "PUBLISHED",
+    "is_public": true,
+    "pricing_model": "FREEMIUM",
+    "current_version": "1.0.0",
+    "rating": "5.00",
+    "total_subscribers": 15300,
+    "total_requests": "31000000",
+    "docs_url": "https://supabase.com/docs",
+    "logo_url": "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=128&auto=format&fit=crop&q=80",
+    "has_last_published": true,
+    "owner_email": "hello@supabase.com",
+    "owner_id": "8f243d28-2388-4056-b66a-c1ed6b2a47c4"
+  },
+  {
+    "slug": "github-graphql",
+    "status": "PUBLISHED",
+    "is_public": true,
+    "pricing_model": "FREE",
+    "current_version": "1.0.0",
+    "rating": "0.00",
+    "total_subscribers": 11200,
+    "total_requests": "16500000",
+    "docs_url": "https://docs.github.com/en/graphql",
+    "logo_url": "https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?w=128&auto=format&fit=crop&q=80",
+    "has_last_published": true,
+    "owner_email": "api@github.com",
+    "owner_id": "221a54d8-d601-4d67-b1d1-4fa6ede77267"
+  },
+  {
+    "slug": "resend-email",
+    "status": "PUBLISHED",
+    "is_public": true,
+    "pricing_model": "FREEMIUM",
+    "current_version": "1.0.0",
+    "rating": "5.00",
+    "total_subscribers": 6850,
+    "total_requests": "9400000",
+    "docs_url": "https://resend.com/docs",
+    "logo_url": "https://images.unsplash.com/photo-1557200134-90327ee9fafa?w=128&auto=format&fit=crop&q=80",
+    "has_last_published": true,
+    "owner_email": "team@resend.com",
+    "owner_id": "8270f9cb-2b67-490b-ba8f-b4d5459de512"
+  },
+  {
+    "slug": "stripe-payments",
+    "status": "PUBLISHED",
+    "is_public": true,
+    "pricing_model": "PAID",
+    "current_version": "1.0.0",
+    "rating": "5.00",
+    "total_subscribers": 22400,
+    "total_requests": "42000000",
+    "docs_url": "https://stripe.com/docs/api",
+    "logo_url": "https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=128&auto=format&fit=crop&q=80",
+    "has_last_published": true,
+    "owner_email": "devs@stripe.com",
+    "owner_id": "98b5eebe-0c26-4b4a-a541-795712718867"
+  },
+  {
+    "slug": "weather-api",
+    "status": "PUBLISHED",
+    "is_public": true,
+    "pricing_model": "FREEMIUM",
+    "current_version": "1.0.0",
+    "rating": "5.00",
+    "total_subscribers": 8940,
+    "total_requests": "18200000",
+    "docs_url": "https://weatherapi.com/docs",
+    "logo_url": "https://images.unsplash.com/photo-1504608524841-42fe6f032b4b?w=128&auto=format&fit=crop&q=80",
+    "has_last_published": true,
+    "owner_email": "support@weatherapi.com",
+    "owner_id": "2c1d1d44-781e-4aeb-b656-f155cd6888f1"
+  },
+  {
+    "slug": "openai-api",
+    "status": "PUBLISHED",
+    "is_public": true,
+    "pricing_model": "FREEMIUM",
+    "current_version": "1.0.0",
+    "rating": "5.00",
+    "total_subscribers": 2,
+    "total_requests": "24500000",
+    "docs_url": "https://platform.openai.com/docs",
+    "logo_url": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=128&auto=format&fit=crop&q=80",
+    "has_last_published": true,
+    "owner_email": "platform@openai.com",
+    "owner_id": "abcfdc99-a0a9-47e9-ae37-bf9e597daa9d"
+  }
+]
+SLUG open-meteo-weather TAKEN: false
+WEATHER CATEGORY: [{"id":"db886e59-5972-4888-8b53-756267ffa21d"}]
+USERS NOT NULL COLS: [
+  {
+    "column_name": "id",
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "column_name": "email",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "password_hash",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "name",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "role",
+    "is_nullable": "NO",
+    "column_default": "'USER'::user_role"
+  },
+  {
+    "column_name": "status",
+    "is_nullable": "NO",
+    "column_default": "'ACTIVE'::user_status"
+  },
+  {
+    "column_name": "is_active",
+    "is_nullable": "NO",
+    "column_default": "true"
+  },
+  {
+    "column_name": "two_factor_enabled",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "column_name": "metadata",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "column_name": "created_at",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "column_name": "updated_at",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  }
+]
+USERS TRIGGERS: [{"tgname":"trg_users_updated_at"},{"tgname":"trg_users_notification_preferences"}]
+OWNER USERS: [
+  {
+    "id": "abcfdc99-a0a9-47e9-ae37-bf9e597daa9d",
+    "email": "platform@openai.com",
+    "name": "OpenAI Inc.",
+    "role": "PROVIDER",
+    "status": "ACTIVE",
+    "has_password": true
+  },
+  {
+    "id": "2c1d1d44-781e-4aeb-b656-f155cd6888f1",
+    "email": "support@weatherapi.com",
+    "name": "WeatherAPI Global Ltd.",
+    "role": "PROVIDER",
+    "status": "ACTIVE",
+    "has_password": true
+  },
+  {
+    "id": "98b5eebe-0c26-4b4a-a541-795712718867",
+    "email": "devs@stripe.com",
+    "name": "Stripe Inc.",
+    "role": "PROVIDER",
+    "status": "ACTIVE",
+    "has_password": true
+  },
+  {
+    "id": "221a54d8-d601-4d67-b1d1-4fa6ede77267",
+    "email": "api@github.com",
+    "name": "GitHub Inc.",
+    "role": "PROVIDER",
+    "status": "ACTIVE",
+    "has_password": true
+  },
+  {
+    "id": "8270f9cb-2b67-490b-ba8f-b4d5459de512",
+    "email": "team@resend.com",
+    "name": "Resend Technologies",
+    "role": "PROVIDER",
+    "status": "ACTIVE",
+    "has_password": true
+  },
+  {
+    "id": "8f243d28-2388-4056-b66a-c1ed6b2a47c4",
+    "email": "hello@supabase.com",
+    "name": "Supabase Inc.",
+    "role": "PROVIDER",
+    "status": "ACTIVE",
+    "has_password": true
+  }
+]
+ADMIN/MODERATOR USERS: [
+  {
+    "id": "d1093a53-97c3-4a9d-aebc-018f6c2c1344",
+    "email": "sabbirrahman0084@gmail.com",
+    "role": "ADMIN",
+    "status": "ACTIVE"
+  }
+]
+API VERSION ROWS: 6
+API VERSIONS: [
+  {
+    "slug": "github-graphql",
+    "version": "1.0.0",
+    "is_current": true,
+    "is_deprecated": false
+  },
+  {
+    "slug": "openai-api",
+    "version": "1.0.0",
+    "is_current": true,
+    "is_deprecated": false
+  },
+  {
+    "slug": "resend-email",
+    "version": "1.0.0",
+    "is_current": true,
+    "is_deprecated": false
+  },
+  {
+    "slug": "stripe-payments",
+    "version": "1.0.0",
+    "is_current": true,
+    "is_deprecated": false
+  },
+  {
+    "slug": "supabase-api",
+    "version": "1.0.0",
+    "is_current": true,
+    "is_deprecated": false
+  },
+  {
+    "slug": "weather-api",
+    "version": "1.0.0",
+    "is_current": true,
+    "is_deprecated": false
+  }
+]

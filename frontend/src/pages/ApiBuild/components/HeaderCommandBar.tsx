@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   ArrowLeft, ChevronDown, Check, Copy, FlaskConical, Rocket,
   MoreHorizontal, FileText, RefreshCw, Pause, Play, ShieldAlert,
-  Layers, Code, Server, GitBranch, DollarSign, Users, Key,
+  Layers, Code, Code2, Server, GitBranch, DollarSign, Users, Key,
   BarChart3, LineChart, Terminal, Activity, Settings, ExternalLink, Sparkles,
   History, Layers3
 } from 'lucide-react';
@@ -208,7 +208,7 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
         <div className="kly-cmd-left">
           <button className="kly-back-pill" onClick={onBackToDashboard} title="Back to All Projects">
             <ArrowLeft size={13} />
-            <span>Projects</span>
+            <span>Back</span>
           </button>
 
           <span className="kly-breadcrumb-divider">/</span>
@@ -270,7 +270,7 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
             title="Environment context — UI-scoped selector"
             style={{
               display: 'inline-flex', borderRadius: 6, padding: 2,
-              background: 'rgba(255,255,255,0.04)', border: '1px solid var(--kly-border-subtle)',
+              border: '1px solid var(--kly-border-subtle)',
             }}
           >
             {ENVIRONMENTS.map((env) => {
@@ -283,7 +283,7 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
                   title={`${env.label} context`}
                   style={{
                     background: active ? `${env.color}18` : 'transparent',
-                    border: 'none', borderRadius: 4, padding: '2px 9px',
+                    border: 'none', borderRadius: 10, padding: '2px 9px',
                     color: active ? env.color : 'var(--kly-text-dim)',
                     fontSize: 11, fontWeight: 600, cursor: 'pointer',
                     display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -357,14 +357,6 @@ export const HeaderCommandBar: React.FC<HeaderCommandBarProps> = ({
                 </div>
               )}
             </div>
-
-            <span className="kly-badge kly-badge-pill">
-              {project.sourceKind === 'existing' ? 'External API' : project.sourceKind === 'github' ? 'GitHub' : 'Docker'}
-            </span>
-
-            <span className="kly-badge kly-badge-pill" style={{ color: 'var(--kly-text-dim)' }}>
-              {project.category}
-            </span>
         </div>
 
         {/* Right: Quick Action Buttons */}

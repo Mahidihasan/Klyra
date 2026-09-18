@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { HeroBanner } from './components/HeroBanner';
@@ -26,6 +26,7 @@ import { MarketplacePage } from './pages/Marketplace/index';
 import { catalogApi, toApiItem } from './services/api/catalog';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ProfilePage } from './pages/Profile';
+import { ApiKeysPage } from './pages/ApiKeys';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -40,6 +41,7 @@ import {
   MOCK_COLLECTIONS,
 } from './data/mockData';
 import { ApiItem, ApiProject, CollectionItem, NavigationTab } from './types/api';
+import { PlaygroundOpenPayload } from './types/playground';
 import { hasAdminAccess } from './config/adminAccess';
 import { getImpersonationSession } from './services/impersonation';
 import {
@@ -64,6 +66,38 @@ function AppContent() {
     }
     return 'home';
   });
+  // ---- History-aware back navigation ---------------------------------------
+  // React Router is not used in this app; "routes" are the activeTab state
+  // below. Every tab transition is recorded here so the Back buttons can walk
+  // the real navigation history — the equivalent of React Router's navigate(-1)
+  // — instead of hardcoding a destination.
+  const navHistoryRef = useRef<NavigationTab[]>([]);
+  const lastTabRef = useRef<NavigationTab>(activeTab);
+  // Set just before a goBack()-initiated transition so the recorder below does
+  // NOT re-push the page we are leaving — otherwise Back would bounce between
+  // the last two pages instead of walking the stack (A → B → C, back → B,
+  // back → A). Transitions not caused by goBack() are recorded normally.
+  const backNavRef = useRef(false);
+  useEffect(() => {
+    if (lastTabRef.current === activeTab) return;
+    if (backNavRef.current) {
+      backNavRef.current = false; // consume the flag; origin stays unrecorded
+    } else {
+      navHistoryRef.current.push(lastTabRef.current);
+      if (navHistoryRef.current.length > 50) navHistoryRef.current.shift();
+    }
+    lastTabRef.current = activeTab;
+  }, [activeTab]);
+
+  /** Return to the tab the user came from. When there is no in-app history
+   *  (direct load or refresh), fall back to `fallback` — the same contract as
+   *  React Router's navigate(-1) paired with a location fallback. */
+  const goBack = (fallback: NavigationTab = 'home') => {
+    const previous = navHistoryRef.current.pop();
+    if (previous !== undefined && previous !== activeTab) backNavRef.current = true;
+    setActiveTab(previous ?? fallback);
+  };
+
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -179,11 +213,22 @@ function AppContent() {
       return null;
     }
   });
+  // One-shot URL prefill for the Playground request editor. Unlike the banner
+  // context above, this is NOT restored from localStorage: it only exists when
+  // a screen explicitly navigates here (API management "Test in Playground",
+  // repository bridge) so the arriving request starts with the API's URL.
+  // The Playground consumes it via onPrefillConsumed once applied.
+  const [playgroundPrefill, setPlaygroundPrefill] = useState<PlaygroundOpenPayload | null>(null);
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail?.repoId) return;
       setPlaygroundContext(detail);
+      setPlaygroundPrefill({
+        apiId: detail.repoId,
+        apiName: detail.repoName,
+        endpoint: detail.endpoint,
+      });
       setActiveTab('playground');
       try {
         localStorage.setItem('activeTab', 'playground');
@@ -405,7 +450,9 @@ function AppContent() {
           )}
           <PlaygroundPage
             apiProject={activeApiProject}
-            onBackToKlyra={() => setActiveTab('home')}
+            openContext={playgroundPrefill}
+            onPrefillConsumed={() => setPlaygroundPrefill(null)}
+            onBackToKlyra={() => goBack()}
           />
         </div>
       ) : activeTab === 'api-build' ? (
@@ -419,12 +466,13 @@ function AppContent() {
         >
           <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}></div>
           <ApiBuildPage
-            onBack={() => setActiveTab('home')}
-            onOpenPlayground={() => {
+            onBack={() => goBack()}
+            onOpenPlayground={(prefill) => {
               setPlaygroundContext({
-                repoId: activeApiProject?.id || '',
-                repoName: activeApiProject?.name || 'API Project',
+                repoId: prefill?.apiId || activeApiProject?.id || '',
+                repoName: prefill?.apiName || activeApiProject?.name || 'API Project',
               });
+              if (prefill) setPlaygroundPrefill(prefill);
               setActiveTab('playground');
               try {
                 localStorage.setItem('activeTab', 'playground');
@@ -437,7 +485,7 @@ function AppContent() {
       ) : activeTab === 'api-builder' && activeApiProject ? (
         <ApiBuilder
           project={activeApiProject}
-          onBack={() => setActiveTab('home')}
+          onBack={() => goBack()}
           onChange={(project) => {
             setActiveApiProject(project);
             const projects = JSON.parse(localStorage.getItem('klyra-api-projects') || '[]');
@@ -675,13 +723,17 @@ function AppContent() {
                 <main className="content-page-wrapper">
                   <ProfilePage />
                 </main>
+              ) : activeTab === 'api-keys' ? (
+                <main className="content-page-wrapper">
+                  <ApiKeysPage />
+                </main>
               ) : activeTab === 'billing' ? (
                 <main className="content-page-wrapper">
                   <BillingPage />
                 </main>
               ) : activeTab === 'repositories' ? (
                 <main>
-                  <RepositoriesPage onBackToKlyra={() => setActiveTab('home')} />
+                  <RepositoriesPage onBackToKlyra={() => goBack()} />
                 </main>
               ) : activeTab === 'admin-overview' ? (
                 <main className="content-page-wrapper">

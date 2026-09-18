@@ -12,6 +12,7 @@ import { authOptional } from './modules/repos/auth.service';
 import { gitHttpHandler } from './modules/repos/git.http';
 import reposRouter from './modules/repos/repos.routes';
 import apiBuildRouter from './modules/api-build/api-build.routes';
+import apiBuildGateway from './modules/api-build/api-build.gateway';
 import apiKeysRouter from './modules/api-keys/api-keys.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
 
@@ -61,7 +62,12 @@ app.use('/api/playground', playgroundRouter);
 
 // Billing routes
 app.use('/api/billing', billingRouter);
+
+// API Build module (projects, endpoints, versions, …) and its dev gateway.
+// The gateway answers /api/gateway/{slug}/* — the same path the project's
+// gatewayUrl advertises — and forwards to the project's upstream origin.
 app.use('/api/api-build', apiBuildRouter);
+app.use('/api/gateway', express.json({ limit: '10mb' }), express.urlencoded({ extended: true, limit: '10mb' }), apiBuildGateway);
 
 // Public Marketplace Catalog routes (curated rails, search, filters, API details, reviews, providers, publishing)
 app.use('/api/v1/catalog', catalogRouter);

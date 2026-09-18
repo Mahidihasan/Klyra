@@ -137,31 +137,27 @@ export const TabViews: React.FC<TabViewsProps> = ({
     );
   }
 
-  // Environments and API Keys
-  if (activeTab === 'environments' || activeTab === 'api-keys') {
+  // Environments (API Keys now has its own dedicated page)
+  if (activeTab === 'environments') {
     return (
       <div className="tab-view-container animate-fade-in">
-        <h1 className="tab-view-title" style={{ textTransform: 'capitalize' }}>{activeTab === 'api-keys' ? 'API Keys' : 'Environments'}</h1>
-        <p className="tab-view-sub">
-          {activeTab === 'api-keys'
-            ? 'Manage sandbox, production, and team API keys securely.'
-            : 'Configure sandbox keys, global environment variables, and mock endpoints.'}
-        </p>
+        <h1 className="tab-view-title">Environments</h1>
+        <p className="tab-view-sub">Configure sandbox keys, global environment variables, and mock endpoints.</p>
 
         <div className="card-base env-card" style={{ marginTop: '20px' }}>
           <div className="env-header">
-            <h3>{activeTab === 'api-keys' ? 'Active API Keys' : 'Global Environment Variables'}</h3>
-            <button className="add-var-btn">+ {activeTab === 'api-keys' ? 'Create Key' : 'Add Variable'}</button>
+            <h3>Global Environment Variables</h3>
+            <button className="add-var-btn">+ Add Variable</button>
           </div>
           <div className="env-table">
             <div className="env-row">
-              <span className="env-key">{activeTab === 'api-keys' ? 'klyra_prod_pk_live_9x2...' : 'OPENAI_API_KEY'}</span>
-              <span className="env-val">{activeTab === 'api-keys' ? '•••••••••••• 8f2a' : 'sk-prod-892415902...'}</span>
+              <span className="env-key">OPENAI_API_KEY</span>
+              <span className="env-val">sk-prod-892415902...</span>
               <span className="status-indicator"><span className="status-dot"/>Active</span>
             </div>
             <div className="env-row">
-              <span className="env-key">{activeTab === 'api-keys' ? 'klyra_test_sk_test_77a...' : 'STRIPE_SECRET_KEY'}</span>
-              <span className="env-val">{activeTab === 'api-keys' ? '•••••••••••• d1b3' : 'sk_live_51M3xYz...'}</span>
+              <span className="env-key">STRIPE_SECRET_KEY</span>
+              <span className="env-val">sk_live_51M3xYz...</span>
               <span className="status-indicator"><span className="status-dot"/>Active</span>
             </div>
           </div>

@@ -83,14 +83,14 @@ export const ProjectsDashboard: React.FC<{
       {/* Back to home (rendered only when a handler is provided) */}
       {onBack && (
         <div className="ab2-back">
-          <button className="ab2-ghost" onClick={onBack}><ArrowLeft size={14} /> Home</button>
+          <button className="ab2-ghost" onClick={onBack}><ArrowLeft size={14} /> Back</button>
         </div>
       )}
       {/* Hero */}
       <section className="ab2-hero">
         <div className="ab2-hero-top">
           <div className="ab2-hero-title">
-            <h1 className="ab2-title">API Build</h1>
+            <h1 className="ab2-title">API Studio</h1>
             <p className="ab2-sub">Connect an existing API, or deploy from GitHub or Docker. Manage, version, monetize and publish it to the Klyra marketplace.</p>
           </div>
           <button className="ab2-primary ab2-primary-lg" onClick={onNew}><Plus size={16} /><span>New Project</span></button>
@@ -100,7 +100,6 @@ export const ProjectsDashboard: React.FC<{
         <div className="ab2-summary">
           {kpis.map((k) => (
             <button key={k.id} className="ab2-kpi" onClick={() => setKpi(k.id)} title={`View ${k.label.toLowerCase()} details`}>
-              <div className="ab2-kpi-ic"><k.Icon size={15} /></div>
               <div className="ab2-kpi-body">
                 <b>{k.value}</b>
                 <span>{k.label}</span>
