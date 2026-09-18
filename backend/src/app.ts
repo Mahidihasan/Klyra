@@ -17,6 +17,7 @@ import apiKeysRouter from './modules/api-keys/api-keys.routes';
 import walletRouter from './modules/wallet/wallet.routes';
 import walletWebhookRouter from './modules/wallet/wallet.webhook';
 import usageRouter from './modules/usage/usage.routes';
+import { catalogRouter } from './modules/catalog/catalog.routes';
 
 const app = express();
 
@@ -79,6 +80,9 @@ app.use('/api/usage', usageRouter);
 // gatewayUrl advertises — and forwards to the project's upstream origin.
 app.use('/api/api-build', apiBuildRouter);
 app.use('/api/gateway', express.json({ limit: '10mb' }), express.urlencoded({ extended: true, limit: '10mb' }), apiBuildGateway);
+
+// Public Marketplace Catalog routes (curated rails, search, filters, API details, reviews, providers, publishing)
+app.use('/api/v1/catalog', catalogRouter);
 
 // Admin dashboard (platform overview). Registered before the `/api` catch-all
 // below so the repos router can't shadow it.

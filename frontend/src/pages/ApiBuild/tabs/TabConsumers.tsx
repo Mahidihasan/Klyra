@@ -46,36 +46,24 @@ export const TabConsumers: React.FC<TabConsumersProps> = ({
       {/* KPI Strip */}
       <div className="kly-consumers-kpi-strip">
         <div className="kly-consumers-kpi">
-          <div className="kly-consumers-kpi-icon" style={{ background: 'rgba(56,189,248,.12)', color: '#38bdf8' }}>
-            <Users size={16} />
-          </div>
           <div>
             <div className="kly-consumers-kpi-val">{consumers.length.toLocaleString()}</div>
             <div className="kly-consumers-kpi-label">Registered Consumers</div>
           </div>
         </div>
         <div className="kly-consumers-kpi">
-          <div className="kly-consumers-kpi-icon" style={{ background: 'rgba(52,211,153,.12)', color: '#34d399' }}>
-            <Activity size={16} />
-          </div>
           <div>
             <div className="kly-consumers-kpi-val">{consumers.filter((c) => c.status === 'active').length.toLocaleString()}</div>
             <div className="kly-consumers-kpi-label">Active Connections</div>
           </div>
         </div>
         <div className="kly-consumers-kpi">
-          <div className="kly-consumers-kpi-icon" style={{ background: 'rgba(139,92,246,.12)', color: '#c4b5fd' }}>
-            <DollarSign size={16} />
-          </div>
           <div>
             <div className="kly-consumers-kpi-val">${activeMRR.toLocaleString()}</div>
             <div className="kly-consumers-kpi-label">Attributed MRR</div>
           </div>
         </div>
         <div className="kly-consumers-kpi">
-          <div className="kly-consumers-kpi-icon" style={{ background: 'rgba(245,158,11,.12)', color: '#fbbf24' }}>
-            <AlertTriangle size={16} />
-          </div>
           <div>
             <div className="kly-consumers-kpi-val">{atRiskCount}</div>
             <div className="kly-consumers-kpi-label">Approaching Quota</div>

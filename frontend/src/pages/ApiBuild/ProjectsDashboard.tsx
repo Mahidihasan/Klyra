@@ -83,7 +83,7 @@ export const ProjectsDashboard: React.FC<{
       {/* Back to home (rendered only when a handler is provided) */}
       {onBack && (
         <div className="ab2-back">
-          <button className="ab2-ghost" onClick={onBack}><ArrowLeft size={14} /> Home</button>
+          <button className="ab2-ghost" onClick={onBack}><ArrowLeft size={14} /> Back</button>
         </div>
       )}
       {/* Hero */}

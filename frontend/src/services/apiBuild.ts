@@ -35,7 +35,15 @@ export const STATUS_META: Record<ProviderProjectStatus, { label: string; color: 
 };
 
 /** Offline fallback labels only; the live taxonomy comes from GET /categories. */
-export const DEFAULT_CATEGORIES = ['AI / Developer Tools', 'Media', 'Finance', 'Communication', 'E-commerce', 'Weather', 'DevOps'];
+export const DEFAULT_CATEGORIES = [
+  'AI / Developer Tools',
+  'Media',
+  'Finance',
+  'Communication',
+  'E-commerce',
+  'Weather',
+  'DevOps',
+];
 
 /** Performs a request and unwraps the backend envelope. Throws on failure. */
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -46,41 +54,63 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let message = `Request failed (HTTP ${response.status})`;
     try {
-      const errBody = await response.json() as { error?: { message?: string } };
+      const errBody = (await response.json()) as { error?: { message?: string } };
       message = errBody?.error?.message || message;
-    } catch { /* keep default message */ }
+    } catch {
+      /* keep default message */
+    }
     throw new Error(message);
   }
-  const body = await response.json() as { success: boolean; data: T };
+  const body = (await response.json()) as { success: boolean; data: T };
   return body.data;
 }
 export const apiBuildService = {
   /* -------------------------------------------------------------- *
    * Projects — the backend composes the full ProviderProject record. *
    * -------------------------------------------------------------- */
-  async list(): Promise<ProviderProject[]> { return api(PROJECTS_ROOT); },
+  async list(): Promise<ProviderProject[]> {
+    return api(PROJECTS_ROOT);
+  },
   async get(id: string): Promise<ProviderProject | null> {
-    try { return await api<ProviderProject>(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`); }
-    catch { return null; }
+    try {
+      return await api<ProviderProject>(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`);
+    } catch {
+      return null;
+    }
   },
   async create(input: CreateProjectInput): Promise<ProviderProject> {
     return api(PROJECTS_ROOT, { method: 'POST', body: JSON.stringify(input) });
   },
   async update(id: string, patch: Partial<ProviderProject>): Promise<ProviderProject | null> {
-    try { return await api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) }); }
-    catch { return null; }
+    try {
+      return await api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(patch),
+      });
+    } catch {
+      return null;
+    }
   },
   async remove(id: string): Promise<boolean> {
     try {
-      const result = await api<{ deleted: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const result = await api<{ deleted: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
       return result.deleted;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   },
   /** Live upstream detection via the backend proxy. Throws when the backend or
    *  the upstream is unreachable — the caller surfaces the real reason; there
    *  is no offline simulation anymore. */
   async detect(source: SourceConfig): Promise<DetectionResult> {
-    const sent: { baseUrl?: string; openApiUrl?: string; repository?: string; dockerImage?: string } = {};
+    const sent: {
+      baseUrl?: string;
+      openApiUrl?: string;
+      repository?: string;
+      dockerImage?: string;
+    } = {};
     const base = source.baseUrl?.trim() || '';
     if (base) sent.baseUrl = base;
     if (source.openApiUrl?.trim()) sent.openApiUrl = source.openApiUrl.trim();
@@ -89,18 +119,33 @@ export const apiBuildService = {
     return api(DETECT_ROOT, { method: 'POST', body: JSON.stringify(sent) });
   },
   /** Imports endpoint operations discovered from the upstream spec. */
-  async importEndpoints(projectId: string, source: { baseUrl?: string; openApiUrl?: string; endpoints?: unknown[] }): Promise<number> {
+  async importEndpoints(
+    projectId: string,
+    source: { baseUrl?: string; openApiUrl?: string; endpoints?: unknown[] },
+  ): Promise<number> {
     const result = await api<{ imported: number }>(
       `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/endpoints/import`,
       { method: 'POST', body: JSON.stringify(source) },
     );
     return result.imported;
   },
-  async updateEndpoint(projectId: string, endpointId: string, patch: Record<string, unknown>): Promise<void> {
-    await api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/endpoints/${encodeURIComponent(endpointId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  async updateEndpoint(
+    projectId: string,
+    endpointId: string,
+    patch: Record<string, unknown>,
+  ): Promise<void> {
+    await api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/endpoints/${encodeURIComponent(
+        endpointId,
+      )}`,
+      { method: 'PUT', body: JSON.stringify(patch) },
+    );
   },
   async requestDeploy(id: string): Promise<{ jobId: string; status: string }> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}/deployments`, { method: 'POST', body: JSON.stringify({ enqueue: true }) });
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}/deployments`, {
+      method: 'POST',
+      body: JSON.stringify({ enqueue: true }),
+    });
   },
   async getRemoteProject(id: string): Promise<ProviderProject> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}`);
@@ -117,7 +162,11 @@ export const apiBuildService = {
   /** Empty array when the backend has no projects or is unreachable — the UI
    *  must show real empty states, never fabricated data. */
   async hydrate(): Promise<ProviderProject[]> {
-    try { return await api(PROJECTS_ROOT); } catch { return []; }
+    try {
+      return await api(PROJECTS_ROOT);
+    } catch {
+      return [];
+    }
   },
   /* -------------------------------------------------------------- *
    * Resources — generic so pages keep their own domain types.        *
@@ -128,42 +177,98 @@ export const apiBuildService = {
   async listVersions<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/versions`);
   },
-  async createVersion<T = unknown>(projectId: string, version: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/versions`, { method: 'POST', body: JSON.stringify(version) });
+  async createVersion<T = unknown>(
+    projectId: string,
+    version: Record<string, unknown>,
+  ): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(version),
+    });
   },
-  async updateVersion<T = unknown>(projectId: string, versionId: string, patch: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  async updateVersion<T = unknown>(
+    projectId: string,
+    versionId: string,
+    patch: Record<string, unknown>,
+  ): Promise<T> {
+    return api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}`,
+      { method: 'PUT', body: JSON.stringify(patch) },
+    );
   },
   async listPlans<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans`);
   },
   async createPlan<T = unknown>(projectId: string, plan: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans`, { method: 'POST', body: JSON.stringify(plan) });
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans`, {
+      method: 'POST',
+      body: JSON.stringify(plan),
+    });
   },
-  async updatePlan<T = unknown>(projectId: string, planId: string, patch: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  async updatePlan<T = unknown>(
+    projectId: string,
+    planId: string,
+    patch: Record<string, unknown>,
+  ): Promise<T> {
+    return api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`,
+      { method: 'PUT', body: JSON.stringify(patch) },
+    );
   },
   async deletePlan(projectId: string, planId: string): Promise<boolean> {
     try {
-      const result = await api<{ deleted: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`, { method: 'DELETE' });
+      const result = await api<{ deleted: boolean }>(
+        `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`,
+        { method: 'DELETE' },
+      );
       return result.deleted;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   },
   async listConsumers<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/consumers`);
   },
-  async createConsumer<T = unknown>(projectId: string, consumer: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/consumers`, { method: 'POST', body: JSON.stringify(consumer) });
+  async createConsumer<T = unknown>(
+    projectId: string,
+    consumer: Record<string, unknown>,
+  ): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/consumers`, {
+      method: 'POST',
+      body: JSON.stringify(consumer),
+    });
   },
-  async updateConsumer<T = unknown>(projectId: string, consumerId: string, patch: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/consumers/${encodeURIComponent(consumerId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  async updateConsumer<T = unknown>(
+    projectId: string,
+    consumerId: string,
+    patch: Record<string, unknown>,
+  ): Promise<T> {
+    return api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/consumers/${encodeURIComponent(
+        consumerId,
+      )}`,
+      { method: 'PUT', body: JSON.stringify(patch) },
+    );
   },
   /** Creates a credential. The response carries the one-time plaintext secret. */
-  async createKey<T = unknown>(projectId: string, input: { label: string; consumer?: string; plan?: string; environment?: 'live' | 'test' }): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/keys`, { method: 'POST', body: JSON.stringify(input) });
+  async createKey<T = unknown>(
+    projectId: string,
+    input: { label: string; consumer?: string; plan?: string; environment?: 'live' | 'test' },
+  ): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/keys`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   },
-  async updateKey<T = unknown>(projectId: string, keyId: string, patch: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/keys/${encodeURIComponent(keyId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  async updateKey<T = unknown>(
+    projectId: string,
+    keyId: string,
+    patch: Record<string, unknown>,
+  ): Promise<T> {
+    return api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/keys/${encodeURIComponent(keyId)}`,
+      { method: 'PUT', body: JSON.stringify(patch) },
+    );
   },
   async listActivity<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/activity`);
@@ -171,7 +276,10 @@ export const apiBuildService = {
   async listDeployments<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/deployments`);
   },
-  async listLogs<T = unknown>(projectId: string, options: { limit?: number; method?: string; path?: string; status?: number } = {}): Promise<T[]> {
+  async listLogs<T = unknown>(
+    projectId: string,
+    options: { limit?: number; method?: string; path?: string; status?: number } = {},
+  ): Promise<T[]> {
     const params = new URLSearchParams();
     if (options.limit) params.set('limit', String(options.limit));
     if (options.method && options.method !== 'ALL') params.set('method', options.method);
@@ -183,20 +291,37 @@ export const apiBuildService = {
   async listIncidents<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/incidents`);
   },
-  async updateIncident<T = unknown>(projectId: string, incidentId: string, patch: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/incidents/${encodeURIComponent(incidentId)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  async updateIncident<T = unknown>(
+    projectId: string,
+    incidentId: string,
+    patch: Record<string, unknown>,
+  ): Promise<T> {
+    return api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/incidents/${encodeURIComponent(
+        incidentId,
+      )}`,
+      { method: 'PUT', body: JSON.stringify(patch) },
+    );
   },
   async listAlertRules<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/alerts`);
   },
   async saveAlertRule<T = unknown>(projectId: string, rule: Record<string, unknown>): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/alerts`, { method: 'POST', body: JSON.stringify(rule) });
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/alerts`, {
+      method: 'POST',
+      body: JSON.stringify(rule),
+    });
   },
   async deleteAlertRule(projectId: string, ruleId: string): Promise<boolean> {
     try {
-      const result = await api<{ deleted: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/alerts/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
+      const result = await api<{ deleted: boolean }>(
+        `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/alerts/${encodeURIComponent(ruleId)}`,
+        { method: 'DELETE' },
+      );
       return result.deleted;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   },
   async getInsights<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/insights`);
@@ -216,14 +341,21 @@ export const apiBuildService = {
     try {
       const rows = await api<{ name: string }[]>(CATEGORY_ROOT);
       return rows.map((row) => row.name);
-    } catch { return [...DEFAULT_CATEGORIES]; }
+    } catch {
+      return [...DEFAULT_CATEGORIES];
+    }
   },
   async addCategory(name: string): Promise<ApiCategory | null> {
     const trimmed = name.trim();
     if (!trimmed) return null;
     try {
-      return await api<ApiCategory>(CATEGORY_ROOT, { method: 'POST', body: JSON.stringify({ name: trimmed }) });
-    } catch { return null; }
+      return await api<ApiCategory>(CATEGORY_ROOT, {
+        method: 'POST',
+        body: JSON.stringify({ name: trimmed }),
+      });
+    } catch {
+      return null;
+    }
   },
 
   /* -------------------------------------------------------------- *
@@ -231,12 +363,17 @@ export const apiBuildService = {
    * -------------------------------------------------------------- */
 
   /** Get current draft and server state. */
-  async getDraftState<T = unknown>(projectId: string): Promise<{ server: T | null; draft: T | null }> {
+  async getDraftState<T = unknown>(
+    projectId: string,
+  ): Promise<{ server: T | null; draft: T | null }> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft`);
   },
 
   /** Update draft configuration (does not affect live). */
-  async updateDraftConfig<T = unknown>(projectId: string, config: T): Promise<{ draft: T; hasChanges: boolean }> {
+  async updateDraftConfig<T = unknown>(
+    projectId: string,
+    config: T,
+  ): Promise<{ draft: T; hasChanges: boolean }> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft`, {
       method: 'PATCH',
       body: JSON.stringify(config),
@@ -252,7 +389,10 @@ export const apiBuildService = {
   },
 
   /** Validate draft before saving. */
-  async validateDraft<T = unknown>(projectId: string, config: T): Promise<{ ok: boolean; error?: string; warnings?: string[] }> {
+  async validateDraft<T = unknown>(
+    projectId: string,
+    config: T,
+  ): Promise<{ ok: boolean; error?: string; warnings?: string[] }> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft/validate`, {
       method: 'POST',
       body: JSON.stringify(config),
@@ -269,14 +409,20 @@ export const apiBuildService = {
 
   /** Discard draft (revert to server state). */
   async discardDraft(projectId: string): Promise<boolean> {
-    const result = await api<{ discarded: boolean }>(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft`, {
-      method: 'DELETE',
-    });
+    const result = await api<{ discarded: boolean }>(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/draft`,
+      {
+        method: 'DELETE',
+      },
+    );
     return result.discarded;
   },
 
   /** Get audit log for a project. */
-  async getAuditLog<T = unknown>(projectId: string, options: { limit?: number; offset?: number } = {}): Promise<T[]> {
+  async getAuditLog<T = unknown>(
+    projectId: string,
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<T[]> {
     const params = new URLSearchParams();
     if (options.limit) params.set('limit', String(options.limit));
     if (options.offset) params.set('offset', String(options.offset));
@@ -290,14 +436,23 @@ export const apiBuildService = {
    * -------------------------------------------------------------- */
   async createOperation<T = OperationRecord>(
     projectId: string,
-    input: { type: string; environment?: string; payload?: Record<string, unknown>; reason?: string; resource?: string },
+    input: {
+      type: string;
+      environment?: string;
+      payload?: Record<string, unknown>;
+      reason?: string;
+      resource?: string;
+    },
   ): Promise<T> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations`, {
       method: 'POST',
       body: JSON.stringify(input),
     });
   },
-  async listOperations<T = OperationRecord>(projectId: string, options: { limit?: number; state?: string; type?: string } = {}): Promise<T[]> {
+  async listOperations<T = OperationRecord>(
+    projectId: string,
+    options: { limit?: number; state?: string; type?: string } = {},
+  ): Promise<T[]> {
     const params = new URLSearchParams();
     if (options.limit) params.set('limit', String(options.limit));
     if (options.state) params.set('state', options.state);
@@ -306,19 +461,36 @@ export const apiBuildService = {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations${qs ? `?${qs}` : ''}`);
   },
   async getOperation<T = OperationRecord>(projectId: string, operationId: string): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(operationId)}`);
+    return api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(
+        operationId,
+      )}`,
+    );
   },
   async cancelOperation<T = OperationRecord>(projectId: string, operationId: string): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(operationId)}/cancel`, { method: 'POST' });
+    return api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(
+        operationId,
+      )}/cancel`,
+      { method: 'POST' },
+    );
   },
   async retryOperation<T = OperationRecord>(projectId: string, operationId: string): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(operationId)}/retry`, { method: 'POST' });
+    return api(
+      `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/operations/${encodeURIComponent(
+        operationId,
+      )}/retry`,
+      { method: 'POST' },
+    );
   },
 
   /* -------------------------------------------------------------- *
    * Resource history — immutable versioned snapshots + restore.    *
    * -------------------------------------------------------------- */
-  async listHistory<T = ResourceHistoryEntry>(projectId: string, options: { resourceType?: string; resourceId?: string; limit?: number } = {}): Promise<T[]> {
+  async listHistory<T = ResourceHistoryEntry>(
+    projectId: string,
+    options: { resourceType?: string; resourceId?: string; limit?: number } = {},
+  ): Promise<T[]> {
     const params = new URLSearchParams();
     if (options.resourceType) params.set('resourceType', options.resourceType);
     if (options.resourceId) params.set('resourceId', options.resourceId);
@@ -326,11 +498,14 @@ export const apiBuildService = {
     const qs = params.toString();
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/history${qs ? `?${qs}` : ''}`);
   },
-  async restoreHistoryVersion<T = ProviderProject>(projectId: string, resourceType: string, versionNo: number): Promise<T> {
+  async restoreHistoryVersion<T = ProviderProject>(
+    projectId: string,
+    resourceType: string,
+    versionNo: number,
+  ): Promise<T> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/history/restore`, {
       method: 'POST',
       body: JSON.stringify({ resourceType, versionNo }),
     });
   },
 };
-
