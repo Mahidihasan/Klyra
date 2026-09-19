@@ -8,7 +8,6 @@ import {
   FolderGit2,
   GitCommitHorizontal,
   Loader2,
-  Lock,
   Rocket,
   ShieldCheck,
   Sparkles,
@@ -141,30 +140,35 @@ export function buildAchievements(facts: ProfileFacts): Achievement[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Stickers — GitHub-style achievement tiles                           */
+/* Compact UI achievement stickers. These are not formal certificates. */
 /* ------------------------------------------------------------------ */
 
-export const StickerGrid: React.FC<{ achievements: Achievement[] }> = ({ achievements }) => (
-  <div className="sticker-grid">
-    {achievements.map((achievement) => (
-      <div
-        key={achievement.id}
-        className={`sticker${achievement.earned ? ' earned' : ''}`}
-        title={achievement.earned ? achievement.description : achievement.progressLabel}
-      >
-        <span className="sticker-icon">
-          <achievement.Icon size={19} />
-        </span>
-        <span className="sticker-body">
-          <span className="sticker-name">{achievement.name}</span>
-          <span className="sticker-desc">
-            {achievement.earned ? achievement.description : achievement.progressLabel}
+export const StickerGrid: React.FC<{ achievements: Achievement[] }> = ({ achievements }) => {
+  const earned = achievements.filter((achievement) => achievement.earned);
+
+  if (earned.length === 0) {
+    return <p className="achievement-empty">No achievements earned yet.</p>;
+  }
+
+  return (
+    <div className="sticker-grid" aria-label="Earned achievements">
+      {earned.map((achievement) => (
+        <div
+          key={achievement.id}
+          className="sticker earned"
+          title={achievement.description}
+        >
+          <span className="sticker-icon">
+            <achievement.Icon size={19} />
           </span>
-        </span>
-      </div>
-    ))}
-  </div>
-);
+          <span className="sticker-body">
+            <span className="sticker-name">{achievement.name}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 /* ------------------------------------------------------------------ */
 /* Contribution heatmap — 26 weeks                                     */
@@ -262,7 +266,7 @@ export const ContributionGraph: React.FC<{ contributions: Contribution[]; loadin
           'Loading activity…'
         ) : (
           <>
-            <strong>{total.toLocaleString()}</strong> contribution{total === 1 ? '' : 's'} in the
+            <strong>{total.toLocaleString()}</strong> activity event{total === 1 ? '' : 's'} in the
             last 6 months
           </>
         )}
@@ -292,7 +296,7 @@ export const ContributionGraph: React.FC<{ contributions: Contribution[]; loadin
                       title={
                         day.future
                           ? undefined
-                          : `${day.count} contribution${day.count === 1 ? '' : 's'} on ${
+                          : `${day.count} activity event${day.count === 1 ? '' : 's'} on ${
                               MONTH_SHORT[day.date.getMonth()]
                             } ${day.date.getDate()}, ${day.date.getFullYear()}`
                       }
@@ -318,7 +322,7 @@ export const ContributionGraph: React.FC<{ contributions: Contribution[]; loadin
 };
 
 /* ------------------------------------------------------------------ */
-/* Contributions feed — commit-style activity list                     */
+/* Activity feed                                                        */
 /* ------------------------------------------------------------------ */
 
 const FeedIcon: React.FC<{ kind: string }> = ({ kind }) => {
@@ -368,7 +372,7 @@ export const ContributionsFeed: React.FC<{ contributions: Contribution[]; loadin
   if (loading) {
     return (
       <div className="feed-empty">
-        <Loader2 className="profile-spinner" size={17} /> Loading contributions…
+        <Loader2 className="profile-spinner" size={17} /> Loading activity…
       </div>
     );
   }
@@ -377,8 +381,8 @@ export const ContributionsFeed: React.FC<{ contributions: Contribution[]; loadin
       <div className="feed-empty">
         <GitCommitHorizontal size={20} />
         <p>
-          No contributions yet. Activity from your API projects — deploys, versions and publishes —
-          will appear here.
+          No activity yet. Events from available API Build projects — deploys, versions and
+          publishes — will appear here.
         </p>
       </div>
     );
@@ -405,7 +409,7 @@ export const ContributionsFeed: React.FC<{ contributions: Contribution[]; loadin
           className="feed-more"
           onClick={() => setExpanded((current) => !current)}
         >
-          {expanded ? 'Show less' : `Show all ${contributions.length} contributions`}
+          {expanded ? 'Show less' : `Show all ${contributions.length} activity events`}
         </button>
       )}
     </div>
@@ -424,11 +428,10 @@ const VISIBILITY_LABEL: Record<ProviderProject['visibility'], string> = {
 
 export const ProjectsList: React.FC<{
   projects: ProviderProject[];
-  activityCounts: Map<string, number>;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
-}> = ({ projects, activityCounts, loading, error, onRetry }) => {
+}> = ({ projects, loading, error, onRetry }) => {
   if (loading) {
     return (
       <div className="feed-empty">
@@ -452,8 +455,8 @@ export const ProjectsList: React.FC<{
       <div className="feed-empty">
         <FolderGit2 size={20} />
         <p>
-          No projects yet. Create your first API project from the API Build workspace and its
-          contributions will show up here.
+          No API Build projects are available yet. Create a project from the API Build workspace
+          to see it here.
         </p>
       </div>
     );
@@ -463,7 +466,6 @@ export const ProjectsList: React.FC<{
     <div className="project-list">
       {projects.map((project) => {
         const meta = STATUS_META[project.status] ?? STATUS_META.draft;
-        const commits = activityCounts.get(project.id);
         return (
           <div key={project.id} className="project-row">
             <span className="project-dot" style={{ background: meta.color }} title={meta.label} />
@@ -478,31 +480,8 @@ export const ProjectsList: React.FC<{
                 </span>
               </div>
               <p className="project-desc">{project.description || 'No description provided.'}</p>
-              <p className="project-meta">
-                <span>
-                  {project.endpointCount} endpoint{project.endpointCount === 1 ? '' : 's'}
-                </span>
-                <span className="feed-dot">·</span>
-                <span>
-                  {project.consumers} consumer{project.consumers === 1 ? '' : 's'}
-                </span>
-                <span className="feed-dot">·</span>
-                <span>Updated {relativeTime(project.updatedAt)}</span>
-              </p>
             </div>
             <div className="project-side">
-              {typeof commits === 'number' ? (
-                <span className="project-commits" title="Recorded activity on this project">
-                  <GitCommitHorizontal size={14} /> {commits}
-                </span>
-              ) : (
-                <span
-                  className="project-commits muted"
-                  title="Activity is unavailable for this project"
-                >
-                  <Lock size={13} /> N/A
-                </span>
-              )}
               <span className="project-status" style={{ color: meta.color }}>
                 {meta.label}
               </span>

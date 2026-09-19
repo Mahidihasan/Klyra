@@ -69,7 +69,6 @@ import {
 } from './overview';
 import './styles.css';
 
-type PageTab = 'overview' | 'projects' | 'settings';
 type ProfileSection = 'general' | 'security' | 'preferences' | 'accounts' | 'connections';
 type FieldKey = 'name' | 'handle' | 'jobTitle' | 'company' | 'website' | 'githubUrl' | 'bio';
 
@@ -358,7 +357,7 @@ export const ProfilePage: React.FC = () => {
     deactivateAccount,
   } = useAuth();
 
-  const [tab, setTab] = useState<PageTab>('overview');
+  const [showSettings, setShowSettings] = useState(false);
   const [section, setSection] = useState<ProfileSection>('general');
 
   /* Identity — per-field inline editing via the pencil affordances. */
@@ -433,7 +432,6 @@ export const ProfilePage: React.FC = () => {
 
   /* Projects & contributions */
   const [projects, setProjects] = useState<ProviderProject[]>([]);
-  const [activityCounts, setActivityCounts] = useState<Map<string, number>>(new Map());
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
@@ -540,20 +538,17 @@ export const ProfilePage: React.FC = () => {
           activity: await apiBuildService.listActivity<ActivityEntry>(project.id),
         })),
       );
-      const counts = new Map<string, number>();
       const feed: Contribution[] = [];
       for (const result of results) {
         if (result.status !== 'fulfilled') {
           continue;
         }
         const { project, activity } = result.value;
-        counts.set(project.id, activity.length);
         for (const entry of activity) {
           feed.push({ ...entry, projectId: project.id, projectName: project.name });
         }
       }
       feed.sort((a, b) => (new Date(b.at).getTime() || 0) - (new Date(a.at).getTime() || 0));
-      setActivityCounts(counts);
       setContributions(feed);
     } catch (error) {
       setProjectsError(getErrorMessage(error));
@@ -916,8 +911,6 @@ export const ProfilePage: React.FC = () => {
     );
   }
 
-  const earnedCount = achievements.filter((achievement) => achievement.earned).length;
-
   return (
     <div className="profile-page">
       <header className="profile-header">
@@ -1027,7 +1020,7 @@ export const ProfilePage: React.FC = () => {
               type="button"
               className="profile-primary-btn"
               onClick={() => {
-                setTab('settings');
+                setShowSettings(true);
                 setSection('general');
               }}
             >
@@ -1036,7 +1029,7 @@ export const ProfilePage: React.FC = () => {
             <button
               type="button"
               className="profile-icon-btn"
-              onClick={() => setTab('settings')}
+              onClick={() => setShowSettings(true)}
               aria-label="Profile settings"
               title="Profile settings"
             >
@@ -1052,76 +1045,43 @@ export const ProfilePage: React.FC = () => {
           </p>
         )}
 
-        <div className="profile-stats">
-          <div className="profile-stat">
-            <strong>{projectsLoading && projects.length === 0 ? '—' : projects.length}</strong>
-            <span>Projects</span>
-          </div>
-          <div className="profile-stat">
-            <strong>
-              {projectsLoading && contributions.length === 0 ? '—' : contributions.length}
-            </strong>
-            <span>Contributions</span>
-          </div>
-          <div className="profile-stat">
-            <strong>
-              {earnedCount}
-              <em>/{achievements.length}</em>
-            </strong>
-            <span>Pro stickers</span>
-          </div>
-          <div className="profile-stat">
-            <strong className={profile.two_factor_enabled ? 'ok' : 'warn'}>
-              {profile.two_factor_enabled ? 'On' : 'Off'}
-            </strong>
-            <span>Two-factor</span>
-          </div>
-        </div>
       </header>
 
-      <nav className="profile-tabs" role="tablist" aria-label="Profile sections">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'overview'}
-          className={tab === 'overview' ? 'active' : ''}
-          onClick={() => setTab('overview')}
-        >
-          Overview
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'projects'}
-          className={tab === 'projects' ? 'active' : ''}
-          onClick={() => setTab('projects')}
-        >
-          Projects
-          {projects.length > 0 ? (
-            <span className="profile-tab-count">{projects.length}</span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'settings'}
-          className={tab === 'settings' ? 'active' : ''}
-          onClick={() => setTab('settings')}
-        >
-          Settings
-        </button>
-      </nav>
-
-      {tab === 'overview' ? (
+      {!showSettings ? (
         <div className="profile-overview">
           <section className="profile-card">
             <header className="profile-card-head">
               <div>
-                <p className="profile-eyebrow">ACHIEVEMENTS</p>
-                <h2>Pro stickers</h2>
-                <p className="profile-card-sub">Milestones earned across your Klyra workspace.</p>
+                <p className="profile-eyebrow">ABOUT</p>
+                <h2>About</h2>
+                <p className="profile-card-sub">
+                  Profile details will appear here as they are added.
+                </p>
               </div>
-              <span className="profile-card-badge">{earnedCount} earned</span>
+            </header>
+            <div className="profile-about-grid">
+              <div className="profile-about-item">
+                <h3>Skills</h3>
+                <p>No skills added yet.</p>
+              </div>
+              <div className="profile-about-item">
+                <h3>Experience</h3>
+                <p>No experience added yet.</p>
+              </div>
+              <div className="profile-about-item">
+                <h3>Education</h3>
+                <p>No education added yet.</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="profile-card">
+            <header className="profile-card-head">
+              <div>
+                <p className="profile-eyebrow">ACHIEVEMENTS</p>
+                <h2>Achievements</h2>
+                <p className="profile-card-sub">Milestones currently recognized in Klyra.</p>
+              </div>
             </header>
             <StickerGrid achievements={achievements} />
           </section>
@@ -1129,52 +1089,49 @@ export const ProfilePage: React.FC = () => {
           <section className="profile-card">
             <header className="profile-card-head">
               <div>
-                <p className="profile-eyebrow">ACTIVITY</p>
-                <h2>Contribution activity</h2>
+                <p className="profile-eyebrow">PROJECTS</p>
+                <h2>Projects</h2>
                 <p className="profile-card-sub">
-                  Deploys, versions and publishes across your projects.
+                  API projects available in the current workspace.
+                </p>
+              </div>
+            </header>
+            <ProjectsList
+              projects={projects}
+              loading={projectsLoading}
+              error={projectsError}
+              onRetry={() => void loadProjects()}
+            />
+          </section>
+          <section className="profile-card">
+            <header className="profile-card-head">
+              <div>
+                <p className="profile-eyebrow">ACTIVITY</p>
+                <h2>Activity</h2>
+                <p className="profile-card-sub">
+                  Recent events from available API Build projects.
                 </p>
               </div>
             </header>
             <ContributionGraph contributions={contributions} loading={projectsLoading} />
-          </section>
-
-          <section className="profile-card">
-            <header className="profile-card-head">
-              <div>
-                <p className="profile-eyebrow">HISTORY</p>
-                <h2>Contributions</h2>
-                <p className="profile-card-sub">
-                  Latest commits and events from your API projects.
-                </p>
-              </div>
-            </header>
-            <ContributionsFeed contributions={contributions} loading={projectsLoading} />
+            <div className="profile-activity-feed">
+              <ContributionsFeed contributions={contributions} loading={projectsLoading} />
+            </div>
           </section>
         </div>
-      ) : tab === 'projects' ? (
-        <section className="profile-card">
-          <header className="profile-card-head">
-            <div>
-              <p className="profile-eyebrow">PORTFOLIO</p>
-              <h2>Your projects</h2>
-              <p className="profile-card-sub">
-                API projects you own with their contribution counts.
-              </p>
-            </div>
-            <span className="profile-card-badge">{projects.length} total</span>
-          </header>
-          <ProjectsList
-            projects={projects}
-            activityCounts={activityCounts}
-            loading={projectsLoading}
-            error={projectsError}
-            onRetry={() => void loadProjects()}
-          />
-        </section>
       ) : (
-        <div className="settings-layout">
-          <nav className="profile-nav" aria-label="Settings sections">
+        <div className="profile-settings-view">
+          <div className="profile-settings-toolbar">
+            <button
+              type="button"
+              className="profile-secondary-btn compact"
+              onClick={() => setShowSettings(false)}
+            >
+              Back to profile
+            </button>
+          </div>
+          <div className="settings-layout">
+            <nav className="profile-nav" aria-label="Settings sections">
             {SECTIONS.map(({ id, label, icon }) => (
               <button
                 key={id}
@@ -1187,8 +1144,8 @@ export const ProfilePage: React.FC = () => {
                 <span>{label}</span>
               </button>
             ))}
-          </nav>
-          <div className="profile-panel">
+            </nav>
+            <div className="profile-panel">
             {section === 'general' ? (
               <>
                 <header className="profile-panel-header">
@@ -2158,6 +2115,7 @@ export const ProfilePage: React.FC = () => {
                 </section>
               </>
             )}
+            </div>
           </div>
         </div>
       )}
