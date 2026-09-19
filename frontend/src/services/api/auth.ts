@@ -24,6 +24,14 @@ export interface UserProfile {
   last_login_ip: string | null;
   created_at: string;
   updated_at: string | null;
+  achievements: ProfileAchievement[];
+}
+
+export interface ProfileAchievement {
+  id: 'origin' | 'momentum' | 'ascendant' | 'legacy' | 'distinction' | 'vanguard';
+  name: string;
+  description: string;
+  detail: string;
 }
 
 export interface ProfileExperience {

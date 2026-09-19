@@ -143,6 +143,15 @@ export interface UserPublicProfile {
   last_login_ip: string | null;
   created_at: string;
   updated_at: string | null;
+  achievements: ProfileAchievement[];
+}
+
+/** Dynamic achievements calculated from the authenticated user's live data. */
+export interface ProfileAchievement {
+  id: 'origin' | 'momentum' | 'ascendant' | 'legacy' | 'distinction' | 'vanguard';
+  name: string;
+  description: string;
+  detail: string;
 }
 
 /** Fields an authenticated user may update from their profile. */

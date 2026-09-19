@@ -63,7 +63,6 @@ import type { ProviderProject } from '../../types/apibuild';
 import { EditableRow } from './EditableRow';
 import {
   ActivityEntry,
-  buildAchievements,
   Contribution,
   ContributionGraph,
   ContributionsFeed,
@@ -594,35 +593,6 @@ export const ProfilePage: React.FC = () => {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
-
-  const achievements = useMemo(() => {
-    if (!profile) {
-      return [];
-    }
-    return buildAchievements({
-      emailVerified: !!profile.email_verified_at,
-      twoFactorEnabled: !!profile.two_factor_enabled,
-      projects: projects.length,
-      published: projects.filter(
-        (project) =>
-          project.published || project.status === 'published' || project.status === 'healthy',
-      ).length,
-      consumers: projects.reduce((total, project) => total + project.consumers, 0),
-      contributions: contributions.length,
-      avgSuccessRate: projects.length
-        ? projects.reduce((total, project) => total + (project.successRate || 0), 0) /
-          projects.length
-        : 0,
-      memberSince: profile.created_at ? new Date(profile.created_at) : new Date(),
-      completeness: [
-        !!profile.avatar_url,
-        !!profile.bio,
-        !!profile.company,
-        !!profile.website,
-        !!profile.github_url,
-      ].filter(Boolean).length,
-    });
-  }, [profile, projects, contributions]);
 
   const beginEdit = (field: FieldKey) => {
     setEditDraft({ ...form });
@@ -1317,7 +1287,7 @@ export const ProfilePage: React.FC = () => {
                 <p className="profile-card-sub">Milestones currently recognized in Klyra.</p>
               </div>
             </header>
-            <StickerGrid achievements={achievements} />
+            <StickerGrid achievements={profile.achievements} />
           </section>
 
           <section className="profile-card">

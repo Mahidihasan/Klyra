@@ -1,22 +1,19 @@
 import {
   AlertCircle,
   BadgeCheck,
-  Blocks,
   Cake,
   CheckCircle2,
-  Flame,
   FolderGit2,
   GitCommitHorizontal,
   Loader2,
   Rocket,
   ShieldCheck,
-  Sparkles,
-  Star,
   Users,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 
 import { STATUS_META } from '../../services/apiBuild';
+import type { ProfileAchievement } from '../../services/api/auth';
 import type { ProviderProject } from '../../types/apibuild';
 
 /* ==========================================================================
@@ -37,129 +34,36 @@ export interface Contribution extends ActivityEntry {
   projectName: string;
 }
 
-export interface ProfileFacts {
-  emailVerified: boolean;
-  twoFactorEnabled: boolean;
-  projects: number;
-  published: number;
-  consumers: number;
-  contributions: number;
-  avgSuccessRate: number;
-  memberSince: Date;
-  completeness: number;
-}
-
-export interface Achievement {
-  id: string;
-  name: string;
-  description: string;
-  progressLabel: string;
-  Icon: typeof Rocket;
-  earned: boolean;
-}
-
-const YEARS = 1000 * 60 * 60 * 24 * 365.25;
-
-export function buildAchievements(facts: ProfileFacts): Achievement[] {
-  return [
-    {
-      id: 'verified',
-      name: 'Verified',
-      description: 'Confirmed the account email address.',
-      progressLabel: 'Verify your email to earn this.',
-      Icon: BadgeCheck,
-      earned: facts.emailVerified,
-    },
-    {
-      id: 'guardian',
-      name: 'Guardian',
-      description: 'Enabled two-factor authentication.',
-      progressLabel: 'Enable 2FA in Security to earn this.',
-      Icon: ShieldCheck,
-      earned: facts.twoFactorEnabled,
-    },
-    {
-      id: 'shipper',
-      name: 'Shipper',
-      description: 'Published an API project on Klyra.',
-      progressLabel: `${facts.published} of 1 published project${
-        facts.published === 1 ? '' : 's'
-      } — publish one to earn this.`,
-      Icon: Rocket,
-      earned: facts.published >= 1,
-    },
-    {
-      id: 'architect',
-      name: 'Architect',
-      description: 'Built three or more API projects.',
-      progressLabel: `${Math.min(facts.projects, 3)} of 3 projects created.`,
-      Icon: Blocks,
-      earned: facts.projects >= 3,
-    },
-    {
-      id: 'polished',
-      name: 'Polished',
-      description: 'Completed the profile: avatar, bio, company, website and GitHub.',
-      progressLabel: `${facts.completeness} of 5 profile fields filled.`,
-      Icon: Sparkles,
-      earned: facts.completeness >= 5,
-    },
-    {
-      id: 'crowd-favorite',
-      name: 'Crowd Favorite',
-      description: 'Attracted five or more API consumers.',
-      progressLabel: `${Math.min(facts.consumers, 5)} of 5 consumers subscribed.`,
-      Icon: Users,
-      earned: facts.consumers >= 5,
-    },
-    {
-      id: 'five-nines',
-      name: 'Five Nines',
-      description: 'Averaged 99%+ request success across projects.',
-      progressLabel: `${facts.avgSuccessRate.toFixed(1)}% average success rate.`,
-      Icon: Star,
-      earned: facts.projects > 0 && facts.avgSuccessRate >= 99,
-    },
-    {
-      id: 'prolific',
-      name: 'Prolific',
-      description: 'Recorded twenty or more contributions.',
-      progressLabel: `${Math.min(facts.contributions, 20)} of 20 contributions.`,
-      Icon: Flame,
-      earned: facts.contributions >= 20,
-    },
-    {
-      id: 'veteran',
-      name: 'Veteran',
-      description: 'One full year on the platform.',
-      progressLabel: 'Complete one year of membership.',
-      Icon: Cake,
-      earned: Date.now() - facts.memberSince.getTime() >= YEARS,
-    },
-  ];
-}
-
 /* ------------------------------------------------------------------ */
 /* Compact UI achievement stickers. These are not formal certificates. */
 /* ------------------------------------------------------------------ */
 
-export const StickerGrid: React.FC<{ achievements: Achievement[] }> = ({ achievements }) => {
-  const earned = achievements.filter((achievement) => achievement.earned);
+const AchievementIcon: React.FC<{ id: ProfileAchievement['id'] }> = ({ id }) => {
+  switch (id) {
+    case 'origin': return <Rocket size={19} />;
+    case 'momentum': return <Users size={19} />;
+    case 'ascendant': return <GitCommitHorizontal size={19} />;
+    case 'legacy': return <Cake size={19} />;
+    case 'distinction': return <BadgeCheck size={19} />;
+    case 'vanguard': return <ShieldCheck size={19} />;
+  }
+};
 
-  if (earned.length === 0) {
+export const StickerGrid: React.FC<{ achievements: ProfileAchievement[] }> = ({ achievements }) => {
+  if (achievements.length === 0) {
     return <p className="achievement-empty">No achievements earned yet.</p>;
   }
 
   return (
     <div className="sticker-grid" aria-label="Earned achievements">
-      {earned.map((achievement) => (
+      {achievements.map((achievement) => (
         <div
           key={achievement.id}
           className="sticker earned"
-          title={achievement.description}
+          title={`${achievement.description} ${achievement.detail}`}
         >
           <span className="sticker-icon">
-            <achievement.Icon size={19} />
+            <AchievementIcon id={achievement.id} />
           </span>
           <span className="sticker-body">
             <span className="sticker-name">{achievement.name}</span>

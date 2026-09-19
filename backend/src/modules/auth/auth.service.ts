@@ -6,6 +6,7 @@ import {
   UserRecord,
   UserMetadata,
   UserPublicProfile,
+  ProfileAchievement,
   AuthTokens,
   LoginResult,
   LoginHistoryItem,
@@ -50,7 +51,7 @@ export class AccountDeactivationError extends Error {
   }
 }
 
-function sanitizeUser(user: any): UserPublicProfile {
+function sanitizeUser(user: any, achievements: ProfileAchievement[] = []): UserPublicProfile {
   const metadata: UserMetadata = user.metadata || {};
   const storedPreferences: Partial<UserPreferences> = metadata.preferences || {};
   const personalInfo = metadata.personal_info || {};
@@ -97,6 +98,7 @@ function sanitizeUser(user: any): UserPublicProfile {
     last_login_ip: user.last_login_ip,
     created_at: user.created_at,
     updated_at: user.updated_at,
+    achievements,
   };
 }
 
@@ -104,6 +106,69 @@ const PUBLIC_PROFILE_FIELDS = `u.id, u.email, u.name, u.role, u.email_verified_a
   u.is_active, u.two_factor_enabled, u.avatar_url, u.bio, u.company, u.website,
   u.metadata, u.last_login_at, u.last_login_ip::text, u.created_at, u.updated_at,
   np.email_enabled, np.push_enabled, np.in_app_enabled`;
+
+interface AchievementMetrics {
+  published_api_count: number | string;
+  active_subscriber_count: number | string;
+  api_version_count: number | string;
+}
+
+const PROFILE_ACHIEVEMENTS: Record<ProfileAchievement['id'], Omit<ProfileAchievement, 'id'>> = {
+  origin: {
+    name: 'Origin',
+    description: 'Published your first API.',
+    detail: 'Earned by publishing your first marketplace API.',
+  },
+  momentum: {
+    name: 'Momentum',
+    description: 'Reached 5 active subscribers.',
+    detail: 'Earned when your APIs reach five active subscribers.',
+  },
+  ascendant: {
+    name: 'Ascendant',
+    description: 'Evolved an API through multiple versions.',
+    detail: 'Earned by publishing multiple versions of your APIs.',
+  },
+  legacy: {
+    name: 'Legacy',
+    description: 'One year on Klyra.',
+    detail: 'Earned after one year of building on Klyra.',
+  },
+  distinction: {
+    name: 'Distinction',
+    description: 'Verified account.',
+    detail: 'Earned when your Klyra account is verified.',
+  },
+  vanguard: {
+    name: 'Vanguard',
+    description: 'Two-factor protection enabled.',
+    detail: 'Earned by securing your account with two-factor authentication.',
+  },
+};
+
+function achievement(id: ProfileAchievement['id']): ProfileAchievement {
+  return { id, ...PROFILE_ACHIEVEMENTS[id] };
+}
+
+/** Build the dynamic achievement set from trusted user data and aggregate metrics. */
+export function buildProfileAchievements(
+  user: Pick<UserPublicProfile, 'created_at' | 'email_verified_at' | 'two_factor_enabled'>,
+  metrics: AchievementMetrics,
+  now = Date.now(),
+): ProfileAchievement[] {
+  const createdAt = new Date(user.created_at).getTime();
+  const isLegacy = Number.isFinite(createdAt) && createdAt <= now - 365 * 24 * 60 * 60 * 1000;
+  const achievements: ProfileAchievement[] = [];
+
+  if (Number(metrics.published_api_count) >= 1) achievements.push(achievement('origin'));
+  if (Number(metrics.active_subscriber_count) >= 5) achievements.push(achievement('momentum'));
+  if (Number(metrics.api_version_count) >= 2) achievements.push(achievement('ascendant'));
+  if (isLegacy) achievements.push(achievement('legacy'));
+  if (user.email_verified_at !== null) achievements.push(achievement('distinction'));
+  if (user.two_factor_enabled) achievements.push(achievement('vanguard'));
+
+  return achievements;
+}
 
 function maskEmail(email: string): string {
   const [name, domain] = email.split('@');
@@ -123,7 +188,30 @@ export class AuthService {
       [userId],
     );
 
-    return result.rows[0] ? sanitizeUser(result.rows[0]) : null;
+    const profile = result.rows[0];
+    if (!profile) return null;
+
+    const metrics = await pool.query<AchievementMetrics>(
+      `SELECT
+         COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'PUBLISHED') AS published_api_count,
+         COUNT(DISTINCT us.id) AS active_subscriber_count,
+         COUNT(DISTINCT av.id) AS api_version_count
+       FROM apis a
+       LEFT JOIN user_subscriptions us ON us.api_id = a.id AND us.status = 'ACTIVE'
+       LEFT JOIN api_versions av ON av.api_id = a.id
+       WHERE a.owner_id = $1 AND a.deleted_at IS NULL`,
+      [userId],
+    );
+
+    const safeProfile = sanitizeUser(profile);
+    return {
+      ...safeProfile,
+      achievements: buildProfileAchievements(safeProfile, metrics.rows[0] ?? {
+        published_api_count: 0,
+        active_subscriber_count: 0,
+        api_version_count: 0,
+      }),
+    };
   }
 
   /**
