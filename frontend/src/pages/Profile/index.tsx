@@ -24,7 +24,6 @@ import {
   Mail,
   Monitor,
   Moon,
-  Pencil,
   Plus,
   Save,
   Settings,
@@ -978,10 +977,14 @@ export const ProfilePage: React.FC = () => {
             <p className="profile-handle-line">
               {profile.handle ? <span>@{profile.handle}</span> : null}
               {profile.handle && profile.job_title ? <span className="feed-dot">·</span> : null}
-              {profile.job_title ? <span>{profile.job_title}</span> : null}
+              {profile.job_title ? (
+                <span>
+                  <span className="profile-meta-label">Job title</span> {profile.job_title}
+                </span>
+              ) : null}
             </p>
             <p className="profile-bio-line">
-              {profile.bio || 'No bio yet — add one from Edit profile.'}
+              {profile.bio || 'No bio yet — add one from Settings.'}
             </p>
             <div className="profile-meta-row">
               {profile.company ? (
@@ -1016,16 +1019,6 @@ export const ProfilePage: React.FC = () => {
           </div>
 
           <div className="profile-header-actions">
-            <button
-              type="button"
-              className="profile-primary-btn"
-              onClick={() => {
-                setShowSettings(true);
-                setSection('general');
-              }}
-            >
-              <Pencil size={15} /> Edit profile
-            </button>
             <button
               type="button"
               className="profile-icon-btn"
