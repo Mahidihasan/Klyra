@@ -63,7 +63,11 @@ function mapApiRow(row: any): CatalogApi {
     uptimePercentage: parseFloat(row.uptime_percentage || '99.95'),
     tags: Array.isArray(row.tags) ? row.tags : [],
     endpointsCount:
-      endpoints.length > 0 ? endpoints.length : parseInt(row.endpoints_count || '1', 10),
+      endpoints.length > 0
+        ? endpoints.length
+        : row.endpoints_count !== undefined && row.endpoints_count !== null
+          ? parseInt(row.endpoints_count, 10)
+          : 1,
     endpoints: endpoints.length > 0 ? endpoints : undefined,
     lastPublishedAt: row.last_published_at
       ? new Date(row.last_published_at).toISOString()
@@ -78,7 +82,7 @@ const SELECT_API_FIELDS = `
   a.logo_url, a.category_id, c.name AS category_name, c.slug AS category_slug,
   COALESCE(c.icon_name, 'Layers') AS category_icon,
   a.owner_id, u.name AS owner_name, u.avatar_url AS owner_avatar_url, u.company AS owner_company,
-  a.pricing_model, a.status, a.is_public, a.api_spec, a.endpoints_count, a.tags, a.rating, a.total_reviews,
+  a.pricing_model, a.status, a.is_public, a.api_spec, a.tags, a.rating, a.total_reviews,
   a.total_subscribers, a.total_requests, COALESCE(a.latency_ms, 120) AS latency_ms,
   COALESCE(a.uptime_percentage, 99.95) AS uptime_percentage,
   a.trending_score, a.popularity_score, a.last_published_at, a.created_at, a.updated_at
