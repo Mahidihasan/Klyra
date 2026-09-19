@@ -15,6 +15,9 @@ import apiBuildRouter from './modules/api-build/api-build.routes';
 import providerApisRouter from './modules/provider/apis.routes';
 import apiBuildGateway from './modules/api-build/api-build.gateway';
 import apiKeysRouter from './modules/api-keys/api-keys.routes';
+import walletRouter from './modules/wallet/wallet.routes';
+import walletWebhookRouter from './modules/wallet/wallet.webhook';
+import usageRouter from './modules/usage/usage.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
 
 const app = express();
@@ -44,6 +47,10 @@ app.use(
   },
 );
 
+// Stripe webhook — Stripe signs the unparsed payload, so this must sit above
+// express.json(), like the Git Smart HTTP route does.
+app.use('/api/wallet/webhook', express.raw({ type: 'application/json' }), walletWebhookRouter);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -67,6 +74,11 @@ app.use('/api/playground', playgroundRouter);
 
 // Billing routes
 app.use('/api/billing', billingRouter);
+app.use('/api/wallet', walletRouter);
+// requireAuth is applied per route inside the router, as the wallet module
+// does. authOptional would let an unauthenticated request through, and the
+// router used to fall back to a ?userId= query parameter when it did.
+app.use('/api/usage', usageRouter);
 
 // API Build module (projects, endpoints, versions, …) and its dev gateway.
 // The gateway answers /api/gateway/{slug}/* — the same path the project's
