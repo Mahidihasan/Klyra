@@ -14,6 +14,7 @@ import { ApiBuilder } from './pages/ApiBuilder/index';
 import { ApiBuildPage } from './pages/ApiBuild';
 import { BillingPage } from './pages/Billing/index';
 import { WalletPage } from './pages/Wallet/index';
+import { UsagePage } from './pages/Usage/index';
 import { RepositoriesPage } from './pages/Repositories/index';
 import { AdminOverviewPage } from './pages/AdminOverview/index';
 import { AdminUsersPage } from './pages/AdminUsers/index';
@@ -767,6 +768,10 @@ function AppContent() {
               ) : activeTab === 'wallet' ? (
                 <main className="content-page-wrapper">
                   <WalletPage />
+                </main>
+              ) : activeTab === 'usage' ? (
+                <main className="content-page-wrapper">
+                  <UsagePage />
                 </main>
               ) : activeTab === 'repositories' ? (
                 <main>
