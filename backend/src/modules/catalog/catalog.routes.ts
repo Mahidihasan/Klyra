@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { catalogService } from './catalog.service';
 import { requireAuth, authOptional } from '../auth/auth.middleware';
 import { pool as db } from '../../services/database.service';
+import { CertificatesService } from '../certificates/certificates.service';
 
 const router = Router();
 
@@ -257,6 +258,7 @@ router.post('/apis', requireAuth, async (req: Request, res: Response) => {
       tags: Array.isArray(tags) ? tags : [],
       plans: Array.isArray(plans) ? plans : undefined,
     });
+    await CertificatesService.ensureMarketplaceImpactCertificate(req.user!.sub);
 
     res.status(201).json({
       success: true,
@@ -318,6 +320,11 @@ router.post('/apis/:id/subscribe', requireAuth, async (req: Request, res: Respon
       `UPDATE apis SET total_subscribers = total_subscribers + 1 WHERE id = $1`,
       [req.params.id]
     );
+
+    const ownerResult = await db.query('SELECT owner_id FROM apis WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+    if (ownerResult.rows[0]?.owner_id) {
+      await CertificatesService.ensureMarketplaceImpactCertificate(ownerResult.rows[0].owner_id);
+    }
 
     res.json({
       success: true,

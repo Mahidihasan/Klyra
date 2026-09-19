@@ -25,6 +25,20 @@ export interface UserProfile {
   created_at: string;
   updated_at: string | null;
   achievements: ProfileAchievement[];
+  certificates: ProfileCertificate[];
+}
+
+export interface ProfileCertificate {
+  id: string;
+  certificate_type: 'MARKETPLACE_IMPACT' | 'SECURITY_VERIFIED';
+  title: string;
+  description: string;
+  verification_token: string;
+  issued_at: string;
+  published_api_count: number;
+  active_subscriber_count: number;
+  api_version_count: number;
+  criteria_version: number;
 }
 
 export interface ProfileAchievement {

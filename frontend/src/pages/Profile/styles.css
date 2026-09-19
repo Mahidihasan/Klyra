@@ -96,6 +96,14 @@
 .sticker:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 .achievement-empty { color: var(--text-muted); font-size: 12.5px; padding: 8px 0; }
 
+.certificate-list { display: grid; gap: 10px; }
+.certificate-record { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px; border: 1px solid var(--border-card); border-radius: var(--radius-md); background: var(--bg-pill); }
+.certificate-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; color: var(--text-accent); background: var(--accent-subtle); }
+.certificate-copy h3 { color: var(--text-primary); font-size: 14px; }
+.certificate-copy > p { margin-top: 3px; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.certificate-copy .certificate-kicker { margin: 0; color: var(--text-muted); font-size: 9.5px; font-weight: 800; letter-spacing: .08em; }
+.certificate-copy .certificate-reason { color: var(--text-muted); }
+
 /* --------------------------- Contribution graph ------------------------- */
 .cg-wrap { width: min(100%, 560px); }
 .cg-wrap.is-loading { opacity: .7; }

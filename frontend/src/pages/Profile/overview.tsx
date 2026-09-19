@@ -13,7 +13,7 @@ import {
 import React, { useMemo, useState } from 'react';
 
 import { STATUS_META } from '../../services/apiBuild';
-import type { ProfileAchievement } from '../../services/api/auth';
+import type { ProfileAchievement, ProfileCertificate } from '../../services/api/auth';
 import type { ProviderProject } from '../../types/apibuild';
 
 /* ==========================================================================
@@ -86,6 +86,25 @@ export const StickerGrid: React.FC<{ achievements: ProfileAchievement[] }> = ({ 
           </div>
         );
       })}
+    </div>
+  );
+};
+
+export const CertificateList: React.FC<{ certificates: ProfileCertificate[]; userName: string }> = ({ certificates, userName }) => {
+  if (certificates.length === 0) return null;
+  return (
+    <div className="certificate-list" aria-label="Issued certificates">
+      {certificates.map((certificate) => (
+        <article key={certificate.id} className="certificate-record">
+          <div className="certificate-mark"><BadgeCheck size={20} /></div>
+          <div className="certificate-copy">
+            <p className="certificate-kicker">KLYRA CERTIFICATE</p>
+            <h3>{certificate.title}</h3>
+            <p>Awarded to {userName}. Issued {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(certificate.issued_at))}.</p>
+            <p className="certificate-reason">{certificate.description}</p>
+          </div>
+        </article>
+      ))}
     </div>
   );
 };

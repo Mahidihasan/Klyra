@@ -15,6 +15,7 @@ import apiBuildRouter from './modules/api-build/api-build.routes';
 import apiBuildGateway from './modules/api-build/api-build.gateway';
 import apiKeysRouter from './modules/api-keys/api-keys.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
+import certificatesRouter from './modules/certificates/certificates.routes';
 
 const app = express();
 
@@ -71,6 +72,7 @@ app.use('/api/gateway', express.json({ limit: '10mb' }), express.urlencoded({ ex
 
 // Public Marketplace Catalog routes (curated rails, search, filters, API details, reviews, providers, publishing)
 app.use('/api/v1/catalog', catalogRouter);
+app.use('/api/certificates', certificatesRouter);
 
 // Admin dashboard (platform overview). Registered before the `/api` catch-all
 // below so the repos router can't shadow it.

@@ -15,7 +15,9 @@ import {
   UserPreferences,
   ProfileExperience,
   ProfileEducation,
+  ProfileCertificate,
 } from './auth.types';
+import { CertificatesService } from '../certificates/certificates.service';
 import {
   signJwt,
   sha256,
@@ -51,7 +53,7 @@ export class AccountDeactivationError extends Error {
   }
 }
 
-function sanitizeUser(user: any, achievements: ProfileAchievement[] = []): UserPublicProfile {
+function sanitizeUser(user: any, achievements: ProfileAchievement[] = [], certificates: ProfileCertificate[] = []): UserPublicProfile {
   const metadata: UserMetadata = user.metadata || {};
   const storedPreferences: Partial<UserPreferences> = metadata.preferences || {};
   const personalInfo = metadata.personal_info || {};
@@ -99,6 +101,7 @@ function sanitizeUser(user: any, achievements: ProfileAchievement[] = []): UserP
     created_at: user.created_at,
     updated_at: user.updated_at,
     achievements,
+    certificates,
   };
 }
 
@@ -203,7 +206,10 @@ export class AuthService {
       [userId],
     );
 
-    const safeProfile = sanitizeUser(profile);
+    await CertificatesService.ensureMarketplaceImpactCertificate(userId);
+    await CertificatesService.ensureSecurityVerifiedCertificate(userId);
+    const certificates = await CertificatesService.getIssuedCertificates(userId);
+    const safeProfile = sanitizeUser(profile, [], certificates);
     return {
       ...safeProfile,
       achievements: buildProfileAchievements(safeProfile, metrics.rows[0] ?? {

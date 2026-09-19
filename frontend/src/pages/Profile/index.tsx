@@ -66,6 +66,7 @@ import {
   Contribution,
   ContributionGraph,
   ContributionsFeed,
+  CertificateList,
   ProjectsList,
   StickerGrid,
 } from './overview';
@@ -1289,6 +1290,18 @@ export const ProfilePage: React.FC = () => {
             </header>
             <StickerGrid achievements={profile.achievements} />
           </section>
+
+          {profile.certificates.length > 0 ? (
+            <section className="profile-card">
+              <header className="profile-card-head">
+                <div>
+                  <p className="profile-eyebrow">CERTIFICATES</p>
+                  <h2>Certificates</h2>
+                </div>
+              </header>
+              <CertificateList certificates={profile.certificates} userName={profile.name} />
+            </section>
+          ) : null}
 
           <section className="profile-card">
             <header className="profile-card-head">
