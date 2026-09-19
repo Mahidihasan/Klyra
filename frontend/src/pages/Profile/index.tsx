@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   AlignLeft,
+  ArrowLeft,
   AtSign,
   BadgeCheck,
   Bell,
@@ -1354,15 +1355,6 @@ export const ProfilePage: React.FC = () => {
         </div>
       ) : (
         <div className="profile-settings-view">
-          <div className="profile-settings-toolbar">
-            <button
-              type="button"
-              className="profile-secondary-btn compact"
-              onClick={() => setShowSettings(false)}
-            >
-              Back to profile
-            </button>
-          </div>
           <div className="settings-layout">
             <nav className="profile-nav" aria-label="Settings sections">
             {SECTIONS.map(({ id, label, icon }) => (
@@ -1379,6 +1371,13 @@ export const ProfilePage: React.FC = () => {
             ))}
             </nav>
             <div className="profile-panel">
+            <button
+              type="button"
+              className="profile-secondary-btn profile-settings-back"
+              onClick={() => setShowSettings(false)}
+            >
+              <ArrowLeft size={15} /> Back to profile
+            </button>
             {section === 'general' ? (
               <>
                 <header className="profile-panel-header">
