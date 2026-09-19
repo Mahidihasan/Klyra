@@ -163,6 +163,30 @@ export interface PublishApiPayload {
     features: string[];
     rateLimit?: number;
   }>;
+  requireApproval?: boolean;
+  studioProjectId?: string;
+  proposedStudioChanges?: {
+    plans?: Array<{
+      id: string;
+      name: string;
+      priceMonthly: number;
+      requestsPerMonth?: number;
+      rateLimitPerMin?: number;
+      isFree?: boolean;
+    }>;
+    isVersionFree?: boolean;
+    semver?: string;
+  };
+  marketplaceAvailability?: {
+    versions?: string[];
+    plans?: string[];
+  };
+  media?: {
+    bannerUrl?: string;
+    videoUrl?: string;
+    screenshots?: string[];
+  };
+  documentationMarkdown?: string;
 }
 
 const API_BASE = '/api/v1/catalog';

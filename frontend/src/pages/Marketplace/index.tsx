@@ -214,13 +214,7 @@ const MarketplaceContent: React.FC<MarketplacePageProps> = ({
         onClearFilters={() =>
           handleApplyFilters({ category: 'all', pricingModel: 'all', minRating: 0, maxLatency: 0 })
         }
-        onOpenPublish={() =>
-          window.dispatchEvent(
-            new CustomEvent('klyra:navigate', {
-              detail: { tab: 'api-build', apiBuildView: 'new' },
-            })
-          )
-        }
+        onOpenPublish={() => setShowPublish(true)}
       />
 
       {/* Main Content Area */}

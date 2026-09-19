@@ -159,7 +159,14 @@ export const AdminApisPage: React.FC = () => {
     setIsSaving(true);
     setMutationError(null);
     try {
-      await adminApi.moderateApi(reviewApi.id, action, reason);
+      const res = await adminApi.moderateApi(reviewApi.id, action, reason);
+      if (res?.notification) {
+        window.dispatchEvent(new CustomEvent('klyra:add-notification', { detail: res.notification }));
+        try {
+          const stored = JSON.parse(localStorage.getItem('klyra_user_notifications') || '[]');
+          localStorage.setItem('klyra_user_notifications', JSON.stringify([res.notification, ...stored]));
+        } catch {}
+      }
       setReviewApi(null);
       setToast(`API ${reviewApi.name} has been ${action.toLowerCase()}.`);
       void load(query, 'refresh');

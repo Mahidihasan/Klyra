@@ -67,4 +67,15 @@ export type ModerateAction = 'APPROVED' | 'REJECTED' | 'DEPRECATED';
 export interface AdminApiMutationResult {
   api: AdminApiRow;
   auditLogged: boolean;
+  notification?: {
+    id: string;
+    userId: string;
+    type: string;
+    title: string;
+    message: string;
+    time: string;
+    read: boolean;
+    actionUrl?: string;
+  };
 }
+

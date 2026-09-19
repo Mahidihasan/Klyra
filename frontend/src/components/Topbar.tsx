@@ -14,6 +14,7 @@ import {
   ShoppingCart,
 } from 'lucide-react';
 import { MOCK_NOTIFICATIONS } from '../data/mockData';
+import { NotificationItem } from '../types/api';
 import klyraLogo from '../assets/images/klyra_logo.png';
 import { useAuth } from '../context/AuthContext';
 import { LoginHistoryModal } from './LoginHistoryModal';
@@ -43,7 +44,17 @@ export const Topbar: React.FC<TopbarProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showLoginHistory, setShowLoginHistory] = useState(false);
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
+    try {
+      const stored = localStorage.getItem('klyra_user_notifications');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const storedIds = new Set(parsed.map((p: any) => p.id));
+        return [...parsed, ...MOCK_NOTIFICATIONS.filter((m) => !storedIds.has(m.id))];
+      }
+    } catch { }
+    return MOCK_NOTIFICATIONS;
+  });
   const [cartItemCount, setCartItemCount] = useState<number>(() => {
     try {
       const stored = localStorage.getItem('klyra_cart_items');
@@ -62,11 +73,25 @@ export const Topbar: React.FC<TopbarProps> = ({
       setCartJustAdded(true);
       setTimeout(() => setCartJustAdded(false), 800);
     };
+    const handleNewNotif = (e: any) => {
+      if (e.detail) {
+        setNotifications((prev) => {
+          const updated = [e.detail, ...prev.filter((n) => n.id !== e.detail.id)];
+          try {
+            localStorage.setItem('klyra_user_notifications', JSON.stringify(updated));
+          } catch { }
+          return updated;
+        });
+      }
+    };
+
     window.addEventListener('klyra:cart-updated', handleCartUpdated);
     window.addEventListener('klyra:cart-item-added', handleCartAdded);
+    window.addEventListener('klyra:add-notification', handleNewNotif);
     return () => {
       window.removeEventListener('klyra:cart-updated', handleCartUpdated);
       window.removeEventListener('klyra:cart-item-added', handleCartAdded);
+      window.removeEventListener('klyra:add-notification', handleNewNotif);
     };
   }, []);
 
@@ -75,11 +100,11 @@ export const Topbar: React.FC<TopbarProps> = ({
 
   const initials = user?.name
     ? user.name
-        .split(' ')
-        .map((p) => p[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase()
+      .split(' ')
+      .map((p) => p[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase()
     : 'AD';
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -103,7 +128,11 @@ export const Topbar: React.FC<TopbarProps> = ({
   }, []);
 
   const markAllRead = () => {
-    setNotifications(notifications.map((n) => ({ ...n, read: true })));
+    const updated = notifications.map((n) => ({ ...n, read: true }));
+    setNotifications(updated);
+    try {
+      localStorage.setItem('klyra_user_notifications', JSON.stringify(updated));
+    } catch { }
   };
 
   return (
