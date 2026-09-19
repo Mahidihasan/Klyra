@@ -25,6 +25,7 @@ import {
   Monitor,
   Moon,
   Plus,
+  Pencil,
   Save,
   Settings,
   ShieldCheck,
@@ -45,6 +46,8 @@ import {
   CodeSnippetPreference,
   ManagedApiKey,
   ProfileApiError,
+  ProfileEducation,
+  ProfileExperience,
   profileApi,
   SecuritySession,
   ThemePreference,
@@ -100,6 +103,19 @@ interface PasswordForm {
   confirm: string;
 }
 
+type ProfileDetailKind = 'experience' | 'education';
+
+interface ProfileDetailDraft {
+  kind: ProfileDetailKind;
+  index: number | null;
+  primary: string;
+  secondary: string;
+  startDate: string;
+  endDate: string;
+  isCurrent: boolean;
+  description: string;
+}
+
 const EMPTY_FORM: ProfileForm = {
   firstName: '',
   lastName: '',
@@ -110,6 +126,17 @@ const EMPTY_FORM: ProfileForm = {
   website: '',
   githubUrl: '',
 };
+
+const emptyDetailDraft = (kind: ProfileDetailKind): ProfileDetailDraft => ({
+  kind,
+  index: null,
+  primary: '',
+  secondary: '',
+  startDate: '',
+  endDate: '',
+  isCurrent: false,
+  description: '',
+});
 
 const DEFAULT_NOTIFICATIONS = { email: true, push: true, in_app: true };
 const DEFAULT_EMAIL_NOTIFICATIONS = {
@@ -368,6 +395,13 @@ export const ProfilePage: React.FC = () => {
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+
+  /* About details */
+  const [skillDraft, setSkillDraft] = useState('');
+  const [showSkillEditor, setShowSkillEditor] = useState(false);
+  const [detailEditor, setDetailEditor] = useState<ProfileDetailDraft | null>(null);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [isSavingDetails, setIsSavingDetails] = useState(false);
 
   /* Avatar */
   const [isAvatarSaving, setIsAvatarSaving] = useState(false);
@@ -635,6 +669,130 @@ export const ProfilePage: React.FC = () => {
       setFieldError(getErrorMessage(saveError));
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const saveProfileDetails = async (
+    patch: Pick<UpdateProfileInput, 'skills' | 'experience' | 'education'>,
+  ) => {
+    if (!profile) {
+      return false;
+    }
+    setIsSavingDetails(true);
+    setDetailsError(null);
+    setSuccess(null);
+    try {
+      const result = await updatePersonalInfo(patch);
+      setForm(toForm(result.user));
+      setSuccess(result.message || 'Profile updated.');
+      return true;
+    } catch (error) {
+      setDetailsError(getErrorMessage(error));
+      return false;
+    } finally {
+      setIsSavingDetails(false);
+    }
+  };
+
+  const addSkill = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!profile) {
+      return;
+    }
+    const skill = skillDraft.trim();
+    if (!skill) {
+      setDetailsError('Enter a skill to add.');
+      return;
+    }
+    if (profile.skills.some((item) => item.toLowerCase() === skill.toLowerCase())) {
+      setDetailsError('That skill is already on your profile.');
+      return;
+    }
+    if (await saveProfileDetails({ skills: [...profile.skills, skill] })) {
+      setSkillDraft('');
+      setShowSkillEditor(false);
+    }
+  };
+
+  const removeSkill = (skill: string) => {
+    if (profile) {
+      void saveProfileDetails({ skills: profile.skills.filter((item) => item !== skill) });
+    }
+  };
+
+  const openDetailEditor = (kind: ProfileDetailKind, index: number | null = null) => {
+    if (index === null) {
+      setDetailEditor(emptyDetailDraft(kind));
+    } else {
+      if (kind === 'experience') {
+        const entry = profile?.experience[index];
+        if (!entry) return;
+        setDetailEditor({ kind, index, primary: entry.title, secondary: entry.company, startDate: entry.start_date, endDate: entry.end_date || '', isCurrent: entry.is_current, description: entry.description || '' });
+      } else {
+        const entry = profile?.education[index];
+        if (!entry) return;
+        setDetailEditor({ kind, index, primary: entry.institution, secondary: entry.program, startDate: entry.start_date, endDate: entry.end_date || '', isCurrent: entry.is_current, description: entry.description || '' });
+      }
+    }
+    setDetailsError(null);
+  };
+
+  const saveDetail = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!profile || !detailEditor) {
+      return;
+    }
+    const primary = detailEditor.primary.trim();
+    const secondary = detailEditor.secondary.trim();
+    const startDate = detailEditor.startDate;
+    const endDate = detailEditor.isCurrent ? null : detailEditor.endDate || null;
+    if (!primary || !secondary || !startDate || (!detailEditor.isCurrent && !endDate)) {
+      setDetailsError('Complete the required fields, including an end date for non-current entries.');
+      return;
+    }
+    if (endDate && endDate < startDate) {
+      setDetailsError('End date cannot be before the start date.');
+      return;
+    }
+
+    if (detailEditor.kind === 'experience') {
+      const entry: ProfileExperience = {
+        title: primary,
+        company: secondary,
+        start_date: startDate,
+        end_date: endDate,
+        is_current: detailEditor.isCurrent,
+        description: detailEditor.description.trim() || null,
+      };
+      const experience = [...profile.experience];
+      if (detailEditor.index === null) experience.push(entry);
+      else experience[detailEditor.index] = entry;
+      if (await saveProfileDetails({ experience })) setDetailEditor(null);
+      return;
+    }
+
+    const entry: ProfileEducation = {
+      institution: primary,
+      program: secondary,
+      start_date: startDate,
+      end_date: endDate,
+      is_current: detailEditor.isCurrent,
+      description: detailEditor.description.trim() || null,
+    };
+    const education = [...profile.education];
+    if (detailEditor.index === null) education.push(entry);
+    else education[detailEditor.index] = entry;
+    if (await saveProfileDetails({ education })) setDetailEditor(null);
+  };
+
+  const deleteDetail = (kind: ProfileDetailKind, index: number) => {
+    if (!profile || !window.confirm(`Delete this ${kind} entry?`)) {
+      return;
+    }
+    if (kind === 'experience') {
+      void saveProfileDetails({ experience: profile.experience.filter((_, itemIndex) => itemIndex !== index) });
+    } else {
+      void saveProfileDetails({ education: profile.education.filter((_, itemIndex) => itemIndex !== index) });
     }
   };
 
@@ -1040,6 +1198,35 @@ export const ProfilePage: React.FC = () => {
 
       </header>
 
+      {detailEditor && (
+        <div className="profile-modal" role="presentation" onMouseDown={() => !isSavingDetails && setDetailEditor(null)}>
+          <section className="profile-modal-card profile-detail-modal" role="dialog" aria-modal="true" aria-labelledby="profile-detail-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="profile-modal-header">
+              <div>
+                <h2 id="profile-detail-title">{detailEditor.index === null ? 'Add' : 'Edit'} {detailEditor.kind}</h2>
+                <p className="profile-modal-copy">Add the details displayed on your profile.</p>
+              </div>
+              <button type="button" className="profile-modal-close" onClick={() => setDetailEditor(null)} disabled={isSavingDetails} aria-label="Close"><X size={17} /></button>
+            </header>
+            <form onSubmit={saveDetail}>
+              {detailsError ? <div className="profile-message error"><AlertCircle size={16} /> {detailsError}</div> : null}
+              <div className="profile-detail-form">
+                <label><span>{detailEditor.kind === 'experience' ? 'Title' : 'Institution'}</span><input className="profile-input" value={detailEditor.primary} onChange={(event) => setDetailEditor({ ...detailEditor, primary: event.target.value })} maxLength={detailEditor.kind === 'experience' ? 100 : 255} autoFocus /></label>
+                <label><span>{detailEditor.kind === 'experience' ? 'Company' : 'Program / degree'}</span><input className="profile-input" value={detailEditor.secondary} onChange={(event) => setDetailEditor({ ...detailEditor, secondary: event.target.value })} maxLength={detailEditor.kind === 'experience' ? 255 : 150} /></label>
+                <label><span>Start date</span><input className="profile-input" type="date" value={detailEditor.startDate} onChange={(event) => setDetailEditor({ ...detailEditor, startDate: event.target.value })} /></label>
+                <label><span>End date</span><input className="profile-input" type="date" value={detailEditor.endDate} onChange={(event) => setDetailEditor({ ...detailEditor, endDate: event.target.value })} disabled={detailEditor.isCurrent} /></label>
+                <label className="profile-detail-current"><input type="checkbox" checked={detailEditor.isCurrent} onChange={(event) => setDetailEditor({ ...detailEditor, isCurrent: event.target.checked, endDate: event.target.checked ? '' : detailEditor.endDate })} /> Currently {detailEditor.kind === 'experience' ? 'working here' : 'studying here'}</label>
+                <label className="profile-detail-description"><span>Description <em>{detailEditor.description.length}/2000</em></span><textarea className="profile-input profile-textarea" value={detailEditor.description} onChange={(event) => setDetailEditor({ ...detailEditor, description: event.target.value })} maxLength={2000} rows={4} /></label>
+              </div>
+              <footer className="profile-modal-actions profile-detail-modal-actions">
+                <button type="button" className="profile-secondary-btn" onClick={() => setDetailEditor(null)} disabled={isSavingDetails}>Cancel</button>
+                <button type="submit" className="profile-primary-btn" disabled={isSavingDetails}>{isSavingDetails ? <Loader2 className="profile-spinner" size={15} /> : <Save size={15} />} {isSavingDetails ? 'Saving…' : 'Save'}</button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+
       {!showSettings ? (
         <div className="profile-overview">
           <section className="profile-card">
@@ -1053,19 +1240,72 @@ export const ProfilePage: React.FC = () => {
               </div>
             </header>
             <div className="profile-about-grid">
-              <div className="profile-about-item">
-                <h3>Skills</h3>
-                <p>No skills added yet.</p>
-              </div>
-              <div className="profile-about-item">
-                <h3>Experience</h3>
-                <p>No experience added yet.</p>
-              </div>
-              <div className="profile-about-item">
-                <h3>Education</h3>
-                <p>No education added yet.</p>
-              </div>
+              <section className="profile-about-item">
+                <div className="profile-about-title">
+                  <h3>Skills</h3>
+                  <button type="button" className="profile-secondary-btn compact" onClick={() => setShowSkillEditor(true)} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                </div>
+                {profile.skills.length ? (
+                  <div className="profile-skill-list">
+                    {profile.skills.map((skill) => (
+                      <span key={skill} className="profile-skill-chip">
+                        {skill}
+                        <button type="button" onClick={() => removeSkill(skill)} disabled={isSavingDetails} aria-label={`Remove ${skill}`}>
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : <p>No skills added yet.</p>}
+                {showSkillEditor ? (
+                  <form className="profile-skill-add" onSubmit={addSkill}>
+                    <input className="profile-input" value={skillDraft} onChange={(event) => setSkillDraft(event.target.value)} placeholder="Add a skill" maxLength={80} disabled={isSavingDetails} />
+                    <button type="submit" className="profile-secondary-btn compact" disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                  </form>
+                ) : null}
+              </section>
+              <section className="profile-about-item">
+                <div className="profile-about-title">
+                  <h3>Experience</h3>
+                  <button type="button" className="profile-secondary-btn compact" onClick={() => openDetailEditor('experience')} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                </div>
+                {profile.experience.length ? (
+                  <div className="profile-detail-list">
+                    {profile.experience.map((entry, index) => (
+                      <article key={`${entry.title}-${entry.company}-${entry.start_date}`} className="profile-detail-item">
+                        <div><strong>{entry.title}</strong><span>{entry.company}</span></div>
+                        <p>{entry.start_date} — {entry.is_current ? 'Present' : entry.end_date}</p>
+                        <div className="profile-detail-actions">
+                          <button type="button" onClick={() => openDetailEditor('experience', index)} disabled={isSavingDetails} aria-label={`Edit ${entry.title}`}><Pencil size={13} /></button>
+                          <button type="button" onClick={() => deleteDetail('experience', index)} disabled={isSavingDetails} aria-label={`Delete ${entry.title}`}><Trash2 size={13} /></button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : <p>No experience added yet.</p>}
+              </section>
+              <section className="profile-about-item">
+                <div className="profile-about-title">
+                  <h3>Education</h3>
+                  <button type="button" className="profile-secondary-btn compact" onClick={() => openDetailEditor('education')} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                </div>
+                {profile.education.length ? (
+                  <div className="profile-detail-list">
+                    {profile.education.map((entry, index) => (
+                      <article key={`${entry.institution}-${entry.program}-${entry.start_date}`} className="profile-detail-item">
+                        <div><strong>{entry.institution}</strong><span>{entry.program}</span></div>
+                        <p>{entry.start_date} — {entry.is_current ? 'Present' : entry.end_date}</p>
+                        <div className="profile-detail-actions">
+                          <button type="button" onClick={() => openDetailEditor('education', index)} disabled={isSavingDetails} aria-label={`Edit ${entry.institution}`}><Pencil size={13} /></button>
+                          <button type="button" onClick={() => deleteDetail('education', index)} disabled={isSavingDetails} aria-label={`Delete ${entry.institution}`}><Trash2 size={13} /></button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : <p>No education added yet.</p>}
+              </section>
             </div>
+            {detailsError ? <div className="profile-message error profile-about-message"><AlertCircle size={16} /> {detailsError}</div> : null}
           </section>
 
           <section className="profile-card">

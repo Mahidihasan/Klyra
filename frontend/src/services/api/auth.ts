@@ -16,11 +16,32 @@ export interface UserProfile {
   handle: string | null;
   job_title: string | null;
   github_url: string | null;
+  skills: string[];
+  experience: ProfileExperience[];
+  education: ProfileEducation[];
   preferences: UserPreferences;
   last_login_at: string | null;
   last_login_ip: string | null;
   created_at: string;
   updated_at: string | null;
+}
+
+export interface ProfileExperience {
+  title: string;
+  company: string;
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
+  description: string | null;
+}
+
+export interface ProfileEducation {
+  institution: string;
+  program: string;
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
+  description: string | null;
 }
 
 export type ThemePreference = 'dark' | 'light' | 'system';
@@ -43,15 +64,18 @@ export interface UserPreferences {
 export interface UpdatePreferencesInput extends UserPreferences {}
 
 export interface UpdateProfileInput {
-  name: string;
-  company: string | null;
-  bio: string | null;
-  website: string | null;
-  first_name: string;
-  last_name: string;
-  handle: string;
-  job_title: string;
-  github_url: string;
+  name?: string;
+  company?: string | null;
+  bio?: string | null;
+  website?: string | null;
+  first_name?: string;
+  last_name?: string;
+  handle?: string;
+  job_title?: string;
+  github_url?: string;
+  skills?: string[];
+  experience?: ProfileExperience[];
+  education?: ProfileEducation[];
 }
 
 export type ManagedApiKeyStatus = 'ACTIVE' | 'SUSPENDED' | 'REVOKED' | 'EXPIRED';

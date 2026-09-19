@@ -12,6 +12,8 @@ import {
   UpdateProfileInput,
   UpdatePreferencesInput,
   UserPreferences,
+  ProfileExperience,
+  ProfileEducation,
 } from './auth.types';
 import {
   signJwt,
@@ -71,6 +73,9 @@ function sanitizeUser(user: any): UserPublicProfile {
     handle: personalInfo.handle || null,
     job_title: personalInfo.job_title || null,
     github_url: personalInfo.github_url || null,
+    skills: sanitizeSkills(metadata.skills),
+    experience: sanitizeExperience(metadata.experience),
+    education: sanitizeEducation(metadata.education),
     preferences: {
       theme: storedPreferences.theme === 'light' || storedPreferences.theme === 'system' ? storedPreferences.theme : 'dark',
       timezone: typeof storedPreferences.timezone === 'string' ? storedPreferences.timezone : 'UTC',
@@ -129,6 +134,7 @@ export class AuthService {
   static async updateProfile(userId: string, input: UpdateProfileInput): Promise<UserPublicProfile> {
     const fields: string[] = [];
     const values: Array<string | null> = [];
+    const metadataPatch: Record<string, unknown> = {};
 
     const add = (column: string, value: string | null) => {
       values.push(value);
@@ -165,8 +171,7 @@ export class AuthService {
       validateGithubUrl(githubUrl);
       // Keep legacy display/header data synchronized without introducing a new column.
       add('name', fullName);
-      values.push(JSON.stringify({ first_name: firstName, last_name: lastName, handle, job_title: jobTitle, github_url: githubUrl }));
-      fields.push(`metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{personal_info}', $${values.length}::jsonb, true)`);
+      metadataPatch.personal_info = { first_name: firstName, last_name: lastName, handle, job_title: jobTitle, github_url: githubUrl };
     }
 
     if (input.company !== undefined) {
@@ -191,6 +196,23 @@ export class AuthService {
         }
       }
       add('website', website);
+    }
+
+    if (input.skills !== undefined) {
+      metadataPatch.skills = normalizeSkills(input.skills);
+    }
+
+    if (input.experience !== undefined) {
+      metadataPatch.experience = normalizeExperience(input.experience);
+    }
+
+    if (input.education !== undefined) {
+      metadataPatch.education = normalizeEducation(input.education);
+    }
+
+    if (Object.keys(metadataPatch).length > 0) {
+      values.push(JSON.stringify(metadataPatch));
+      fields.push(`metadata = COALESCE(metadata, '{}'::jsonb) || $${values.length}::jsonb`);
     }
 
     if (fields.length === 0) {
@@ -1335,6 +1357,118 @@ export class AuthService {
       };
     });
   }
+}
+
+function sanitizeSkills(value: unknown): string[] {
+  try {
+    return value === undefined ? [] : normalizeSkills(value);
+  } catch {
+    return [];
+  }
+}
+
+function sanitizeExperience(value: unknown): ProfileExperience[] {
+  try {
+    return value === undefined ? [] : normalizeExperience(value);
+  } catch {
+    return [];
+  }
+}
+
+function sanitizeEducation(value: unknown): ProfileEducation[] {
+  try {
+    return value === undefined ? [] : normalizeEducation(value);
+  } catch {
+    return [];
+  }
+}
+
+function normalizeSkills(value: unknown): string[] {
+  if (!Array.isArray(value)) throw new Error('Skills must be an array.');
+  if (value.length > 50) throw new Error('Skills must include 50 items or fewer.');
+  return value.map((skill) => normalizeRequiredProfileText(skill, 'Skill', 80));
+}
+
+function normalizeExperience(value: unknown): ProfileExperience[] {
+  return normalizeProfileEntries(value, 'Experience', (entry) => {
+    const startDate = normalizeProfileDate(entry.start_date, 'Experience start date');
+    const isCurrent = normalizeCurrentStatus(entry.is_current, 'Experience current status');
+    const endDate = normalizeEndDate(entry.end_date, 'Experience end date', startDate, isCurrent);
+    return {
+      title: normalizeRequiredProfileText(entry.title, 'Experience title', 100),
+      company: normalizeRequiredProfileText(entry.company, 'Experience company', 255),
+      start_date: startDate,
+      end_date: endDate,
+      is_current: isCurrent,
+      description: normalizeEntryDescription(entry.description, 'Experience description'),
+    };
+  });
+}
+
+function normalizeEducation(value: unknown): ProfileEducation[] {
+  return normalizeProfileEntries(value, 'Education', (entry) => {
+    const startDate = normalizeProfileDate(entry.start_date, 'Education start date');
+    const isCurrent = normalizeCurrentStatus(entry.is_current, 'Education current status');
+    const endDate = normalizeEndDate(entry.end_date, 'Education end date', startDate, isCurrent);
+    return {
+      institution: normalizeRequiredProfileText(entry.institution, 'Education institution', 255),
+      program: normalizeRequiredProfileText(entry.program, 'Education program', 150),
+      start_date: startDate,
+      end_date: endDate,
+      is_current: isCurrent,
+      description: normalizeEntryDescription(entry.description, 'Education description'),
+    };
+  });
+}
+
+function normalizeProfileEntries<T>(
+  value: unknown,
+  label: string,
+  normalize: (entry: Record<string, unknown>) => T,
+): T[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
+  if (value.length > 25) throw new Error(`${label} must include 25 entries or fewer.`);
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`${label} entry ${index + 1} must be an object.`);
+    }
+    return normalize(item as Record<string, unknown>);
+  });
+}
+
+function normalizeCurrentStatus(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`${field} must be true or false.`);
+  return value;
+}
+
+function normalizeProfileDate(value: unknown, field: string): string {
+  const date = normalizeRequiredProfileText(value, field, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`${field} must use YYYY-MM-DD.`);
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new Error(`${field} must be a valid date.`);
+  }
+  return date;
+}
+
+function normalizeEndDate(
+  value: unknown,
+  field: string,
+  startDate: string,
+  isCurrent: boolean,
+): string | null {
+  if (value === undefined || value === null || value === '') {
+    if (!isCurrent) throw new Error(`${field} is required when the entry is not current.`);
+    return null;
+  }
+  if (isCurrent) throw new Error(`${field} must be empty when the entry is current.`);
+  const endDate = normalizeProfileDate(value, field);
+  if (endDate < startDate) throw new Error(`${field} cannot be before the start date.`);
+  return endDate;
+}
+
+function normalizeEntryDescription(value: unknown, field: string): string | null {
+  return value === undefined ? null : normalizeOptionalProfileText(value, field, 2000);
 }
 
 function normalizeOptionalProfileText(value: unknown, field: string, maxLength: number): string | null {

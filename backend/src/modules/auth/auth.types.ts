@@ -86,6 +86,24 @@ export interface PersonalInfo {
   github_url?: string;
 }
 
+export interface ProfileExperience {
+  title: string;
+  company: string;
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
+  description: string | null;
+}
+
+export interface ProfileEducation {
+  institution: string;
+  program: string;
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
+  description: string | null;
+}
+
 export interface UserMetadata {
   failed_attempts?: number;
   locked_until?: string | null;
@@ -93,6 +111,9 @@ export interface UserMetadata {
   pending_2fa?: Pending2FA | null;
   preferences?: UserPreferences;
   personal_info?: PersonalInfo;
+  skills?: string[];
+  experience?: ProfileExperience[];
+  education?: ProfileEducation[];
   [key: string]: any;
 }
 
@@ -114,6 +135,9 @@ export interface UserPublicProfile {
   handle: string | null;
   job_title: string | null;
   github_url: string | null;
+  skills: string[];
+  experience: ProfileExperience[];
+  education: ProfileEducation[];
   preferences: UserPreferences;
   last_login_at: string | null;
   last_login_ip: string | null;
@@ -132,6 +156,9 @@ export interface UpdateProfileInput {
   handle?: unknown;
   job_title?: unknown;
   github_url?: unknown;
+  skills?: unknown;
+  experience?: unknown;
+  education?: unknown;
 }
 
 /**
