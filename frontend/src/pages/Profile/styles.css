@@ -86,11 +86,14 @@
 .profile-detail-modal-actions { padding-top: 16px; border-top: 1px solid var(--border-subtle); }
 
 .sticker-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-.sticker { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--accent-subtle-border); background: var(--accent-subtle); }
+.sticker { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--accent-subtle-border); background: var(--accent-subtle); }
 .sticker-icon { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: var(--accent-gradient); color: #fff; }
 .sticker-body { min-width: 0; }
 .sticker-name { color: var(--text-primary); font-size: 12.5px; font-weight: 700; }
 .sticker.earned .sticker-name { color: var(--text-accent); }
+.achievement-tooltip { position: absolute; z-index: 5; top: calc(100% + 8px); left: 50%; width: max-content; max-width: min(240px, calc(100vw - 32px)); padding: 6px 8px; border: 1px solid var(--border-card); border-radius: var(--radius-sm); background: var(--bg-modal); box-shadow: var(--shadow-sm); color: var(--text-secondary); font-size: 11px; font-weight: 600; line-height: 1.35; opacity: 0; pointer-events: none; transform: translate(-50%, -2px); transition: opacity .12s ease, transform .12s ease; visibility: hidden; white-space: nowrap; }
+.sticker:hover .achievement-tooltip, .sticker:focus .achievement-tooltip { opacity: 1; transform: translate(-50%, 0); visibility: visible; }
+.sticker:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 .achievement-empty { color: var(--text-muted); font-size: 12.5px; padding: 8px 0; }
 
 /* --------------------------- Contribution graph ------------------------- */

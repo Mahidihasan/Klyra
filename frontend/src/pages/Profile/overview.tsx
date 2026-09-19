@@ -49,6 +49,15 @@ const AchievementIcon: React.FC<{ id: ProfileAchievement['id'] }> = ({ id }) => 
   }
 };
 
+const ACHIEVEMENT_REASONS: Record<ProfileAchievement['id'], string> = {
+  origin: 'Published your first API',
+  momentum: 'Reached 5 active subscribers',
+  ascendant: 'Released multiple API versions',
+  legacy: 'Been on Klyra for 1 year',
+  distinction: 'Verified Account',
+  vanguard: 'Two-Factor Authentication Enabled',
+};
+
 export const StickerGrid: React.FC<{ achievements: ProfileAchievement[] }> = ({ achievements }) => {
   if (achievements.length === 0) {
     return <p className="achievement-empty">No achievements earned yet.</p>;
@@ -56,20 +65,27 @@ export const StickerGrid: React.FC<{ achievements: ProfileAchievement[] }> = ({ 
 
   return (
     <div className="sticker-grid" aria-label="Earned achievements">
-      {achievements.map((achievement) => (
-        <div
-          key={achievement.id}
-          className="sticker earned"
-          title={`${achievement.description} ${achievement.detail}`}
-        >
-          <span className="sticker-icon">
-            <AchievementIcon id={achievement.id} />
-          </span>
-          <span className="sticker-body">
-            <span className="sticker-name">{achievement.name}</span>
-          </span>
-        </div>
-      ))}
+      {achievements.map((achievement) => {
+        const tooltipId = `achievement-${achievement.id}-reason`;
+        return (
+          <div
+            key={achievement.id}
+            className="sticker earned"
+            tabIndex={0}
+            aria-describedby={tooltipId}
+          >
+            <span className="sticker-icon">
+              <AchievementIcon id={achievement.id} />
+            </span>
+            <span className="sticker-body">
+              <span className="sticker-name">{achievement.name}</span>
+            </span>
+            <span id={tooltipId} role="tooltip" className="achievement-tooltip">
+              {ACHIEVEMENT_REASONS[achievement.id]}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 };
