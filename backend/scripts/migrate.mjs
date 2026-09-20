@@ -60,6 +60,7 @@ const MIGRATIONS = [
   { name: '0011_marketplace_enhancements', file: '2026_09_14_001_marketplace_enhancements.sql' },
   { name: '0011_api_keys_system', file: '2026_09_16_001_api_keys_system.sql' },
   { name: '0012_user_certificates', file: '2026_09_19_001_user_certificates.sql' },
+  { name: '0013_canonical_usernames', file: '2026_09_19_002_canonical_usernames.sql' },
 ];
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });

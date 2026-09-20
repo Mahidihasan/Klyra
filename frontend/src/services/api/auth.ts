@@ -11,6 +11,7 @@ export interface UserProfile {
   bio: string | null;
   company: string | null;
   website: string | null;
+  username: string;
   first_name: string;
   last_name: string;
   handle: string | null;
@@ -86,6 +87,7 @@ export interface UserPreferences {
 export interface UpdatePreferencesInput extends UserPreferences {}
 
 export interface UpdateProfileInput {
+  username?: string;
   name?: string;
   company?: string | null;
   bio?: string | null;

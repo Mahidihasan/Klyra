@@ -71,9 +71,10 @@ function sanitizeUser(user: any, achievements: ProfileAchievement[] = [], certif
     bio: user.bio,
     company: user.company,
     website: user.website,
+    username: user.username,
     first_name: personalInfo.first_name || nameParts[0] || '',
     last_name: personalInfo.last_name || nameParts.slice(1).join(' ') || '',
-    handle: personalInfo.handle || null,
+    handle: user.username || null,
     job_title: personalInfo.job_title || null,
     github_url: personalInfo.github_url || null,
     skills: sanitizeSkills(metadata.skills),
@@ -107,7 +108,7 @@ function sanitizeUser(user: any, achievements: ProfileAchievement[] = [], certif
 
 const PUBLIC_PROFILE_FIELDS = `u.id, u.email, u.name, u.role, u.email_verified_at, u.status,
   u.is_active, u.two_factor_enabled, u.avatar_url, u.bio, u.company, u.website,
-  u.metadata, u.last_login_at, u.last_login_ip::text, u.created_at, u.updated_at,
+  u.metadata, u.username, u.last_login_at, u.last_login_ip::text, u.created_at, u.updated_at,
   np.email_enabled, np.push_enabled, np.in_app_enabled`;
 
 interface AchievementMetrics {
@@ -180,6 +181,17 @@ function maskEmail(email: string): string {
   return `${maskedName}@${domain}`;
 }
 
+async function availableUsername(name: string): Promise<string> {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'user';
+  for (let suffix = 1; suffix < 10_000; suffix += 1) {
+    const candidate = suffix === 1 ? base.slice(0, 30) : `${base.slice(0, 30 - String(suffix).length - 1)}-${suffix}`;
+    if (!/^[a-z][a-z0-9_-]{1,28}[a-z0-9]$/.test(candidate)) continue;
+    const existing = await pool.query('SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1', [candidate]);
+    if (!existing.rows[0]) return candidate;
+  }
+  throw new Error('Could not allocate a username.');
+}
+
 export class AuthService {
   /** Return the safe, authenticated-user profile shape used by the client. */
   static async getProfile(userId: string): Promise<UserPublicProfile | null> {
@@ -237,6 +249,8 @@ export class AuthService {
 
     const personalFields = ['first_name', 'last_name', 'handle', 'job_title', 'github_url'] as const;
     const hasPersonalInfo = personalFields.some((field) => input[field] !== undefined);
+    const requestedUsername = input.username ?? input.handle;
+    const isHandleOnlyUpdate = requestedUsername !== undefined && personalFields.every((field) => field === 'handle' || input[field] === undefined);
 
     if (input.name !== undefined && !hasPersonalInfo) {
       if (typeof input.name !== 'string') throw new Error('Name must be a string.');
@@ -247,7 +261,14 @@ export class AuthService {
       add('name', name);
     }
 
-    if (hasPersonalInfo) {
+    if (isHandleOnlyUpdate) {
+      const handle = normalizeRequiredProfileText(requestedUsername, 'Username', 30).toLowerCase();
+      if (!/^[a-z][a-z0-9_-]{1,28}[a-z0-9]$/.test(handle)) {
+        throw new Error('Username must be 3–30 characters, start with a lowercase letter, end with a lowercase letter or number, and use only lowercase letters, numbers, underscores, or hyphens.');
+      }
+      add('username', handle);
+      metadataPatch.personal_info = { handle };
+    } else if (hasPersonalInfo) {
       if (personalFields.some((field) => input[field] === undefined)) {
         throw new Error('First name, last name, handle, job title, and GitHub profile must be provided together.');
       }
@@ -258,13 +279,14 @@ export class AuthService {
       const handle = normalizeRequiredProfileText(input.handle, 'Username', 30).toLowerCase();
       const jobTitle = normalizeOptionalProfileText(input.job_title, 'Job title', 100);
       const githubUrl = normalizeOptionalProfileText(input.github_url, 'GitHub profile URL', 500);
-      if (!/^[a-z0-9][a-z0-9_-]{2,29}$/.test(handle)) {
-        throw new Error('Username must be 3–30 characters and use only letters, numbers, underscores, or hyphens.');
+      if (!/^[a-z][a-z0-9_-]{1,28}[a-z0-9]$/.test(handle)) {
+        throw new Error('Username must be 3–30 characters, start with a lowercase letter, end with a lowercase letter or number, and use only lowercase letters, numbers, underscores, or hyphens.');
       }
       if (!jobTitle) throw new Error('Job title is required.');
       validateGithubUrl(githubUrl);
       // Keep legacy display/header data synchronized without introducing a new column.
       add('name', fullName);
+      add('username', handle);
       metadataPatch.personal_info = { first_name: firstName, last_name: lastName, handle, job_title: jobTitle, github_url: githubUrl };
     }
 
@@ -306,7 +328,9 @@ export class AuthService {
 
     if (Object.keys(metadataPatch).length > 0) {
       values.push(JSON.stringify(metadataPatch));
-      fields.push(`metadata = COALESCE(metadata, '{}'::jsonb) || $${values.length}::jsonb`);
+      fields.push(isHandleOnlyUpdate
+        ? `metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{personal_info}', COALESCE(metadata -> 'personal_info', '{}'::jsonb) || ($${values.length}::jsonb -> 'personal_info'), true)`
+        : `metadata = COALESCE(metadata, '{}'::jsonb) || $${values.length}::jsonb`);
     }
 
     if (fields.length === 0) {
@@ -565,10 +589,10 @@ export class AuthService {
     // Create user in users table (unverified state — email_verified_at is NULL)
     const userRes = await pool.query(
       `INSERT INTO users (
-        name, email, password_hash, role, status, is_active, metadata
-      ) VALUES ($1, $2, $3, 'USER', 'ACTIVE', TRUE, '{}')
+        name, username, email, password_hash, role, status, is_active, metadata
+      ) VALUES ($1, $2, $3, $4, 'USER', 'ACTIVE', TRUE, '{}')
       RETURNING id, email, name, role, email_verified_at, status, created_at`,
-      [cleanName, cleanEmail, passwordHash]
+      [cleanName, await availableUsername(cleanName), cleanEmail, passwordHash]
     );
 
     const user = userRes.rows[0];

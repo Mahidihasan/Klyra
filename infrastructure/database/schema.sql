@@ -175,6 +175,7 @@ CREATE TABLE users (
     email               CITEXT NOT NULL,
     password_hash       TEXT NOT NULL,
     name                VARCHAR(100) NOT NULL,
+    username            VARCHAR(30) NOT NULL,
     role                user_role NOT NULL DEFAULT 'USER',
     avatar_url          VARCHAR(500),
     avatar_public_id    VARCHAR(200),
@@ -196,8 +197,11 @@ CREATE TABLE users (
     CONSTRAINT users_email_unique UNIQUE (email),
     CONSTRAINT users_email_format CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
     CONSTRAINT users_name_not_empty CHECK (char_length(trim(name)) > 0),
+    CONSTRAINT users_username_format CHECK (username ~ '^[a-z][a-z0-9_-]{1,28}[a-z0-9]$'),
     CONSTRAINT users_website_format CHECK (website IS NULL OR website ~* '^https?://')
 );
+
+CREATE UNIQUE INDEX users_username_lower_unique ON users (LOWER(username));
 
 COMMENT ON TABLE users IS 'Platform user accounts with authentication and profile data';
 COMMENT ON COLUMN users.password_hash IS 'Hashed password using bcrypt or argon2 - never store plaintext';

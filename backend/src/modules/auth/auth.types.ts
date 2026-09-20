@@ -10,6 +10,7 @@ export interface UserRecord {
   bio: string | null;
   company: string | null;
   website: string | null;
+  username: string;
   email_verified_at: string | null;
   status: string;
   is_active: boolean;
@@ -121,6 +122,7 @@ export interface UserPublicProfile {
   id: string;
   email: string;
   name: string;
+  username: string;
   role: string;
   email_verified_at: string | null;
   status: string;
@@ -170,6 +172,7 @@ export interface ProfileAchievement {
 
 /** Fields an authenticated user may update from their profile. */
 export interface UpdateProfileInput {
+  username?: string;
   name?: unknown;
   bio?: unknown;
   company?: unknown;

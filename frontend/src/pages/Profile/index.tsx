@@ -169,6 +169,21 @@ const TIMEZONE_FALLBACK = [
   'Australia/Sydney',
 ];
 
+const USERNAME_PATTERN = /^[a-z][a-z0-9_-]{1,28}[a-z0-9]$/;
+
+function normalizeUsernameInput(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 30);
+}
+
+function validateUsername(value: string): string | null {
+  if (!value.trim()) {
+    return 'Username is required.';
+  }
+  return USERNAME_PATTERN.test(value.trim())
+    ? null
+    : 'Use 3–30 lowercase letters, numbers, underscores, or hyphens; start with a letter and end with a letter or number.';
+}
+
 function supportedTimezones(): string[] {
   try {
     const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
@@ -211,7 +226,7 @@ function normalizePreferences(value: unknown): UserPreferences {
 const toForm = (profile: UserProfile): ProfileForm => ({
   firstName: profile.first_name,
   lastName: profile.last_name,
-  handle: profile.handle || '',
+  handle: profile.username || '',
   company: profile.company || '',
   jobTitle: profile.job_title || '',
   bio: profile.bio || '',
@@ -247,9 +262,7 @@ function validateField(field: FieldKey, form: ProfileForm): string | null {
     return null;
   }
   if (field === 'handle') {
-    return /^[a-z0-9][a-z0-9_-]{2,29}$/i.test(form.handle.trim())
-      ? null
-      : 'Username must be 3–30 characters and use only letters, numbers, underscores, or hyphens.';
+    return validateUsername(form.handle);
   }
   if (field === 'jobTitle') {
     return form.jobTitle.trim() && form.jobTitle.trim().length <= 100
@@ -312,6 +325,9 @@ function validatePassword(form: PasswordForm): string | null {
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ProfileApiError) {
+    if (error.status === 409) {
+      return 'This username is taken.';
+    }
     return error.backendMessage || error.message;
   }
   if (error instanceof Error) {
@@ -622,17 +638,19 @@ export const ProfilePage: React.FC = () => {
     setFieldError(null);
     setSuccess(null);
     try {
-      const payload: UpdateProfileInput = {
-        name: `${editDraft.firstName.trim()} ${editDraft.lastName.trim()}`,
-        company: editDraft.company.trim() || null,
-        bio: editDraft.bio.trim() || null,
-        website: editDraft.website.trim() || null,
-        first_name: editDraft.firstName.trim(),
-        last_name: editDraft.lastName.trim(),
-        handle: editDraft.handle.trim(),
-        job_title: editDraft.jobTitle.trim(),
-        github_url: editDraft.githubUrl.trim(),
-      };
+      const payload: UpdateProfileInput = field === 'handle'
+        ? { username: normalizeUsernameInput(editDraft.handle) }
+        : {
+            name: `${editDraft.firstName.trim()} ${editDraft.lastName.trim()}`,
+            company: editDraft.company.trim() || null,
+            bio: editDraft.bio.trim() || null,
+            website: editDraft.website.trim() || null,
+            first_name: editDraft.firstName.trim(),
+            last_name: editDraft.lastName.trim(),
+            handle: editDraft.handle.trim(),
+            job_title: editDraft.jobTitle.trim(),
+            github_url: editDraft.githubUrl.trim(),
+          };
       const result = await updatePersonalInfo(payload);
       setForm(toForm(result.user));
       setEditingField(null);
@@ -1040,6 +1058,8 @@ export const ProfilePage: React.FC = () => {
     );
   }
 
+  const displayHandle = profile.username || '';
+
   return (
     <div className="profile-page">
       <header className="profile-header">
@@ -1105,8 +1125,8 @@ export const ProfilePage: React.FC = () => {
               </span>
             </div>
             <p className="profile-handle-line">
-              {profile.handle ? <span>@{profile.handle}</span> : null}
-              {profile.handle && profile.job_title ? <span className="feed-dot">·</span> : null}
+              {displayHandle ? <span>@{displayHandle}</span> : null}
+              {displayHandle && profile.job_title ? <span className="feed-dot">·</span> : null}
               {profile.job_title ? (
                 <span>
                   <span className="profile-meta-label">Job title</span> {profile.job_title}
@@ -1423,8 +1443,8 @@ export const ProfilePage: React.FC = () => {
                     onCancel={cancelEdit}
                     onSave={() => void saveField('handle')}
                     value={
-                      profile.handle ? (
-                        <span>@{profile.handle}</span>
+                      displayHandle ? (
+                        <span>@{displayHandle}</span>
                       ) : (
                         <span className="profile-value-empty">Not set</span>
                       )
@@ -1433,11 +1453,46 @@ export const ProfilePage: React.FC = () => {
                     <input
                       className="profile-input"
                       value={editDraft.handle}
-                      onChange={(event) => patchDraft({ handle: event.target.value })}
-                      placeholder="e.g. ada_lovelace"
+                      onChange={(event) => patchDraft({ handle: normalizeUsernameInput(event.target.value) })}
+                      placeholder="e.g. nazmul_dev"
                       maxLength={30}
                       autoFocus
                     />
+                    <div className="profile-username-setup">
+                      <p className="profile-username-label">Your public profile will be:</p>
+                      <p className="profile-username-url">klyra.com/u/{editDraft.handle || 'username'}</p>
+                      <p className="profile-username-label">Username rules</p>
+                      <ul className="profile-username-rules">
+                        <li>3–30 lowercase characters</li>
+                        <li>Letters, numbers, underscore, and hyphen only</li>
+                        <li>Start with a letter and end with a letter or number</li>
+                        <li>No spaces</li>
+                      </ul>
+                      <div className="profile-username-examples">
+                        <span className="valid">✓ user123</span>
+                        <span className="valid">✓ dev-user</span>
+                        <span className="valid">✓ dev_user</span>
+                        <span className="valid">✓ developer123</span>
+                        <span className="invalid">✗ User123</span>
+                        <span className="invalid">✗ user_</span>
+                        <span className="invalid">✗ user@dev</span>
+                        <span className="invalid">✗ 123user</span>
+                        <span className="invalid">✗ user name</span>
+                      </div>
+                      {!editDraft.handle ? (
+                        <p className="profile-username-status pending">Enter a username to preview your public profile.</p>
+                      ) : validateUsername(editDraft.handle) ? (
+                        <p className="profile-username-status invalid">Invalid username</p>
+                      ) : (
+                        <p className="profile-username-status pending">Availability checking requires backend support.</p>
+                      )}
+                      <div className="profile-username-preview">
+                        <p className="profile-username-label">Public profile preview</p>
+                        <strong>User</strong>
+                        <span>@{editDraft.handle || 'username'}</span>
+                        <span>klyra.com/u/{editDraft.handle || 'username'}</span>
+                      </div>
+                    </div>
                   </EditableRow>
 
                   <EditableRow

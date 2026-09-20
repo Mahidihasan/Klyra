@@ -276,7 +276,7 @@ router.put('/profile', requireAuth, async (req: Request, res: Response) => {
     const user = await AuthService.updateProfile(req.user!.sub, req.body || {});
     res.json({ user, message: 'Profile updated successfully.' });
   } catch (err: any) {
-    const status = err.message === 'User not found.' ? 404 : 400;
+    const status = err.message === 'User not found.' ? 404 : err.code === '23505' ? 409 : 400;
     res.status(status).json({ error: err.message || 'Failed to update profile.' });
   }
 });
