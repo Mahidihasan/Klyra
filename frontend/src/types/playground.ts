@@ -392,6 +392,18 @@ export interface TabResponseCache {
   };
 }
 
+/** A single endpoint carried in a PlaygroundOpenPayload folder import. */
+export interface PlaygroundOpenEndpoint {
+  method: string;
+  path: string;
+  /** Display label (usually the endpoint summary). */
+  name?: string;
+  /** Longer human-readable description. */
+  description?: string;
+  /** Optional sample request body (JSON string) used to prefill the body editor. */
+  sampleBody?: string;
+}
+
 /**
  * Payload carried when another screen (API management / ApiBuild workspace,
  * repositories bridge) opens the Playground. Lets the request editor start
@@ -403,6 +415,8 @@ export interface PlaygroundOpenPayload {
   apiId?: string;
   /** Human-readable API name used for the request name prefill. */
   apiName?: string;
+  /** Name of the workspace folder created for the imported endpoint catalog (defaults to apiName). */
+  folderName?: string;
   /** Base URL to put in the URL field (gateway URL, falling back to the upstream origin). */
   baseUrl?: string;
   /** Optional endpoint to append to the base URL. */
@@ -410,4 +424,10 @@ export interface PlaygroundOpenPayload {
     method: string;
     path: string;
   };
+  /**
+   * Complete endpoint catalog of the originating project. When present, the
+   * Playground imports all of them as request items under one folder named
+   * after the project (folderName || apiName) so every endpoint can be tested.
+   */
+  endpoints?: PlaygroundOpenEndpoint[];
 }

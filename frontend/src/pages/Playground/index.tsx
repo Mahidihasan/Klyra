@@ -71,7 +71,9 @@ import {
   ApiSource,
   UserWorkspace,
   LocalApi,
+  WorkspaceItem,
   PlaygroundOpenPayload,
+  PlaygroundOpenEndpoint,
 } from '../../types/playground';
 import {
   emptyRequestConfig,
@@ -509,6 +511,155 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
     }
   }, [activeTabId, openTabs.length]);
 
+  // One folder import at a time (guards against double-click racing two
+  // concurrent imports of the same project catalog).
+  const importingFolderRef = useRef<string | null>(null);
+
+  // Import an API project's complete endpoint catalog into the workspace tree
+  // as a folder named after the project. Fired when the Playground is opened
+  // from the ApiBuild workspace ("Open API Tester Playground" button, or
+  // "Test in Playground" on an endpoint): every existing endpoint becomes a
+  // ready-to-send request inside that folder, and the target endpoint (or the
+  // first one) opens in the editor.
+  const importProjectEndpoints = async (
+    ctx: PlaygroundOpenPayload,
+    catalog: PlaygroundOpenEndpoint[],
+    base: string,
+    target?: { method?: string; path?: string },
+  ) => {
+    const folderName = (ctx.folderName || ctx.apiName || 'API Project').trim() || 'API Project';
+    const importKey = `${ctx.apiId || ''}::${folderName}`;
+    if (importingFolderRef.current === importKey) return;
+    importingFolderRef.current = importKey;
+    try {
+      const rootUrl = base.replace(/\/+$/, '');
+
+      // Reuse an existing folder with the same name so repeated openings
+      // never duplicate the catalog; create (and persist) it when missing.
+      let folder = workspaceItems.find(
+        (i) =>
+          (i.kind === 'folder' || i.kind === 'collection') &&
+          i.name.toLowerCase() === folderName.toLowerCase(),
+      );
+      if (!folder) {
+        const folderItem: WorkspaceItem = {
+          id: generateId(),
+          kind: 'folder',
+          name: folderName,
+          apiId: ctx.apiId,
+          order: getNextOrder(workspaceItems),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isPinned: false,
+          description: `Imported endpoint folder for ${folderName}`,
+        };
+        try {
+          folder = await playgroundApi.createWorkspaceItem(folderItem);
+        } catch {
+          // Backend unreachable — keep the optimistic item so the tree still renders.
+          folder = folderItem;
+        }
+        const createdFolder = folder;
+        setWorkspaceItems((prev) =>
+          prev.some((i) => i.id === createdFolder.id) ? prev : [...prev, createdFolder],
+        );
+      }
+      const folderId = folder.id;
+
+      // Surface the workspace explorer with the folder expanded.
+      setWorkspaceTab('apis');
+      setExpandedTreeIds((prev) => ({ ...prev, [folderId]: true }));
+
+      // One request item per endpoint, deduped against what the folder
+      // already contains (by method + resolved URL).
+      const knownKeys = new Set(
+        workspaceItems
+          .filter((i) => i.parentId === folderId)
+          .map((i) => `${(i.method || '').toUpperCase()} ${(i.url || '').replace(/\/+$/, '')}`),
+      );
+      const folderRequests: WorkspaceItem[] = workspaceItems.filter(
+        (i) => i.parentId === folderId,
+      );
+      let nextOrder = getNextOrder(workspaceItems, folderId);
+      for (const ep of catalog) {
+        const method = (ep.method || 'GET').toUpperCase();
+        const epPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
+        const epUrl = rootUrl ? `${rootUrl}${epPath}` : epPath;
+        const key = `${method} ${epUrl.replace(/\/+$/, '')}`;
+        if (knownKeys.has(key)) continue;
+        knownKeys.add(key);
+        const req = emptyRequestConfig();
+        req.name = (ep.name || '').trim() || `${method} ${epPath}`;
+        req.method = method as HttpMethod;
+        req.url = epUrl;
+        if (ep.sampleBody) {
+          try {
+            req.body = { type: 'json', json: JSON.stringify(JSON.parse(ep.sampleBody), null, 2) };
+          } catch {
+            req.body = { type: 'raw', raw: ep.sampleBody, rawLanguage: 'json' };
+          }
+        }
+        const item: WorkspaceItem = {
+          id: generateId(),
+          kind: 'request',
+          name: req.name,
+          parentId: folderId,
+          order: nextOrder++,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isPinned: false,
+          apiId: ctx.apiId,
+          request: req,
+          method,
+          url: epUrl,
+        };
+        try {
+          const saved = await playgroundApi.createWorkspaceItem(item);
+          folderRequests.push(saved);
+          setWorkspaceItems((prev) =>
+            prev.some((i) => i.id === saved.id) ? prev : [...prev, saved],
+          );
+        } catch {
+          folderRequests.push(item);
+          setWorkspaceItems((prev) =>
+            prev.some((i) => i.id === item.id) ? prev : [...prev, item],
+          );
+        }
+      }
+
+      // Open the requested endpoint (when the caller named one) or the first
+      // endpoint of the folder in the editor, ready to send.
+      const targetMethod = (target?.method || '').toUpperCase();
+      const targetPath = (target?.path || '').trim();
+      const targetUrl = targetPath
+        ? `${rootUrl}${targetPath.startsWith('/') ? targetPath : `/${targetPath}`}`.replace(
+            /\/+$/,
+            '',
+          )
+        : '';
+      const targetItem =
+        (targetMethod && targetUrl
+          ? folderRequests.find(
+              (i) =>
+                (i.method || '').toUpperCase() === targetMethod &&
+                (i.url || '').replace(/\/+$/, '') === targetUrl,
+            )
+          : undefined) || folderRequests[0];
+      if (!targetItem) return;
+      const existingTab = findTabForItem(openTabs, targetItem.id);
+      if (existingTab) {
+        setActiveTabId(existingTab.tabId);
+      } else {
+        const tab = createTabFromItem(targetItem);
+        setOpenTabs((prev) => [...prev, tab]);
+        setActiveTabId(tab.tabId);
+      }
+      setResponse(null);
+    } finally {
+      importingFolderRef.current = null;
+    }
+  };
+
   // Prefill the request editor when the Playground is opened from another
   // screen (API management "Test in Playground" / repository bridge). This
   // effect is declared AFTER the tab-sync effect above so the arriving
@@ -518,25 +669,38 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
   useEffect(() => {
     if (!openContext || !activeTab) return;
     const base = (openContext.baseUrl || '').trim();
-    if (!base) {
+    const catalog = openContext.endpoints || [];
+    if (!base && catalog.length === 0) {
       // Repository bridge without a resolvable URL — nothing to prefill.
       onPrefillConsumed?.();
       return;
     }
-    const path = (openContext.endpoint?.path || '').trim();
-    const method = openContext.endpoint?.method;
-    const url = path
-      ? `${base.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
-      : base;
-    setConfig((prev) => ({
-      ...prev,
-      method: (method as HttpMethod) || prev.method,
-      url,
-      name: openContext.endpoint
-        ? `${method || prev.method} ${path}`
-        : openContext.apiName || prev.name,
-    }));
-    setResponse(null);
+    if (catalog.length > 0) {
+      // Full endpoint catalog from an API project ("Open API Tester
+      // Playground" / "Test in Playground"): import everything as one folder
+      // and open the target endpoint. The imported item's tab already carries
+      // the prefilled config, so the single-request prefill below is skipped.
+      void importProjectEndpoints(openContext, catalog, base, {
+        method: openContext.endpoint?.method,
+        path: openContext.endpoint?.path,
+      });
+    } else {
+      // Single-endpoint prefill (repository bridge / marketplace deep links).
+      const path = (openContext.endpoint?.path || '').trim();
+      const method = openContext.endpoint?.method;
+      const url = path
+        ? `${base.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
+        : base;
+      setConfig((prev) => ({
+        ...prev,
+        method: (method as HttpMethod) || prev.method,
+        url,
+        name: openContext.endpoint
+          ? `${method || prev.method} ${path}`
+          : openContext.apiName || prev.name,
+      }));
+      setResponse(null);
+    }
     onPrefillConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openContext, activeTabId, openTabs.length]);

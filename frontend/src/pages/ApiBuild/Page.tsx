@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { ProviderProject, SourceConfig } from '../../types/apibuild';
-import { PlaygroundOpenPayload } from '../../types/playground';
+import { PlaygroundOpenEndpoint, PlaygroundOpenPayload } from '../../types/playground';
 import { apiBuildService } from '../../services/apiBuild';
 import { ProjectsDashboard } from './ProjectsDashboard';
 import { StepNewProject } from './Wizard1';
@@ -14,6 +14,7 @@ import { StepPublish, PublishSuccess } from './Wizard8';
 import { WorkspaceRedesignWithDraft } from './WorkspaceRedesignWithDraft';
 import { useApiBuild, ApiBuildState, BuildView } from './state';
 import { DetailedEndpoint } from './types';
+import { DUMMY_PROJECT_ID, getDummyEndpoints } from './dummyApi';
 import './styles.css';
 import './styles2.css';
 import './styles-professional.css';
@@ -29,13 +30,48 @@ export const ApiBuildPage: React.FC<{
   // the latest gateway/base URL when any "Playground" / "Test in Playground"
   // button is pressed — with or without a specific endpoint.
   const activeRef = useRef<ProviderProject | null>(null);
-  const openPlaygroundWithUrl = (ep?: DetailedEndpoint) => {
+  /** Maps a stored endpoint row onto the Playground's folder-import entry. */
+  const toPlaygroundEndpoint = (ep: DetailedEndpoint): PlaygroundOpenEndpoint => ({
+    method: ep.method,
+    path: ep.path,
+    name: ep.summary || `${ep.method} ${ep.path}`,
+    description: ep.description || undefined,
+    sampleBody: ep.requestBody?.sampleBody || undefined,
+  });
+  const openPlaygroundWithUrl = async (ep?: DetailedEndpoint) => {
     const project = activeRef.current;
+    // The "Open API Tester Playground" action carries the project's complete
+    // endpoint catalog so the Playground can import it as one folder (named
+    // after the API project) where every existing endpoint can be tested.
+    let catalog: DetailedEndpoint[] = [];
+    if (project) {
+      if (project.id === DUMMY_PROJECT_ID) {
+        catalog = getDummyEndpoints();
+      } else {
+        catalog = await apiBuildService
+          .listEndpoints<DetailedEndpoint>(project.id)
+          .catch(() => [] as DetailedEndpoint[]);
+        if (catalog.length === 0 && project.detection?.endpoints?.length) {
+          catalog = project.detection.endpoints.map(
+            (det) =>
+              ({
+                id: det.id,
+                method: det.method,
+                path: det.path,
+                summary: det.description || `${det.method} ${det.path}`,
+                description: det.description || '',
+              }) as unknown as DetailedEndpoint,
+          );
+        }
+      }
+    }
     onOpenPlayground({
       apiId: project?.id || undefined,
       apiName: project?.name || undefined,
+      folderName: project?.name || undefined,
       baseUrl: project?.gatewayUrl || project?.baseUrl || undefined,
       endpoint: ep ? { method: ep.method, path: ep.path } : undefined,
+      endpoints: catalog.map(toPlaygroundEndpoint),
     });
   };
   const s = useApiBuild(openPlaygroundWithUrl, initialView);

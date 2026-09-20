@@ -41,7 +41,8 @@ interface WorkspaceRedesignProps {
   tab: ProjectTab;
   setTab: (t: ProjectTab) => void;
   onBackToDashboard: () => void;
-  onOpenPlayground: () => void;
+  /** Optional endpoint lets "Test in Playground" preselect a specific route. */
+  onOpenPlayground: (ep?: DetailedEndpoint) => void;
   onPauseToggle: () => void;
   onDeleteProject: () => void;
   onSelectProject: (p: ProviderProject) => void;
@@ -438,7 +439,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
         onUpdateEndpoint={handleUpdateEndpoint}
         onOpenPlayground={(ep) => {
           setSelectedEndpoint(null);
-          onOpenPlayground();
+          onOpenPlayground(ep);
         }}
         onViewLogs={(path) => {
           setSelectedEndpoint(null);

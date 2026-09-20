@@ -7,6 +7,7 @@
 
 import React, { useState } from 'react';
 import { ProviderProject, ProjectTab } from '../../types/apibuild';
+import { DetailedEndpoint } from './types';
 import { DraftProvider, useDraft } from './DraftContext';
 import { UnsavedChangesBanner } from '../../components/UnsavedChangesBanner';
 import { ChangeReviewModal } from '../../components/ChangeReviewModal';
@@ -18,7 +19,8 @@ interface WorkspaceRedesignWithDraftProps {
   tab: ProjectTab;
   setTab: (t: ProjectTab) => void;
   onBackToDashboard: () => void;
-  onOpenPlayground: () => void;
+  /** Optional endpoint lets "Test in Playground" preselect a specific route. */
+  onOpenPlayground: (ep?: DetailedEndpoint) => void;
   onPauseToggle: () => void;
   onDeleteProject: () => void;
   onSelectProject: (p: ProviderProject) => void;
