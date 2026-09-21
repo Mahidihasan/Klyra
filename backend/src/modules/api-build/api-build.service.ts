@@ -6,9 +6,24 @@ export type ApiBuildProject = Record<string, unknown> & { id: string };
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const nowIso = () => new Date().toISOString();
 
-export async function listProjects(): Promise<ApiBuildProject[]> {
+export async function listProjects(ownerId: string): Promise<ApiBuildProject[]> {
+  const result = await pool.query(
+    'SELECT project FROM api_build_projects WHERE owner_id = $1 ORDER BY updated_at DESC',
+    [ownerId],
+  );
+  return result.rows.map((row) => row.project as ApiBuildProject);
+}
+/** Internal worker use only; never expose this unscoped query through HTTP. */
+export async function listProjectsForTelemetry(): Promise<ApiBuildProject[]> {
   const result = await pool.query('SELECT project FROM api_build_projects ORDER BY updated_at DESC');
   return result.rows.map((row) => row.project as ApiBuildProject);
+}
+export async function projectIsOwnedBy(id: string, ownerId: string): Promise<boolean> {
+  const result = await pool.query(
+    'SELECT 1 FROM api_build_projects WHERE id = $1 AND owner_id = $2',
+    [id, ownerId],
+  );
+  return result.rowCount === 1;
 }
 export async function getProject(id: string): Promise<ApiBuildProject | null> {
   const result = await pool.query('SELECT project FROM api_build_projects WHERE id = $1', [id]);
@@ -24,10 +39,10 @@ export async function removeProject(id: string): Promise<boolean> {
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function createProject(project: ApiBuildProject): Promise<ApiBuildProject> {
+export async function createProject(project: ApiBuildProject, ownerId: string): Promise<ApiBuildProject> {
   await pool.query(
-    'INSERT INTO api_build_projects (id, project) VALUES ($1, $2::jsonb)',
-    [project.id, JSON.stringify(project)],
+    'INSERT INTO api_build_projects (id, project, owner_id) VALUES ($1, $2::jsonb, $3)',
+    [project.id, JSON.stringify(project), ownerId],
   );
   await ensureProjectDefaults(project.id);
   return project;

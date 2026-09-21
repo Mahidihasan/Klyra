@@ -31,6 +31,9 @@ export interface ProfileCertificate {
   criteria_version: number;
 }
 
+/** The deliberately limited certificate representation used by public profiles. */
+export type PublicProfileCertificate = Omit<ProfileCertificate, 'id' | 'verification_token'>;
+
 interface CertificateMetrics {
   published_api_count: number | string;
   active_subscriber_count: number | string;
@@ -144,6 +147,23 @@ export class CertificatesService {
       [userId],
     );
     return result.rows.map(mapCertificate);
+  }
+
+  /** Read issued certificates without selecting identifiers, tokens, or snapshots. */
+  static async getPublicIssuedCertificates(userId: string): Promise<PublicProfileCertificate[]> {
+    const result = await pool.query<CertificateMetrics & { certificate_type: CertificateType; issued_at: string; criteria_version: number | string }>(
+      `SELECT certificate_type, issued_at, published_api_count, active_subscriber_count,
+              api_version_count, criteria_version
+       FROM user_certificates
+       WHERE user_id = $1
+       ORDER BY issued_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => {
+      const certificate = mapCertificate(row);
+      const { id: _id, verification_token: _verificationToken, ...publicCertificate } = certificate;
+      return publicCertificate;
+    });
   }
 
   static async getCertificateForUser(userId: string, certificateType: CertificateType): Promise<ProfileCertificate | null> {

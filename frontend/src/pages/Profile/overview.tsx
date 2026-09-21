@@ -113,7 +113,7 @@ export const CertificateList: React.FC<{ certificates: ProfileCertificate[]; use
 /* Contribution heatmap — 26 weeks                                     */
 /* ------------------------------------------------------------------ */
 
-const HEATMAP_WEEKS = 26;
+const DEFAULT_HEATMAP_WEEKS = 26;
 
 const localDateKey = (date: Date): string => {
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -139,9 +139,10 @@ const MONTH_SHORT = [
 const heatLevel = (count: number): number =>
   count <= 0 ? 0 : count <= 2 ? 1 : count <= 5 ? 2 : count <= 9 ? 3 : 4;
 
-export const ContributionGraph: React.FC<{ contributions: Contribution[]; loading?: boolean }> = ({
+export const ContributionGraph: React.FC<{ contributions: Contribution[]; loading?: boolean; weeks?: number }> = ({
   contributions,
   loading,
+  weeks = DEFAULT_HEATMAP_WEEKS,
 }) => {
   const grid = useMemo(() => {
     const counts = new Map<string, number>();
@@ -159,14 +160,14 @@ export const ContributionGraph: React.FC<{ contributions: Contribution[]; loadin
     const lastSunday = new Date(today);
     lastSunday.setDate(today.getDate() - today.getDay());
     const start = new Date(lastSunday);
-    start.setDate(lastSunday.getDate() - (HEATMAP_WEEKS - 1) * 7);
+    start.setDate(lastSunday.getDate() - (weeks - 1) * 7);
 
     const columns: Array<{
       monthLabel: string | null;
       days: Array<{ key: string; count: number; future: boolean; date: Date }>;
     }> = [];
     let previousMonth = -1;
-    for (let week = 0; week < HEATMAP_WEEKS; week += 1) {
+    for (let week = 0; week < weeks; week += 1) {
       const days: Array<{ key: string; count: number; future: boolean; date: Date }> = [];
       for (let day = 0; day < 7; day += 1) {
         const date = new Date(start);
@@ -184,7 +185,7 @@ export const ContributionGraph: React.FC<{ contributions: Contribution[]; loadin
       columns.push({ monthLabel, days });
     }
     return columns;
-  }, [contributions]);
+  }, [contributions, weeks]);
 
   const total = useMemo(
     () =>
@@ -192,26 +193,29 @@ export const ContributionGraph: React.FC<{ contributions: Contribution[]; loadin
         const date = new Date(contribution.at);
         const cutoff = new Date();
         cutoff.setHours(0, 0, 0, 0);
-        cutoff.setDate(cutoff.getDate() - HEATMAP_WEEKS * 7);
+        cutoff.setDate(cutoff.getDate() - weeks * 7);
         return !Number.isNaN(date.getTime()) && date >= cutoff;
       }).length,
-    [contributions],
+    [contributions, weeks],
   );
 
   return (
-    <div className={`cg-wrap${loading ? ' is-loading' : ''}`}>
+    <div
+      className={`cg-wrap${loading ? ' is-loading' : ''}`}
+      style={{ '--contribution-weeks': weeks } as React.CSSProperties}
+    >
       <p className="cg-total">
         {loading ? (
           'Loading activity…'
         ) : (
           <>
             <strong>{total.toLocaleString()}</strong> activity event{total === 1 ? '' : 's'} in the
-            last 6 months
+            last {weeks === 52 ? '12 months' : '6 months'}
           </>
         )}
       </p>
       <div className="cg-scroll">
-        <div className="cg-grid">
+        <div className="cg-grid" style={{ minWidth: weeks * 11 + 26 }}>
           <div className="cg-months" aria-hidden="true">
             {grid.map((column, index) => (
               <span key={`m-${index}`} className="cg-month">

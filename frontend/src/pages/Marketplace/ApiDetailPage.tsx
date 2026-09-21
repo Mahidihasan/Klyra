@@ -29,6 +29,7 @@ import { ApiPricingSection } from './components/ApiPricingSection';
 import { useCart } from '../../context/CartContext';
 import { ApiThumbnail } from './components/ApiThumbnail';
 import { useSubscription } from './useSubscription';
+import { ApiStarButton } from './components/ApiStarButton';
 
 type DetailTab = 'overview' | 'demo' | 'pricing' | 'reviews';
 
@@ -187,6 +188,7 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
 
         {/* Actions */}
         <div className="adp-hero-actions">
+          <ApiStarButton api={api} />
           <button
             className={`adp-action-btn adp-cart-action ${isInCart(api.id) ? 'in-cart' : ''}`}
             onClick={() =>

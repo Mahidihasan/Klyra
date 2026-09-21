@@ -54,6 +54,8 @@ export interface CatalogApi {
   lastPublishedAt?: string;
   createdAt: string;
   updatedAt: string;
+  starCount: number;
+  viewerHasStarred: boolean;
 }
 
 export interface CatalogCategory {
@@ -121,12 +123,10 @@ export interface ApiReviewsResponse {
 export interface ProviderProfileResponse {
   id: string;
   name: string;
-  email: string;
   avatarUrl?: string;
   bio?: string;
   company?: string;
   website?: string;
-  role: string;
   isVerified: boolean;
   memberSince: string;
   totalPublishedApis: number;

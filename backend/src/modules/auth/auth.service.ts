@@ -247,12 +247,12 @@ export class AuthService {
       fields.push(`${column} = $${values.length}`);
     };
 
-    const personalFields = ['first_name', 'last_name', 'handle', 'job_title', 'github_url'] as const;
-    const hasPersonalInfo = personalFields.some((field) => input[field] !== undefined);
+    const personalInfoPatch: Record<string, string> = {};
+    const hasFirstName = input.first_name !== undefined;
+    const hasLastName = input.last_name !== undefined;
     const requestedUsername = input.username ?? input.handle;
-    const isHandleOnlyUpdate = requestedUsername !== undefined && personalFields.every((field) => field === 'handle' || input[field] === undefined);
 
-    if (input.name !== undefined && !hasPersonalInfo) {
+    if (input.name !== undefined && !hasFirstName && !hasLastName) {
       if (typeof input.name !== 'string') throw new Error('Name must be a string.');
       const name = input.name.trim();
       if (name.length < 2 || name.length > 100) {
@@ -261,33 +261,43 @@ export class AuthService {
       add('name', name);
     }
 
-    if (isHandleOnlyUpdate) {
+    if (hasFirstName !== hasLastName) {
+      throw new Error('First name and last name must be provided together.');
+    }
+
+    if (hasFirstName) {
+      const firstName = normalizeRequiredProfileText(input.first_name, 'First name', 50);
+      const lastName = normalizeRequiredProfileText(input.last_name, 'Last name', 50);
+      const fullName = `${firstName} ${lastName}`;
+      if (fullName.length > 100) throw new Error('First and last name together must be 100 characters or fewer.');
+      add('name', fullName);
+      personalInfoPatch.first_name = firstName;
+      personalInfoPatch.last_name = lastName;
+    }
+
+    if (requestedUsername !== undefined) {
       const handle = normalizeRequiredProfileText(requestedUsername, 'Username', 30).toLowerCase();
       if (!/^[a-z][a-z0-9_-]{1,28}[a-z0-9]$/.test(handle)) {
         throw new Error('Username must be 3–30 characters, start with a lowercase letter, end with a lowercase letter or number, and use only lowercase letters, numbers, underscores, or hyphens.');
       }
       add('username', handle);
-      metadataPatch.personal_info = { handle };
-    } else if (hasPersonalInfo) {
-      if (personalFields.some((field) => input[field] === undefined)) {
-        throw new Error('First name, last name, handle, job title, and GitHub profile must be provided together.');
-      }
-      const firstName = normalizeRequiredProfileText(input.first_name, 'First name', 50);
-      const lastName = normalizeRequiredProfileText(input.last_name, 'Last name', 50);
-      const fullName = `${firstName} ${lastName}`;
-      if (fullName.length > 100) throw new Error('First and last name together must be 100 characters or fewer.');
-      const handle = normalizeRequiredProfileText(input.handle, 'Username', 30).toLowerCase();
+      personalInfoPatch.handle = handle;
+    }
+
+    if (input.job_title !== undefined) {
       const jobTitle = normalizeOptionalProfileText(input.job_title, 'Job title', 100);
-      const githubUrl = normalizeOptionalProfileText(input.github_url, 'GitHub profile URL', 500);
-      if (!/^[a-z][a-z0-9_-]{1,28}[a-z0-9]$/.test(handle)) {
-        throw new Error('Username must be 3–30 characters, start with a lowercase letter, end with a lowercase letter or number, and use only lowercase letters, numbers, underscores, or hyphens.');
-      }
       if (!jobTitle) throw new Error('Job title is required.');
+      personalInfoPatch.job_title = jobTitle;
+    }
+
+    if (input.github_url !== undefined) {
+      const githubUrl = normalizeOptionalProfileText(input.github_url, 'GitHub profile URL', 500);
       validateGithubUrl(githubUrl);
-      // Keep legacy display/header data synchronized without introducing a new column.
-      add('name', fullName);
-      add('username', handle);
-      metadataPatch.personal_info = { first_name: firstName, last_name: lastName, handle, job_title: jobTitle, github_url: githubUrl };
+      personalInfoPatch.github_url = githubUrl!;
+    }
+
+    if (Object.keys(personalInfoPatch).length > 0) {
+      metadataPatch.personal_info = personalInfoPatch;
     }
 
     if (input.company !== undefined) {
@@ -328,7 +338,7 @@ export class AuthService {
 
     if (Object.keys(metadataPatch).length > 0) {
       values.push(JSON.stringify(metadataPatch));
-      fields.push(isHandleOnlyUpdate
+      fields.push(metadataPatch.personal_info
         ? `metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{personal_info}', COALESCE(metadata -> 'personal_info', '{}'::jsonb) || ($${values.length}::jsonb -> 'personal_info'), true)`
         : `metadata = COALESCE(metadata, '{}'::jsonb) || $${values.length}::jsonb`);
     }
@@ -1477,7 +1487,7 @@ export class AuthService {
   }
 }
 
-function sanitizeSkills(value: unknown): string[] {
+export function sanitizeSkills(value: unknown): string[] {
   try {
     return value === undefined ? [] : normalizeSkills(value);
   } catch {
@@ -1485,7 +1495,7 @@ function sanitizeSkills(value: unknown): string[] {
   }
 }
 
-function sanitizeExperience(value: unknown): ProfileExperience[] {
+export function sanitizeExperience(value: unknown): ProfileExperience[] {
   try {
     return value === undefined ? [] : normalizeExperience(value);
   } catch {
@@ -1493,7 +1503,7 @@ function sanitizeExperience(value: unknown): ProfileExperience[] {
   }
 }
 
-function sanitizeEducation(value: unknown): ProfileEducation[] {
+export function sanitizeEducation(value: unknown): ProfileEducation[] {
   try {
     return value === undefined ? [] : normalizeEducation(value);
   } catch {

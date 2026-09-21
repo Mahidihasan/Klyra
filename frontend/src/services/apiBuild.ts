@@ -47,9 +47,13 @@ export const DEFAULT_CATEGORIES = [
 
 /** Performs a request and unwraps the backend envelope. Throws on failure. */
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const token = localStorage.getItem('klyra_access_token');
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers,
   });
   if (!response.ok) {
     let message = `Request failed (HTTP ${response.status})`;

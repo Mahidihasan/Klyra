@@ -1,4 +1,4 @@
-import { getProject, appendLog, recordUsage, listEndpoints, setEndpointMetrics, saveIncident, listIncidents, listProjects, addActivity } from './api-build.service';
+import { getProject, appendLog, recordUsage, listEndpoints, setEndpointMetrics, saveIncident, listIncidents, listProjectsForTelemetry, addActivity } from './api-build.service';
 
 /* ==========================================================================
  * Telemetry worker — the source of REAL operational data for the workspace.
@@ -136,7 +136,7 @@ async function trackIncidents(projectId: string, healthy: boolean) {
 
 async function probeAllLive() {
   let projects;
-  try { projects = await listProjects(); } catch { return; }
+  try { projects = await listProjectsForTelemetry(); } catch { return; }
   await Promise.allSettled(projects.map(async (p) => {
     const status = String(p.status ?? '');
     if (status === 'draft') return;

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Cpu, Folder, Terminal, Zap, ArrowRight, X } from 'lucide-react';
 import { ApiItem, CollectionItem } from '../types/api';
+import { PublicUsernameSearchResult, searchPublicUsernames } from '../services/api/publicProfile';
 
 interface CommandPaletteProps {
   apis: ApiItem[];
@@ -20,6 +21,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenTester
 }) => {
   const [query, setQuery] = useState('');
+  const [users, setUsers] = useState<PublicUsernameSearchResult[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery('');
+      setUsers([]);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -34,6 +43,28 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const term = query.trim();
+    if (!term) {
+      setUsers([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      searchPublicUsernames(term, controller.signal).then((results) => {
+        if (!controller.signal.aborted) setUsers(results);
+      }).catch(() => {
+        if (!controller.signal.aborted) setUsers([]);
+      });
+    }, 200);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [isOpen, query]);
 
   if (!isOpen) return null;
 
@@ -114,8 +145,24 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             </div>
           )}
 
-          {filteredApis.length === 0 && filteredCols.length === 0 && (
-            <div className="cmd-empty">No matching APIs or collections found.</div>
+          {users.length > 0 && (
+            <div className="cmd-group">
+              <div className="cmd-group-title">PROFILES</div>
+              {users.map(user => (
+                <a key={user.username} className="cmd-item cmd-profile-item" href={`/u/${encodeURIComponent(user.username)}`} onClick={onClose}>
+                  {user.avatar_url ? <img className="cmd-profile-avatar" src={user.avatar_url} alt="" /> : <span className="cmd-profile-avatar">{user.name.slice(0, 1).toUpperCase()}</span>}
+                  <div className="cmd-item-info">
+                    <span className="cmd-item-name">{user.name}</span>
+                    <span className="cmd-item-desc">@{user.username}</span>
+                  </div>
+                  <ArrowRight size={15} className="cmd-profile-arrow" />
+                </a>
+              ))}
+            </div>
+          )}
+
+          {query && filteredApis.length === 0 && filteredCols.length === 0 && users.length === 0 && (
+            <div className="cmd-empty">No matching APIs, collections, or profiles found.</div>
           )}
         </div>
 
@@ -191,6 +238,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         .cmd-item:hover {
           background-color: var(--bg-card-hover);
         }
+
+        .cmd-profile-item { color: inherit; text-decoration: none; }
+        .cmd-profile-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-subtle); color: var(--text-accent); font-size: 12px; font-weight: 700; object-fit: cover; }
+        .cmd-profile-arrow { margin-left: auto; color: var(--text-muted); }
 
         .cmd-item-info {
           display: flex;

@@ -26,6 +26,7 @@ import { MarketplacePage } from './pages/Marketplace/index';
 import { catalogApi, toApiItem } from './services/api/catalog';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ProfilePage } from './pages/Profile';
+import { PublicProfilePage } from './pages/PublicProfile';
 import { ApiKeysPage } from './pages/ApiKeys';
 import './pages/Playground/styles.css';
 
@@ -59,6 +60,25 @@ import {
 
 function AppContent() {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const [isReturningToKlyra, setIsReturningToKlyra] = useState(() => {
+    try {
+      return window.sessionStorage.getItem('klyra:home-navigation-loading') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (!isLoading && isReturningToKlyra) {
+      try {
+        window.sessionStorage.removeItem('klyra:home-navigation-loading');
+      } catch {
+        // The loading state is transient, so storage cleanup is best-effort.
+      }
+      setIsReturningToKlyra(false);
+    }
+  }, [isLoading, isReturningToKlyra]);
+
   // Persist active tab in localStorage to survive refresh
   const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
     if (typeof window !== 'undefined') {
@@ -397,6 +417,9 @@ function AppContent() {
 
   // 2. Loading state during auth check
   if (isLoading) {
+    if (isReturningToKlyra) {
+      return <KlyraNavigationSkeleton />;
+    }
     return (
       <div
         style={{
@@ -1052,7 +1075,39 @@ function AppContent() {
   );
 }
 
+function KlyraNavigationSkeleton() {
+  return (
+    <main className="klyra-navigation-skeleton" aria-busy="true" aria-label="Loading Klyra">
+      <header className="klyra-navigation-skeleton-topbar">
+        <span className="klyra-navigation-skeleton-block klyra-navigation-skeleton-logo" />
+        <span className="klyra-navigation-skeleton-block klyra-navigation-skeleton-search" />
+        <div className="klyra-navigation-skeleton-actions"><span /><span /><span /></div>
+      </header>
+      <aside className="klyra-navigation-skeleton-sidebar">
+        <span className="klyra-navigation-skeleton-block klyra-navigation-skeleton-user" />
+        <div className="klyra-navigation-skeleton-nav"><span /><span /><span /><span /><span /></div>
+      </aside>
+      <section className="klyra-navigation-skeleton-content">
+        <div className="klyra-navigation-skeleton-heading"><span /><span /></div>
+        <div className="klyra-navigation-skeleton-hero" />
+        <div className="klyra-navigation-skeleton-cards"><span /><span /><span /></div>
+      </section>
+    </main>
+  );
+}
+
 export function App() {
+  const publicProfileMatch = typeof window !== 'undefined' && window.location.pathname.match(/^\/u\/([^/]+)\/?$/);
+  if (publicProfileMatch) {
+    let username = publicProfileMatch[1];
+    try {
+      username = decodeURIComponent(username);
+    } catch {
+      // Keep the encoded segment; the API will return the appropriate 404.
+    }
+    return <PublicProfilePage username={username} />;
+  }
+
   return (
     <AuthProvider>
       <CartProvider>

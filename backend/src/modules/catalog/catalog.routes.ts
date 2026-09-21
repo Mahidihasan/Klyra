@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { catalogService } from './catalog.service';
+import { CatalogStarError, catalogService } from './catalog.service';
 import { requireAuth, authOptional } from '../auth/auth.middleware';
 import { pool as db } from '../../services/database.service';
 import { CertificatesService } from '../certificates/certificates.service';
@@ -11,9 +11,9 @@ const router = Router();
  * Returns curated rails for the Marketplace home page:
  * Featured, Trending, Popular, Newly Launched, Recommended.
  */
-router.get('/curated', authOptional, async (_req: Request, res: Response) => {
+router.get('/curated', authOptional, async (req: Request, res: Response) => {
   try {
-    const rails = await catalogService.getCuratedRails();
+    const rails = await catalogService.getCuratedRails(req.user?.sub);
     res.json({
       success: true,
       data: rails,
@@ -55,7 +55,7 @@ router.get('/apis', authOptional, async (req: Request, res: Response) => {
       maxLatency: maxLatency ? parseInt(String(maxLatency), 10) : undefined,
       sort: sort as any,
       order: order as any,
-    });
+    }, req.user?.sub);
 
     res.json({
       success: true,
@@ -96,7 +96,7 @@ router.get('/categories', authOptional, async (_req: Request, res: Response) => 
  */
 router.get('/apis/:idOrSlug', authOptional, async (req: Request, res: Response) => {
   try {
-    const api = await catalogService.getApiBySlugOrId(req.params.idOrSlug);
+    const api = await catalogService.getApiBySlugOrId(req.params.idOrSlug, req.user?.sub);
     if (!api) {
       return res.status(404).json({
         success: false,
@@ -176,7 +176,7 @@ router.post('/apis/:id/reviews', requireAuth, async (req: Request, res: Response
  */
 router.get('/providers/:id', authOptional, async (req: Request, res: Response) => {
   try {
-    const provider = await catalogService.getProviderProfile(req.params.id);
+    const provider = await catalogService.getProviderProfile(req.params.id, req.user?.sub);
     if (!provider) {
       return res.status(404).json({
         success: false,
@@ -273,6 +273,26 @@ router.post('/apis', requireAuth, async (req: Request, res: Response) => {
       success: false,
       error: { message: err.message || 'Failed to publish API' },
     });
+  }
+});
+
+router.post('/apis/:id/star', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await catalogService.starApi(req.params.id, req.user!.sub);
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    if (error instanceof CatalogStarError) return res.status(error.status).json({ success: false, error: { message: error.message } });
+    res.status(500).json({ success: false, error: { message: 'Unable to star API.' } });
+  }
+});
+
+router.delete('/apis/:id/star', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await catalogService.unstarApi(req.params.id, req.user!.sub);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    if (error instanceof CatalogStarError) return res.status(error.status).json({ success: false, error: { message: error.message } });
+    res.status(500).json({ success: false, error: { message: 'Unable to unstar API.' } });
   }
 });
 

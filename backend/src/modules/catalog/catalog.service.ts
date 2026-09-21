@@ -70,6 +70,8 @@ function mapApiRow(row: any): CatalogApi {
       : undefined,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+    starCount: parseInt(row.star_count || '0', 10),
+    viewerHasStarred: Boolean(row.viewer_has_starred),
   };
 }
 
@@ -81,18 +83,70 @@ const SELECT_API_FIELDS = `
   a.pricing_model, a.status, a.is_public, a.api_spec, a.endpoints_count, a.tags, a.rating, a.total_reviews,
   a.total_subscribers, a.total_requests, COALESCE(a.latency_ms, 120) AS latency_ms,
   COALESCE(a.uptime_percentage, 99.95) AS uptime_percentage,
-  a.trending_score, a.popularity_score, a.last_published_at, a.created_at, a.updated_at
+  a.trending_score, a.popularity_score, a.last_published_at, a.created_at, a.updated_at,
+  (SELECT COUNT(*) FROM api_stars s WHERE s.api_id = a.id) AS star_count
 `;
 
 // Browse cards do not need the full OpenAPI document.
 const SELECT_API_BROWSE_FIELDS = SELECT_API_FIELDS.replace('a.api_spec, ', '');
 
+export class CatalogStarError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = 'CatalogStarError';
+  }
+}
+
 export class CatalogService {
+  private async applyViewerStarState(apis: CatalogApi[], userId?: string): Promise<CatalogApi[]> {
+    if (!userId || apis.length === 0) return apis;
+    const result = await db.query(
+      'SELECT api_id FROM api_stars WHERE user_id = $1 AND api_id = ANY($2::uuid[])',
+      [userId, apis.map((api) => api.id)],
+    );
+    const starred = new Set(result.rows.map((row) => String(row.api_id)));
+    return apis.map((api) => ({ ...api, viewerHasStarred: starred.has(api.id) }));
+  }
+
+  private async getPublicApi(apiId: string): Promise<boolean> {
+    const result = await db.query(
+      `SELECT 1 FROM apis
+       WHERE id = $1 AND status = 'PUBLISHED' AND is_public = true AND deleted_at IS NULL`,
+      [apiId],
+    );
+    return result.rows.length > 0;
+  }
+
+  async starApi(apiId: string, userId: string): Promise<{ starCount: number; viewerHasStarred: true }> {
+    if (!(await this.getPublicApi(apiId))) throw new CatalogStarError(404, 'API not found.');
+    const inserted = await db.query(
+      `INSERT INTO api_stars (api_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (api_id, user_id) DO NOTHING
+       RETURNING id`,
+      [apiId, userId],
+    );
+    if (inserted.rows.length === 0) throw new CatalogStarError(409, 'API is already starred.');
+    const count = await db.query('SELECT COUNT(*) AS count FROM api_stars WHERE api_id = $1', [apiId]);
+    return { starCount: parseInt(count.rows[0].count, 10), viewerHasStarred: true };
+  }
+
+  async unstarApi(apiId: string, userId: string): Promise<{ starCount: number; viewerHasStarred: false }> {
+    if (!(await this.getPublicApi(apiId))) throw new CatalogStarError(404, 'API not found.');
+    const removed = await db.query(
+      'DELETE FROM api_stars WHERE api_id = $1 AND user_id = $2 RETURNING id',
+      [apiId, userId],
+    );
+    if (removed.rows.length === 0) throw new CatalogStarError(404, 'API is not starred.');
+    const count = await db.query('SELECT COUNT(*) AS count FROM api_stars WHERE api_id = $1', [apiId]);
+    return { starCount: parseInt(count.rows[0].count, 10), viewerHasStarred: false };
+  }
+
   /**
    * Fetches curated rails for the homepage: Trending, Popular, Newly Launched,
    * Recommended, and Featured APIs.
    */
-  async getCuratedRails(): Promise<CuratedRailsResponse> {
+  async getCuratedRails(viewerUserId?: string): Promise<CuratedRailsResponse> {
     // 1. Featured APIs from system_settings
     let featuredApis: CatalogApi[] = [];
     const featRes = await db.query(`SELECT value FROM system_settings WHERE key = 'featured_apis'`);
@@ -137,13 +191,15 @@ export class CatalogService {
        LIMIT 8`,
       ),
     ]);
-    const trending = trendingRes.rows.map(mapApiRow);
-    const popular = popularRes.rows.map(mapApiRow);
-    const newlyLaunched = newRes.rows.map(mapApiRow);
-    const recommended = recRes.rows.map(mapApiRow);
+    const trending = await this.applyViewerStarState(trendingRes.rows.map(mapApiRow), viewerUserId);
+    const popular = await this.applyViewerStarState(popularRes.rows.map(mapApiRow), viewerUserId);
+    const newlyLaunched = await this.applyViewerStarState(newRes.rows.map(mapApiRow), viewerUserId);
+    const recommended = await this.applyViewerStarState(recRes.rows.map(mapApiRow), viewerUserId);
 
     return {
-      featured: featuredApis.length > 0 ? featuredApis : trending.slice(0, 4),
+      featured: featuredApis.length > 0
+        ? await this.applyViewerStarState(featuredApis, viewerUserId)
+        : trending.slice(0, 4),
       trending,
       popular,
       newlyLaunched,
@@ -154,7 +210,7 @@ export class CatalogService {
   /**
    * Browse and filter APIs with multi-facet queries and full pagination.
    */
-  async browseApis(query: BrowseApisQuery): Promise<BrowseApisResponse> {
+  async browseApis(query: BrowseApisQuery, viewerUserId?: string): Promise<BrowseApisResponse> {
     const page = Math.max(1, query.page || 1);
     const limit = Math.min(100, Math.max(1, query.limit || 16));
     const offset = (page - 1) * limit;
@@ -258,7 +314,7 @@ export class CatalogService {
     const total = parseInt(countRes.rows[0].total, 10);
 
     return {
-      apis: listRes.rows.map(mapApiRow),
+      apis: await this.applyViewerStarState(listRes.rows.map(mapApiRow), viewerUserId),
       meta: {
         page,
         limit,
@@ -271,18 +327,19 @@ export class CatalogService {
   /**
    * Retrieves single API details including active pricing plans and OpenAPI endpoints.
    */
-  async getApiBySlugOrId(idOrSlug: string): Promise<CatalogApi | null> {
+  async getApiBySlugOrId(idOrSlug: string, viewerUserId?: string): Promise<CatalogApi | null> {
     const res = await db.query(
       `SELECT ${SELECT_API_FIELDS}
        FROM apis a
        LEFT JOIN categories c ON c.id = a.category_id
        LEFT JOIN users u ON u.id = a.owner_id
-       WHERE (a.slug = $1 OR a.id::text = $1) AND a.deleted_at IS NULL`,
+       WHERE (a.slug = $1 OR a.id::text = $1)
+         AND a.status = 'PUBLISHED' AND a.is_public = true AND a.deleted_at IS NULL`,
       [idOrSlug],
     );
 
     if (res.rows.length === 0) return null;
-    const api = mapApiRow(res.rows[0]);
+    const api = (await this.applyViewerStarState([mapApiRow(res.rows[0])], viewerUserId))[0];
 
     // Fetch pricing plans
     const plansRes = await db.query(
@@ -441,9 +498,9 @@ export class CatalogService {
   /**
    * Retrieves provider public profile with their portfolio of published APIs.
    */
-  async getProviderProfile(providerId: string): Promise<ProviderProfileResponse | null> {
+  async getProviderProfile(providerId: string, viewerUserId?: string): Promise<ProviderProfileResponse | null> {
     const userRes = await db.query(
-      `SELECT id, name, email, avatar_url, bio, company, website, role, created_at
+      `SELECT id, name, avatar_url, bio, company, website, role, created_at
        FROM users
        WHERE id = $1 AND deleted_at IS NULL`,
       [providerId],
@@ -462,7 +519,7 @@ export class CatalogService {
       [providerId],
     );
 
-    const apis = apisRes.rows.map(mapApiRow);
+    const apis = await this.applyViewerStarState(apisRes.rows.map(mapApiRow), viewerUserId);
     const totalSubscribers = apis.reduce((sum, item) => sum + item.totalSubscribers, 0);
     const averageRating =
       apis.length > 0
@@ -472,12 +529,10 @@ export class CatalogService {
     return {
       id: user.id,
       name: user.name,
-      email: user.email,
       avatarUrl: user.avatar_url || undefined,
       bio: user.bio || undefined,
       company: user.company || undefined,
       website: user.website || undefined,
-      role: user.role,
       isVerified: user.role === 'PROVIDER' || user.role === 'ADMIN',
       memberSince: new Date(user.created_at).toISOString(),
       totalPublishedApis: apis.length,
@@ -561,6 +616,7 @@ export class CatalogService {
               apiId,
               plan.name,
               plan.slug,
+
               plan.description,
               plan.price,
               plan.billingInterval || 'MONTHLY',

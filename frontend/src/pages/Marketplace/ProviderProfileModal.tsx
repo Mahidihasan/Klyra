@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   X, Star, Globe, Building2, Calendar, Users, ExternalLink,
-  Shield, Mail, ArrowRight,
+  Shield, ArrowRight,
 } from 'lucide-react';
 import { ProviderProfileResponse, CatalogApi, catalogApi } from '../../services/api/catalog';
 
@@ -118,11 +118,6 @@ export const ProviderProfileModal: React.FC<ProviderProfileModalProps> = ({
               {profile.website && (
                 <a href={profile.website} target="_blank" rel="noreferrer" className="ppm-link">
                   <Globe size={13} /> Website
-                </a>
-              )}
-              {profile.email && (
-                <a href={`mailto:${profile.email}`} className="ppm-link">
-                  <Mail size={13} /> Contact
                 </a>
               )}
             </div>

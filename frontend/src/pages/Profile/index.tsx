@@ -638,19 +638,27 @@ export const ProfilePage: React.FC = () => {
     setFieldError(null);
     setSuccess(null);
     try {
-      const payload: UpdateProfileInput = field === 'handle'
-        ? { username: normalizeUsernameInput(editDraft.handle) }
-        : {
-            name: `${editDraft.firstName.trim()} ${editDraft.lastName.trim()}`,
-            company: editDraft.company.trim() || null,
-            bio: editDraft.bio.trim() || null,
-            website: editDraft.website.trim() || null,
-            first_name: editDraft.firstName.trim(),
-            last_name: editDraft.lastName.trim(),
-            handle: editDraft.handle.trim(),
-            job_title: editDraft.jobTitle.trim(),
-            github_url: editDraft.githubUrl.trim(),
-          };
+      const payload: UpdateProfileInput = (() => {
+        switch (field) {
+          case 'name':
+            return {
+              first_name: editDraft.firstName.trim(),
+              last_name: editDraft.lastName.trim(),
+            };
+          case 'handle':
+            return { username: normalizeUsernameInput(editDraft.handle) };
+          case 'jobTitle':
+            return { job_title: editDraft.jobTitle.trim() };
+          case 'company':
+            return { company: editDraft.company.trim() || null };
+          case 'website':
+            return { website: editDraft.website.trim() || null };
+          case 'githubUrl':
+            return { github_url: editDraft.githubUrl.trim() };
+          case 'bio':
+            return { bio: editDraft.bio.trim() || null };
+        }
+      })();
       const result = await updatePersonalInfo(payload);
       setForm(toForm(result.user));
       setEditingField(null);
@@ -1235,7 +1243,9 @@ export const ProfilePage: React.FC = () => {
               <section className="profile-about-item">
                 <div className="profile-about-title">
                   <h3>Skills</h3>
-                  <button type="button" className="profile-secondary-btn compact" onClick={() => setShowSkillEditor(true)} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                  {!showSkillEditor && (
+                    <button type="button" className="profile-secondary-btn compact" onClick={() => setShowSkillEditor(true)} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                  )}
                 </div>
                 {profile.skills.length ? (
                   <div className="profile-skill-list">
@@ -1259,7 +1269,9 @@ export const ProfilePage: React.FC = () => {
               <section className="profile-about-item">
                 <div className="profile-about-title">
                   <h3>Experience</h3>
-                  <button type="button" className="profile-secondary-btn compact" onClick={() => openDetailEditor('experience')} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                  {detailEditor?.kind !== 'experience' && (
+                    <button type="button" className="profile-secondary-btn compact" onClick={() => openDetailEditor('experience')} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                  )}
                 </div>
                 {profile.experience.length ? (
                   <div className="profile-detail-list">
@@ -1279,7 +1291,9 @@ export const ProfilePage: React.FC = () => {
               <section className="profile-about-item">
                 <div className="profile-about-title">
                   <h3>Education</h3>
-                  <button type="button" className="profile-secondary-btn compact" onClick={() => openDetailEditor('education')} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                  {detailEditor?.kind !== 'education' && (
+                    <button type="button" className="profile-secondary-btn compact" onClick={() => openDetailEditor('education')} disabled={isSavingDetails}><Plus size={13} /> Add</button>
+                  )}
                 </div>
                 {profile.education.length ? (
                   <div className="profile-detail-list">

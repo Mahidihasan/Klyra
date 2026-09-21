@@ -3,6 +3,7 @@ import { Star, Zap, Clock, Users, ArrowRight, Shield, Activity, ShoppingCart, Ch
 import { CatalogApi, getApiCartPrice } from '../../../services/api/catalog';
 import { useCart } from '../../../context/CartContext';
 import { ApiThumbnail } from './ApiThumbnail';
+import { ApiStarButton } from './ApiStarButton';
 
 interface ApiGridViewProps {
   apis: CatalogApi[];
@@ -142,6 +143,7 @@ export const ApiGridView: React.FC<ApiGridViewProps> = ({
                 </span>
               </div>
               <div className="agv-card-actions">
+                <ApiStarButton api={api} compact />
                 <button
                   className={`agv-cart-btn ${isInCart(api.id) ? 'in-cart' : ''}`}
                   onClick={(event) => {

@@ -62,6 +62,8 @@ export interface CatalogApi {
   lastPublishedAt?: string;
   createdAt: string;
   updatedAt: string;
+  starCount: number;
+  viewerHasStarred: boolean;
 }
 
 export interface CatalogCategory {
@@ -423,6 +425,8 @@ function mockCatalogFallback(): CuratedRailsResponse {
       pricingPlans: plans,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      starCount: 0,
+      viewerHasStarred: false,
     };
   };
 
@@ -650,6 +654,24 @@ export const catalogApi = {
       throw new Error(err?.error?.message || 'Failed to publish API');
     }
     const json = await res.json();
+    return json.data;
+  },
+
+  async starApi(apiId: string): Promise<{ starCount: number; viewerHasStarred: true }> {
+    const res = await fetch(`${API_BASE}/apis/${encodeURIComponent(apiId)}/star`, {
+      method: 'POST', headers: authHeaders(),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || 'Failed to star API');
+    return json.data;
+  },
+
+  async unstarApi(apiId: string): Promise<{ starCount: number; viewerHasStarred: false }> {
+    const res = await fetch(`${API_BASE}/apis/${encodeURIComponent(apiId)}/star`, {
+      method: 'DELETE', headers: authHeaders(),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || 'Failed to remove API star');
     return json.data;
   },
 

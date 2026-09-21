@@ -33,6 +33,7 @@ import {
   listVersions,
   recordUsage,
   removeProject,
+  projectIsOwnedBy,
   saveAlertRule,
   saveIncident,
   savePlan,
@@ -44,6 +45,7 @@ import {
   updateEndpoint,
   updateProject,
 } from './api-build.service';
+import { requireAuth } from '../auth/auth.middleware';
 import { addCategory, listCategories, removeCategory } from './api-build.categories';
 import { detectUpstream, extractOperations } from './api-build.detect';
 import { probeProjectHealth } from './api-build.telemetry';
@@ -160,12 +162,28 @@ const newProjectRecord = (body: Record<string, unknown>) => {
   };
 };
 
+/* Projects are private to their authenticated owner. */
+router.use('/projects', requireAuth);
+router.use('/projects/:id', async (req, res, next) => {
+  if (!validId(req.params.id)) {
+    return fail(res, 400, 'INVALID_PROJECT', 'A valid project id is required.');
+  }
+  try {
+    if (!await projectIsOwnedBy(req.params.id, req.user!.sub)) {
+      return fail(res, 404, 'NOT_FOUND', 'Project not found.');
+    }
+    return next();
+  } catch {
+    return fail(res, 503, 'DATABASE_UNAVAILABLE', 'Project storage is unavailable.');
+  }
+});
+
 /* Projects — full lifecycle. POST creates the record AND its defaults. */
-router.get('/projects', async (_req, res) => {
+router.get('/projects', async (req, res) => {
   try {
     ok(
       res,
-      (await listProjects()).map((project) =>
+      (await listProjects(req.user!.sub)).map((project) =>
         sanitizeProjectForClient(project as Record<string, unknown>),
       ),
     );
@@ -179,7 +197,7 @@ router.post('/projects', async (req, res) => {
     ok(
       res,
       sanitizeProjectForClient(
-        (await createProject(newProjectRecord(req.body || {}))) as Record<string, unknown>,
+        (await createProject(newProjectRecord(req.body || {}), req.user!.sub)) as Record<string, unknown>,
       ),
     );
   } catch (error) {

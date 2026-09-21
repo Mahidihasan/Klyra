@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CreateProjectInput, DetectionResult, ProjectTab, ProviderProject, SourceConfig } from '../../types/apibuild';
 import { apiBuildService } from '../../services/apiBuild';
-import { DUMMY_PROJECT } from './dummyApi';
 
 export type BuildView = 'dash' | 'new' | 'source' | 'detect' | 'configure' | 'deploy' | 'product' | 'pricing' | 'publish' | 'success' | 'workspace';
 
@@ -29,9 +28,8 @@ export function useApiBuild(onPlayground: () => void, initialView?: BuildView) {
   /** Re-fetches the project list from the backend. */
   const refresh = async (): Promise<ProviderProject[]> => {
     const remote = await apiBuildService.hydrate();
-    const next = remote.length ? remote : [DUMMY_PROJECT];
-    setProjects(next);
-    return next;
+    setProjects(remote);
+    return remote;
   };
 
   useEffect(() => {

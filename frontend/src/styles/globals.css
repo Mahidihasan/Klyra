@@ -178,6 +178,69 @@ a:hover {
   position: relative;
 }
 
+/* Preserves the Klyra shell while returning from a public profile during auth hydration. */
+.klyra-navigation-skeleton {
+  min-height: 100vh;
+  background: var(--bg-app);
+}
+
+.klyra-navigation-skeleton-topbar {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: var(--topbar-height);
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border-card);
+  background: var(--bg-topbar);
+}
+
+.klyra-navigation-skeleton-block,
+.klyra-navigation-skeleton-actions span,
+.klyra-navigation-skeleton-nav span,
+.klyra-navigation-skeleton-heading span,
+.klyra-navigation-skeleton-hero,
+.klyra-navigation-skeleton-cards span {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--bg-pill) 25%, var(--bg-card-hover) 50%, var(--bg-pill) 75%);
+  background-size: 200% 100%;
+  animation: klyra-navigation-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes klyra-navigation-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.klyra-navigation-skeleton-logo { width: 106px; height: 22px; }
+.klyra-navigation-skeleton-search { width: min(360px, 32vw); height: 34px; }
+.klyra-navigation-skeleton-actions { display: flex; gap: 10px; margin-left: auto; }
+.klyra-navigation-skeleton-actions span { width: 30px; height: 30px; border-radius: 50%; }
+.klyra-navigation-skeleton-sidebar { position: absolute; top: var(--topbar-height); bottom: 0; width: var(--sidebar-width); padding: 22px 14px; border-right: 1px solid var(--border-card); background: var(--bg-sidebar); }
+.klyra-navigation-skeleton-user { width: 100%; height: 58px; }
+.klyra-navigation-skeleton-nav { display: grid; gap: 10px; margin-top: 28px; }
+.klyra-navigation-skeleton-nav span { height: 34px; }
+.klyra-navigation-skeleton-nav span:nth-child(2), .klyra-navigation-skeleton-nav span:nth-child(5) { width: 78%; }
+.klyra-navigation-skeleton-content { margin-left: var(--sidebar-width); padding: 38px 32px; }
+.klyra-navigation-skeleton-heading { display: grid; gap: 10px; max-width: 360px; }
+.klyra-navigation-skeleton-heading span:first-child { width: 48%; height: 13px; }
+.klyra-navigation-skeleton-heading span:last-child { width: 100%; height: 30px; }
+.klyra-navigation-skeleton-hero { height: 150px; margin-top: 28px; border-radius: var(--radius-lg); }
+.klyra-navigation-skeleton-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
+.klyra-navigation-skeleton-cards span { height: 180px; border-radius: var(--radius-lg); }
+
+@media (max-width: 1024px) {
+  .klyra-navigation-skeleton-sidebar { display: none; }
+  .klyra-navigation-skeleton-content { margin-left: 0; }
+}
+
+@media (max-width: 640px) {
+  .klyra-navigation-skeleton-topbar { padding: 0 16px; gap: 16px; }
+  .klyra-navigation-skeleton-search { display: none; }
+  .klyra-navigation-skeleton-content { padding: 28px 16px; }
+  .klyra-navigation-skeleton-cards { grid-template-columns: 1fr; }
+}
+
 .app-body {
   display: flex;
   flex: 1;

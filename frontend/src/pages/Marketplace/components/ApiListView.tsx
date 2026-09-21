@@ -3,6 +3,7 @@ import { Star, Zap, Shield, Activity, ArrowRight, Clock, Users, ShoppingCart, Ch
 import { CatalogApi, getApiCartPrice } from '../../../services/api/catalog';
 import { useCart } from '../../../context/CartContext';
 import { ApiThumbnail } from './ApiThumbnail';
+import { ApiStarButton } from './ApiStarButton';
 
 interface ApiListViewProps {
   apis: CatalogApi[];
@@ -139,6 +140,7 @@ export const ApiListView: React.FC<ApiListViewProps> = ({
             </span>
 
             <span className="alv-col alv-col-cart">
+              <ApiStarButton api={api} compact />
               <button
                 className={`alv-cart-btn ${isInCart(api.id) ? 'in-cart' : ''}`}
                 onClick={(event) => {

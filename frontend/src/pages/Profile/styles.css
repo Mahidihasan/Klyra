@@ -109,16 +109,16 @@
 .cg-wrap.is-loading { opacity: .7; }
 .cg-total { color: var(--text-secondary); font-size: 12.5px; margin-bottom: 12px; }
 .cg-total strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
-.cg-scroll { overflow: hidden; padding-bottom: 4px; }
+.cg-scroll { overflow-x: auto; padding-bottom: 4px; }
 .cg-grid { display: grid; gap: 6px; width: 100%; min-width: 0; }
-.cg-months { display: grid; grid-template-columns: repeat(26, minmax(8px, 1fr)); gap: 3px; padding-left: 26px; }
+.cg-months { display: grid; grid-template-columns: repeat(var(--contribution-weeks, 26), minmax(8px, 1fr)); gap: 3px; padding-left: 26px; }
 .cg-month { font-size: 9.5px; color: var(--text-muted); overflow: visible; white-space: nowrap; }
 .cg-body { display: flex; gap: 4px; }
 .cg-days { display: grid; grid-template-rows: repeat(7, 12px); gap: 3px; width: 22px; }
 .cg-days span { font-size: 9px; color: var(--text-muted); line-height: 12px; }
 .cg-days span:nth-child(2) { grid-row: 3; }
 .cg-days span:nth-child(3) { grid-row: 5; }
-.cg-columns { display: grid; width: 100%; grid-template-columns: repeat(26, minmax(8px, 1fr)); grid-template-rows: repeat(7, 12px); gap: 3px; }
+.cg-columns { display: grid; width: 100%; grid-template-columns: repeat(var(--contribution-weeks, 26), minmax(8px, 1fr)); grid-template-rows: repeat(7, 12px); gap: 3px; }
 .cg-column { display: grid; justify-items: center; grid-template-rows: repeat(7, 12px); gap: 3px; }
 .cg-cell { width: min(12px, 100%); height: 12px; border-radius: 3px; background: color-mix(in srgb, var(--text-secondary) 10%, transparent); }
 .cg-cell.l1 { background: color-mix(in srgb, var(--accent-purple) 28%, transparent); }
