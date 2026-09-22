@@ -81,7 +81,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF NOT EXISTS api_build_projects_updated_at_trigger 
+DROP TRIGGER IF EXISTS api_build_projects_updated_at_trigger 
 ON api_build_projects;
 
 CREATE TRIGGER api_build_projects_updated_at_trigger

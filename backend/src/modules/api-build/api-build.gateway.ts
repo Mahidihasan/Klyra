@@ -48,6 +48,12 @@ function extractKlyraKey(req: Request): string | null {
   return null;
 }
 
+import {
+  resolveDeploymentUpstream,
+  resolveDeploymentKind,
+  activeDeploymentRuntime,
+} from './api-build.deployment';
+
 const handleGateway = async (req: Request, res: Response): Promise<Response> => {
   try {
     const slug = String(req.params.slug || '');
@@ -97,8 +103,23 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
       return res.status(401).json({ error: 'API key required. Pass it via the Authorization header (Bearer kly…) or x-api-key.' });
     }
 
-    const upstream = String(project.baseUrl || '').trim();
-    if (!upstream) return res.status(502).json({ error: 'This project has no upstream origin configured yet.' });
+    // Check Docker deployment status before routing
+    const depKind = resolveDeploymentKind(project);
+    if (depKind === 'docker') {
+      const dep = (project.deployment as Record<string, unknown> | undefined) || {};
+      const status = String(dep.status || '').toLowerCase();
+      if (status !== 'healthy' && status !== 'healthy-external') {
+        return res.status(503).json({
+          error: `API container for "${slug}" is not currently healthy (status: ${status || 'pending'}). Deploy the container to enable gateway forwarding.`,
+        });
+      }
+    }
+
+    const upstream = resolveDeploymentUpstream(project);
+    if (!upstream) {
+      return res.status(502).json({ error: 'This project has no active upstream or container origin configured yet.' });
+    }
+
 
     // Remaining path after /gateway/{slug}; preserve the caller's query string.
     const rest = (req.params[0] as string) || '';
@@ -124,7 +145,9 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
 
     const method = req.method.toUpperCase();
     const hasBody = !['GET', 'HEAD'].includes(method);
-    const body = hasBody ? (Buffer.isBuffer(req.body) ? req.body : JSON.stringify(req.body ?? {})) : undefined;
+    const body = hasBody
+      ? (Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : JSON.stringify(req.body ?? {}))
+      : undefined;
     if (hasBody && body !== undefined && !Buffer.isBuffer(req.body)) {
       headers['content-type'] = headers['content-type'] || 'application/json';
     }
@@ -132,7 +155,7 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
     try {
-      const upstreamRes = await fetch(target, { method, headers, body, signal: controller.signal, redirect: 'follow' });
+      const upstreamRes = await fetch(target, { method, headers, body: body as any, signal: controller.signal, redirect: 'follow' });
       const text = await upstreamRes.text();
       res.status(upstreamRes.status);
       upstreamRes.headers.forEach((v, k) => {

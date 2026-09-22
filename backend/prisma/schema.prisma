@@ -1336,6 +1336,8 @@ enum user_role {
   SUPER_ADMIN
   ADMIN
   USER
+  PROVIDER
+  MODERATOR
 }
 
 enum user_status {

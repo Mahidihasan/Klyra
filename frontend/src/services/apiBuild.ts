@@ -23,6 +23,7 @@ export const PROJECTS_ROOT = '/api/api-build/projects';
 const JOB_ROOT = '/api/api-build/jobs';
 const CATEGORY_ROOT = '/api/api-build/categories';
 const DETECT_ROOT = '/api/api-build/detect';
+const UPLOAD_ROOT = '/api/api-build/upload-project';
 
 export const STATUS_META: Record<ProviderProjectStatus, { label: string; color: string }> = {
   healthy: { label: 'Healthy', color: '#22c55e' },
@@ -140,6 +141,112 @@ export const apiBuildService = {
       )}`,
       { method: 'PUT', body: JSON.stringify(patch) },
     );
+  },
+  /** Clones a GitHub repository as a buildable container source (obtain source
+   *  step). Returns the discovered Dockerfile path, build context and port. */
+  async prepareGitHubSource(
+    projectId: string,
+    input: { repository: string; branch?: string },
+  ): Promise<{
+    uploadId: string;
+    projectName: string;
+    dockerfilePath: string;
+    buildContext: string;
+    detectedPort: number;
+    fileCount: number;
+    repository: string;
+    branch: string;
+  }> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/source/github`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  /** Uploads a project ZIP archive and inspects its Dockerfile and context.
+   *  When `onProgress` is supplied the request is sent with XMLHttpRequest so
+   *  the UI can show a real transfer percentage (fetch cannot report upload
+   *  progress). The response contract is identical either way. */
+  async uploadProjectFolder(
+    file: File,
+    onProgress?: (percent: number) => void,
+  ): Promise<{
+    uploadId: string;
+    projectName: string;
+    dockerfilePath: string;
+    buildContext: string;
+    detectedPort: number;
+    fileCount: number;
+    totalSizeBytes: number;
+  }> {
+    type UploadData = {
+      uploadId: string;
+      projectName: string;
+      dockerfilePath: string;
+      buildContext: string;
+      detectedPort: number;
+      fileCount: number;
+      totalSizeBytes: number;
+    };
+    type UploadResponse = {
+      success?: boolean;
+      data?: UploadData;
+      error?: { message?: string };
+    };
+    const formData = new FormData();
+    formData.append('file', file);
+
+    if (onProgress) {
+      return new Promise<UploadData>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', UPLOAD_ROOT);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+          }
+        };
+        xhr.onload = () => {
+          let parsed: UploadResponse | null = null;
+          try {
+            parsed = JSON.parse(xhr.responseText) as UploadResponse;
+          } catch {
+            parsed = null;
+          }
+          if (xhr.status >= 200 && xhr.status < 300 && parsed?.data) {
+            onProgress(100);
+            resolve(parsed.data);
+            return;
+          }
+          reject(new Error(parsed?.error?.message || `Upload failed (HTTP ${xhr.status}).`));
+        };
+        xhr.onerror = () => reject(new Error('Upload failed: network error.'));
+        xhr.send(formData);
+      });
+    }
+
+    const response = await fetch(UPLOAD_ROOT, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        error?: { message?: string };
+        message?: string;
+      };
+      throw new Error(err.error?.message || err.message || 'Upload failed');
+    }
+    const body = (await response.json()) as {
+      success: boolean;
+      data: {
+        uploadId: string;
+        projectName: string;
+        dockerfilePath: string;
+        buildContext: string;
+        detectedPort: number;
+        fileCount: number;
+        totalSizeBytes: number;
+      };
+    };
+    return body.data;
   },
   async requestDeploy(id: string): Promise<{ jobId: string; status: string }> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(id)}/deployments`, {

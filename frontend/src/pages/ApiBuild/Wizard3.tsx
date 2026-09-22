@@ -5,17 +5,39 @@ import { Alert, MethodBadge, Skeleton } from './bits';
 import { WizardChrome } from './Wizard1';
 import './styles.css';
 
+/** Human-readable stage label for the live detect percentage. */
+function detectStage(progress: number, containerSource: boolean): string {
+  if (progress < 25) return 'Creating the project record…';
+  if (progress < 55) return containerSource ? 'Obtaining container source (clone / upload)…' : 'Contacting the upstream API…';
+  if (progress < 85) return 'Scanning for an OpenAPI specification…';
+  return 'Finalizing detected configuration…';
+}
+
+/** True when the Detect step failed for a real, actionable reason. */
+function sourceFailed(detection: DetectionResult | null): boolean {
+  return Boolean(
+    detection?.reason &&
+      /failed|could not|invalid|cannot|unavailable|enter a repository/i.test(detection.reason),
+  );
+}
+
 export const StepDetect: React.FC<{
-  loading: boolean; detection: DetectionResult | null;
+  loading: boolean; detection: DetectionResult | null; progress: number; containerSource: boolean;
   manualMode: boolean; setManualMode: (v: boolean) => void;
   onNext: () => void; onBack: () => void; onRetry: () => void;
-}> = ({ loading, detection, manualMode, setManualMode, onNext, onBack, onRetry }) => (
+}> = ({ loading, detection, progress, containerSource, manualMode, setManualMode, onNext, onBack, onRetry }) => (
   <WizardChrome step={2} total={8} labels={['Project', 'Source', 'Detect', 'Configure', 'Deploy', 'Product', 'Pricing', 'Publish']}>
     {loading && (<>
       <h2 style={{ fontSize: 19, marginBottom: 4 }}>Detecting API specification...</h2>
       <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 14 }}>Fetching OpenAPI, counting endpoints and schemas.</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 6, overflow: 'hidden' }}>
+          <div style={{ width: `${Math.max(3, Math.min(100, progress))}%`, height: '100%', background: 'linear-gradient(90deg,#8b5cf6,#22d3ee)', borderRadius: 6, transition: 'width .35s ease' }} />
+        </div>
+        <b className="ab2-mono" style={{ fontSize: 12, minWidth: 40, textAlign: 'right' }}>{Math.max(0, Math.min(100, Math.round(progress)))}%</b>
+      </div>
+      <p style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}><Loader2 size={13} className="ab2-spin" /> {detectStage(progress, containerSource)}</p>
       <Skeleton h={18} /><div style={{ height: 8 }} /><Skeleton h={18} /><div style={{ height: 8 }} /><Skeleton h={90} />
-      <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}><Loader2 size={13} className="ab2-spin" /> Contacting upstream (simulated)...</p>
     </>)}
     {!loading && detection?.found && (<>
       <h2 style={{ fontSize: 19, marginBottom: 4 }}>API Detected</h2>
@@ -48,9 +70,9 @@ export const StepDetect: React.FC<{
           <button className="ab2-primary" onClick={onNext}>Continue <ArrowRight size={14} /></button>
         </div>
       </>) : (<>
-        <h2 style={{ fontSize: 19, marginBottom: 4 }}>API specification not found</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>Klyra couldn't automatically detect an API specification at <span className="ab2-mono">{detection.baseUrl}</span>.</p>
-        <Alert kind="warn">Connection error handling: verify the URL is reachable, or continue manually. Nothing is deployed yet.</Alert>
+        <h2 style={{ fontSize: 19, marginBottom: 4 }}>{sourceFailed(detection) ? 'Source could not be prepared' : containerSource ? 'Specification detected after deployment' : 'API specification not found'}</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>{sourceFailed(detection) ? detection.reason : containerSource ? 'Nothing to scan yet — Klyra discovers the OpenAPI specification automatically once the container is healthy, then imports the endpoints into this project.' : <>Klyra couldn't automatically detect an API specification at <span className="ab2-mono">{detection.baseUrl}</span>.</>}</p>
+        <Alert kind={sourceFailed(detection) ? 'err' : 'warn'}>{sourceFailed(detection) ? 'Fix the source above and use "Back" to retry — nothing has been deployed.' : containerSource ? `Specification discovery: ${detection.reason || 'runs automatically after the container is healthy.'}` : 'Connection error handling: verify the URL is reachable, or continue manually. Nothing is deployed yet.'}</Alert>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="ab2-ghost" onClick={onNext}><Upload size={14} /> Upload OpenAPI</button>
           <button className="ab2-ghost" onClick={onBack}><Link2 size={14} /> Enter URL</button>

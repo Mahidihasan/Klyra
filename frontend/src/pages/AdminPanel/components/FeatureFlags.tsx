@@ -9,7 +9,7 @@ const INITIAL_FLAGS = [
 
 export const FeatureFlags = () => {
   const [flags, setFlags] = useState<any[]>([]);
-  const timeoutRef = React.useRef<Record<string, NodeJS.Timeout>>({});
+  const timeoutRef = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   React.useEffect(() => {
     const fetchFlags = async () => {

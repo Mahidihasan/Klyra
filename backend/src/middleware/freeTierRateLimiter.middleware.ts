@@ -11,6 +11,10 @@ const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
  * Express Middleware: Automatic 6-hour rolling reset window for users on the Free subscription tier.
  */
 export const freeTierRateLimiter = async (req: Request, res: Response, next: NextFunction) => {
+  if (process.env.KLYRA_DISABLE_QUOTAS === 'true') {
+    return next();
+  }
+
   // Retrieve the authenticated user ID (assumes JWT payload sets req.user.sub or req.user.id)
   const userId = (req as any).user?.sub || (req as any).user?.id;
   

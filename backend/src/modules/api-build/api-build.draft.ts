@@ -439,27 +439,39 @@ export async function recordAuditEvent(
   const id = randomUUID();
   const timestamp = new Date().toISOString();
 
-  await pool.query(
-    `INSERT INTO api_build_audit_log 
-     (id, project_id, actor_id, actor_email, timestamp, resource_type, resource_id, 
-      operation, before, after, change_summary, request_id, context)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-    [
-      id,
-      event.projectId,
-      event.actorId,
-      event.actorEmail,
-      timestamp,
-      event.resourceType,
-      event.resourceId,
-      event.operation,
-      event.before ? JSON.stringify(event.before) : null,
-      event.after ? JSON.stringify(event.after) : null,
-      event.changeSummary,
-      event.requestId,
-      event.context ? JSON.stringify(event.context) : null,
-    ]
-  );
+  try {
+    await pool.query(
+      `INSERT INTO api_build_audit_log 
+       (id, project_id, actor_id, actor_email, timestamp, resource_type, resource_id, 
+        operation, before, after, change_summary, request_id, context)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        id,
+        event.projectId,
+        event.actorId,
+        event.actorEmail,
+        timestamp,
+        event.resourceType,
+        event.resourceId,
+        event.operation,
+        event.before ? JSON.stringify(event.before) : null,
+        event.after ? JSON.stringify(event.after) : null,
+        event.changeSummary,
+        event.requestId,
+        event.context ? JSON.stringify(event.context) : null,
+      ]
+    );
+  } catch (error) {
+    // The audit trail is a governance side-channel: the durable records of a
+    // deployment/operation live in api_build_deployments and
+    // api_build_operations. An audit-write failure (for example the table has
+    // not been migrated yet on this database) must never fail the business
+    // operation, so it is logged loudly instead of being rethrown.
+    console.error(
+      `[api-build audit] could not record audit event (${event.operation} on ${event.resourceType}):`,
+      error instanceof Error ? error.message : error,
+    );
+  }
 
   return {
     id,

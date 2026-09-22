@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { ProviderProject, SourceConfig } from '../../types/apibuild';
+import { ProviderProject, SourceConfig, DetectionResult } from '../../types/apibuild';
 import { PlaygroundOpenEndpoint, PlaygroundOpenPayload } from '../../types/playground';
 import { apiBuildService } from '../../services/apiBuild';
 import { ProjectsDashboard } from './ProjectsDashboard';
@@ -14,7 +14,6 @@ import { StepPublish, PublishSuccess } from './Wizard8';
 import { WorkspaceRedesignWithDraft } from './WorkspaceRedesignWithDraft';
 import { useApiBuild, ApiBuildState, BuildView } from './state';
 import { DetailedEndpoint } from './types';
-import { DUMMY_PROJECT_ID, getDummyEndpoints } from './dummyApi';
 import './styles.css';
 import './styles2.css';
 import './styles-professional.css';
@@ -45,24 +44,20 @@ export const ApiBuildPage: React.FC<{
     // after the API project) where every existing endpoint can be tested.
     let catalog: DetailedEndpoint[] = [];
     if (project) {
-      if (project.id === DUMMY_PROJECT_ID) {
-        catalog = getDummyEndpoints();
-      } else {
-        catalog = await apiBuildService
-          .listEndpoints<DetailedEndpoint>(project.id)
-          .catch(() => [] as DetailedEndpoint[]);
-        if (catalog.length === 0 && project.detection?.endpoints?.length) {
-          catalog = project.detection.endpoints.map(
-            (det) =>
-              ({
-                id: det.id,
-                method: det.method,
-                path: det.path,
-                summary: det.description || `${det.method} ${det.path}`,
-                description: det.description || '',
-              }) as unknown as DetailedEndpoint,
-          );
-        }
+      catalog = await apiBuildService
+        .listEndpoints<DetailedEndpoint>(project.id)
+        .catch(() => [] as DetailedEndpoint[]);
+      if (catalog.length === 0 && project.detection?.endpoints?.length) {
+        catalog = project.detection.endpoints.map(
+          (det) =>
+            ({
+              id: det.id,
+              method: det.method,
+              path: det.path,
+              summary: det.description || `${det.method} ${det.path}`,
+              description: det.description || '',
+            }) as unknown as DetailedEndpoint,
+        );
       }
     }
     onOpenPlayground({
@@ -84,63 +79,199 @@ export const ApiBuildPage: React.FC<{
   useEffect(() => {
     if (s.view !== 'deploy' || !active) return;
     if (active.deployment.kind === 'external') return;
-    if (deployStartedFor.current === active.id) return;
-    deployStartedFor.current = active.id;
+    // A retry from the Deploy step bumps deployAttempt, which must start a
+    // brand-new operation rather than being swallowed by the dedupe guard.
+    const attemptKey = `${active.id}:${s.deployAttempt}`;
+    if (deployStartedFor.current === attemptKey) return;
+    deployStartedFor.current = attemptKey;
 
-    // Real deploy via the durable operation resource — the wizard phase is
-    // driven from backend progress instead of a client-side fake timer.
+    // Real deploy via the durable operation resource — the wizard's phase,
+    // percentage and log panel are all driven from backend truth instead of a
+    // client-side fake timer.
     s.setPhase(0);
+    s.setDeployOp({
+      id: '',
+      state: 'queued',
+      progress: 0,
+      logs: ['Submitting deployment operation…'],
+      error: null,
+    });
     apiBuildService.createOperation(active.id, {
       type: 'deploy',
       environment: active.environment,
-      payload: { version: active.version, strategy: 'rolling' },
+      payload: {
+        version: active.version,
+        strategy: 'rolling',
+        sourceKind: active.sourceKind,
+        repository: active.repository,
+        branch: active.deployment.branch,
+        dockerSourceMode: active.dockerSourceMode,
+        dockerImage: active.dockerImage,
+        dockerUploadId: active.dockerUploadId,
+        dockerfilePath: active.dockerfilePath,
+        buildContext: active.buildContext,
+        dockerPort: active.dockerPort,
+        openApiUrl: active.openApiUrl,
+        readinessMode: active.readinessMode,
+        readinessPath: active.readinessPath,
+      },
       reason: 'Initial deployment from the setup flow',
     }).then((op) => {
       const timer = setInterval(async () => {
         try {
           const live = await apiBuildService.getOperation(active.id, op.id);
           if (!live) return;
-          const progress = live.progress;
-          s.setPhase(progress < 33 ? 1 : progress < 66 ? 2 : 3);
-          if (live.state === 'succeeded' || live.state === 'failed') {
+          // Percentage + phase come from the backend operation's progress.
+          s.setPhase(live.progress < 25 ? 0 : live.progress < 55 ? 1 : live.progress < 85 ? 2 : 3);
+          s.setDeployOp({
+            id: live.id,
+            state: live.state,
+            progress: live.progress,
+            logs: live.logs,
+            error: live.errors.length ? live.errors[live.errors.length - 1] : null,
+          });
+          if (live.state === 'succeeded' || live.state === 'failed' || live.state === 'cancelled') {
             clearInterval(timer);
             await s.refresh();
-            if (live.state === 'failed') s.setBusy(true);
+            if (live.state !== 'succeeded') s.setBusy(false);
           }
         } catch {
           // Backend unreachable during setup — keep the wizard visible; the
           // durable operation row persists and can be retried from the workspace.
         }
-      }, 1000);
-      return () => clearInterval(timer);
-    }).catch(() => s.setBusy(false));
+      }, 700);
+    }).catch((err) => {
+      s.setDeployOp({
+        id: '',
+        state: 'failed',
+        progress: 0,
+        logs: ['Deployment operation could not be created.'],
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+      s.setBusy(false);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.view]);
+  }, [s.view, s.deployAttempt]);
 
   return <ApiBuildRouter s={s} onBack={onBack} />;
 };
 
 async function submitSource(s: ApiBuildState, chosen: SourceConfig) {
+  s.setDetectProgress(5);
   const created = await apiBuildService.create(s.draft);
   s.setBusy(true); s.setDetecting(true); s.setManual(false); s.setView('detect');
-  const det = await apiBuildService.detect(chosen);
-  const base = chosen.baseUrl?.trim() || det.baseUrl;
+  s.setDetectProgress(20);
+
+  let det: DetectionResult = {
+    found: false,
+    endpointCount: 0,
+    schemaCount: 0,
+    baseUrl: chosen.baseUrl || '',
+    authKind: null,
+    endpoints: [],
+    openApiVersion: null,
+    reachable: false,
+    reason: '',
+  };
+
+  // GitHub sources: obtain the repository for real. The clone result gives the
+  // Detect step truthful facts (Dockerfile, build context, exposed port) and is
+  // reused by the deploy pipeline instead of cloning the repo twice.
+  let githubSource: {
+    uploadId: string;
+    dockerfilePath: string;
+    buildContext: string;
+    detectedPort: number;
+    branch: string;
+  } | null = null;
+  let sourceError = '';
+
+  if (chosen.kind === 'github') {
+    s.setDetectProgress(35);
+    if (!chosen.repository?.trim()) {
+      sourceError = 'Enter a repository URL (for example https://github.com/owner/repo).';
+    } else {
+      try {
+        const descriptor = await apiBuildService.prepareGitHubSource(created.id, {
+          repository: chosen.repository.trim(),
+          branch: chosen.branch || 'main',
+        });
+        githubSource = {
+          uploadId: descriptor.uploadId,
+          dockerfilePath: descriptor.dockerfilePath,
+          buildContext: descriptor.buildContext,
+          detectedPort: descriptor.detectedPort,
+          branch: descriptor.branch || chosen.branch || 'main',
+        };
+        det = {
+          ...det,
+          reason: `Repository ready: Dockerfile ${descriptor.dockerfilePath} · build context ${descriptor.buildContext} · port ${descriptor.detectedPort} · ${descriptor.fileCount} files.`,
+        };
+      } catch (err) {
+        sourceError = err instanceof Error ? err.message : 'The repository could not be cloned.';
+      }
+      s.setDetectProgress(72);
+    }
+  }
+
+  s.setDetectProgress(chosen.kind === 'github' ? 80 : 55);
+  if (chosen.kind === 'existing' || (chosen.openApiUrl && /^https?:\/\//i.test(chosen.openApiUrl))) {
+    try {
+      det = await apiBuildService.detect(chosen);
+    } catch (err) {
+      det = { ...det, reason: err instanceof Error ? err.message : 'Upstream detection failed.' };
+    }
+  } else if (!sourceError && !det.reason) {
+    // Container sources have no reachable upstream yet: the specification is
+    // discovered by the deploy pipeline once the container reports healthy.
+    det = {
+      ...det,
+      reason: 'The OpenAPI specification is discovered automatically once the container is running.',
+    };
+  }
+  if (sourceError) {
+    det = { ...det, found: false, reachable: false, reason: sourceError };
+  }
+  s.setDetectProgress(92);
+
+  const base = chosen.baseUrl?.trim() || det.baseUrl || '';
   const kind = chosen.kind === 'existing' ? 'external' : 'klyra';
-  apiBuildService.update(created.id, {
-    sourceKind: chosen.kind, baseUrl: base, openApiUrl: chosen.openApiUrl,
-    endpointCount: det.endpointCount, schemaCount: det.schemaCount,
-    status: det.found ? 'deploying' : 'draft', detection: det,
+  await apiBuildService.update(created.id, {
+    sourceKind: chosen.kind,
+    repository: chosen.repository,
+    branch: githubSource?.branch || chosen.branch,
+    dockerSourceMode: githubSource ? 'folder' : chosen.dockerSourceMode || 'image',
+    dockerImage: chosen.dockerImage,
+    dockerUploadId: githubSource?.uploadId || chosen.dockerUploadId,
+    dockerfilePath: githubSource?.dockerfilePath || chosen.dockerfilePath,
+    buildContext: githubSource?.buildContext || chosen.buildContext,
+    dockerPort: githubSource?.detectedPort || chosen.dockerPort,
+    readinessMode: chosen.readinessMode,
+    readinessPath: chosen.readinessPath,
+    baseUrl: base,
+    openApiUrl: chosen.openApiUrl,
+    endpointCount: det.endpointCount,
+    schemaCount: det.schemaCount,
+    status: det.found ? 'deploying' : 'draft',
+    detection: det,
     deployment: {
-      kind, status: chosen.kind === 'existing' ? 'healthy-external' : 'queued',
-      providerUrl: chosen.kind === 'existing' ? base : `https://${created.slug}.klyra.dev`,
+      kind,
+      status: chosen.kind === 'existing' ? 'healthy-external' : 'queued',
+      providerUrl: chosen.kind === 'existing' ? base : created.gatewayUrl,
       source: chosen.kind === 'github' ? 'GitHub' : chosen.kind === 'docker' ? 'Docker' : undefined,
-      branch: chosen.branch, environment: 'development', version: 'v1.0.0',
+      branch: githubSource?.branch || chosen.branch,
+      environment: 'development',
+      version: 'v1.0.0',
       lastHealthCheck: chosen.kind === 'existing' ? 'just now' : 'queued',
-      log: chosen.kind === 'existing' ? [`Connected to ${base}`, det.found ? `Detected ${det.endpointCount} endpoints` : 'Live connectivity OK — no spec found', 'Waiting for first health check'] : ['Queued build', 'Installing dependencies...'],
+      log: chosen.kind === 'existing'
+        ? [`Connected to ${base}`, det.found ? `Detected ${det.endpointCount} endpoints` : 'Live connectivity OK — no spec found', 'Waiting for first health check']
+        : sourceError
+          ? ['Source acquisition failed', sourceError]
+          : ['Queued for container deployment', ...(githubSource ? [`Repository cloned (${githubSource.branch})`, `Dockerfile ${githubSource.dockerfilePath} · port ${githubSource.detectedPort}`] : []), 'Validating container runtime...'],
     },
   } as Partial<ProviderProject>);
   s.setActiveId(created.id); s.setDetection(det);
-  s.setDetecting(false); s.setBusy(false); s.refresh();
+  s.setDetectProgress(100); s.setDetecting(false); s.setBusy(false); s.refresh();
 }
 
 async function retryDetection(s: ApiBuildState, active?: ProviderProject | null) {
@@ -164,7 +295,7 @@ function ApiBuildRouter({ s, onBack }: { s: ApiBuildState; onBack?: () => void }
   if (view === 'dash') return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} onBack={onBack} />;
   if (view === 'new') return <StepNewProject init={s.draft} onBack={openDashboard} onNext={(d) => { s.setDraft(d); s.setView('source'); }} />;
   if (view === 'source') return <StepSource init={s.source} busy={s.busy} onBack={() => s.setView('new')} onNext={(v) => { s.setSource(v); submitSource(s, v); }} />;
-  if (view === 'detect') return <StepDetect loading={s.detecting} detection={s.detection} manualMode={s.manual} setManualMode={s.setManual} onBack={() => s.setView('source')} onRetry={() => retryDetection(s, active)} onNext={() => s.setView('configure')} />;
+  if (view === 'detect') return <StepDetect loading={s.detecting} detection={s.detection} progress={s.detectProgress} containerSource={s.source.kind === 'docker' || s.source.kind === 'github'} manualMode={s.manual} setManualMode={s.setManual} onBack={() => s.setView('source')} onRetry={() => retryDetection(s, active)} onNext={() => s.setView('configure')} />;
   if (!active) return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} onBack={onBack} />;
   if (view === 'configure') return <StepConfigure project={active} onBack={() => s.setView('detect')} onNext={(c) => {
     apiBuildService.update(active.id, {
@@ -177,7 +308,7 @@ function ApiBuildRouter({ s, onBack }: { s: ApiBuildState; onBack?: () => void }
     } as Partial<ProviderProject>);
     s.refresh(); s.setView('deploy'); s.setPhase(0);
   }} />;
-  if (view === 'deploy') return <StepDeploy project={active} phase={s.phase} failed={false} onTest={() => { apiBuildService.update(active.id, { deployment: { ...active.deployment, lastHealthCheck: 'just now' } } as Partial<ProviderProject>); s.refresh(); }} onBack={() => s.setView('configure')} onNext={() => s.setView('product')} />;
+  if (view === 'deploy') return <StepDeploy project={active} phase={s.phase} progress={s.deployOp?.progress ?? 0} logs={s.deployOp?.logs} error={s.deployOp?.error ?? null} failed={s.deployOp?.state === 'failed' || s.deployOp?.state === 'cancelled'} onRetry={() => { s.setPhase(0); s.setDeployOp({ id: '', state: 'queued', progress: 0, logs: [`Retrying deployment of ${active.version}…`], error: null }); s.setDeployAttempt((n) => n + 1); }} onTest={() => { apiBuildService.update(active.id, { deployment: { ...active.deployment, lastHealthCheck: 'just now' } } as Partial<ProviderProject>); s.refresh(); }} onBack={() => s.setView('configure')} onNext={() => s.setView('product')} />;
   if (view === 'product') return <StepProduct project={active} onBack={() => s.setView('deploy')} onPlayground={s.onPlayground} onNext={() => s.setView('pricing')} />;
   if (view === 'pricing') return <StepPricing plans={active.plans} onBack={() => s.setView('product')} onNext={(plans) => { apiBuildService.update(active.id, { plans } as Partial<ProviderProject>); s.refresh(); s.setView('publish'); }} />;
   if (view === 'publish') return <StepPublish project={active} busy={s.busy} onBack={() => s.setView('pricing')} onPublish={(vis, l) => {

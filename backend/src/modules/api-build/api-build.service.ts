@@ -39,9 +39,12 @@ export async function updateProject(id: string, patch: Record<string, unknown>):
   const saved = await saveProject({ ...record, ...patch, updatedAt: nowIso() });
   return composeProject(saved.id);
 }
-export async function enqueueDeploy(projectId: string) {
-  const result = await pool.query(`INSERT INTO api_build_jobs (project_id, type, payload)
-    VALUES ($1, 'deploy', jsonb_build_object('requestedAt', NOW())) RETURNING id, status, created_at`, [projectId]);
+export async function enqueueDeploy(projectId: string, payload: Record<string, unknown> = {}) {
+  const result = await pool.query(
+    `INSERT INTO api_build_jobs (project_id, type, payload)
+     VALUES ($1, 'deploy', $2::jsonb) RETURNING id, status, created_at`,
+    [projectId, JSON.stringify({ requestedAt: new Date().toISOString(), ...payload })],
+  );
   return result.rows[0];
 }
 export async function claimNextDeploy() {
@@ -52,6 +55,10 @@ export async function claimNextDeploy() {
 }
 export async function completeDeploy(id: string) {
   await pool.query("UPDATE api_build_jobs SET status = 'completed', completed_at = NOW() WHERE id = $1", [id]);
+}
+/** Marks a job failed with the deployment's error (a failed deploy is never 'completed'). */
+export async function failDeploy(id: string, error: string) {
+  await pool.query("UPDATE api_build_jobs SET status = 'failed', error = $2, completed_at = NOW() WHERE id = $1", [id, error.slice(0, 2000)]);
 }
 export async function getJob(id: string) {
   const result = await pool.query('SELECT id, project_id, type, status, error, created_at, started_at, completed_at FROM api_build_jobs WHERE id = $1', [id]);
