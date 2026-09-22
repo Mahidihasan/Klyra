@@ -126,7 +126,7 @@ export function resolveDockerBin(): string | null {
   return null;
 }
 
-function runDocker(
+export function runDocker(
   args: string[],
   opts: { timeoutMs?: number; onLine?: DeployLog; cwd?: string } = {},
 ): Promise<DockerResult> {

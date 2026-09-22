@@ -62,6 +62,7 @@ import {
 } from './api-build.service';
 import { probeProjectHealth } from './api-build.telemetry';
 import { getUploadDirectory, cleanupUpload, prepareGitHubSource } from './api-build.upload';
+import { prepareDockerBuildContext } from './api-build.projectbuild';
 
 export interface DeployOptions {
   actor?: string;
@@ -353,6 +354,11 @@ async function runDeployPipeline(
 
       const contextDir = await resolveContextDir();
       log(`[docker] Preparing project build context ${contextDir}`);
+      // The Dockerfile may COPY build outputs (e.g. Maven target/) that are not
+      // part of the source upload. Generate them with a controlled build before
+      // docker build; a context that already has everything skips this (no-op).
+      await step('Preparing project build artifacts', 20);
+      await prepareDockerBuildContext(contextDir, log);
       const tag = imageNameFor(slug, version);
       await step(`Building Docker image ${tag}`, 25);
       await buildImage(contextDir, tag, log);
@@ -375,13 +381,15 @@ async function runDeployPipeline(
         `[github] Dockerfile ${source.dockerfilePath} · context ${source.buildContext} · port ${source.detectedPort} · ${source.fileCount} files`,
       );
 
+      const githubContextDir = path.resolve(
+        getUploadDirectory(source.uploadId),
+        source.buildContext || './',
+      );
+      await step('Preparing project build artifacts', 22);
+      await prepareDockerBuildContext(githubContextDir, log);
       const tag = imageNameFor(slug, version);
       await step(`Building Docker image ${tag}`, 30);
-      await buildImage(
-        path.resolve(getUploadDirectory(source.uploadId), source.buildContext || './'),
-        tag,
-        log,
-      );
+      await buildImage(githubContextDir, tag, log);
       imageToRun = tag;
       // The clone has served its purpose once the image exists.
       await cleanupUpload(clonedUploadId);
