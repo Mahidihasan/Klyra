@@ -202,10 +202,88 @@ export async function getEndpoint(projectId: string, id: string): Promise<Detail
   return result.rows[0] ? mapEndpoint(result.rows[0]) : null;
 }
 
+/** Canonical JSON (sorted keys, absent keys equal `undefined`) so a jsonb key
+ *  re-order or a dropped `undefined` never looks like a content change. */
+function canonicalValue(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalValue).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).filter((key) => record[key] !== undefined).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalValue(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+/**
+ * Import identity of a discovered endpoint: the (method, path) pair the
+ * `api_build_endpoints` unique constraint uses plus the content discovery fills
+ * in. Two imports with the same signature for the same operation are a no-op,
+ * so a redeployment that re-discovers the same specification writes nothing.
+ */
+export function endpointImportSignature(row: DetailedEndpointRow): string {
+  return canonicalValue([
+    String(row.method).toUpperCase(),
+    row.path,
+    row.summary,
+    row.description,
+    row.category,
+    row.authRequired === true,
+    row.rateLimitPerMin,
+    row.status,
+    row.parameters ?? [],
+    row.requestBody ?? null,
+    row.responses ?? [],
+  ]);
+}
+
+/** Discovered operations whose content differs from what is already stored. */
+export function pendingEndpointImports(
+  existing: DetailedEndpointRow[],
+  incoming: DetailedEndpointRow[],
+): DetailedEndpointRow[] {
+  const known = new Map(
+    existing.map((row) => [`${String(row.method).toUpperCase()} ${row.path}`, endpointImportSignature(row)]),
+  );
+  const seen = new Set<string>();
+  return incoming.filter((row) => {
+    const key = `${String(row.method).toUpperCase()} ${row.path}`;
+    if (seen.has(key)) return false; // one write per operation per import
+    seen.add(key);
+    return known.get(key) !== endpointImportSignature(row);
+  });
+}
+
 /** Bulk imports endpoints discovered from an upstream OpenAPI document. */
 export async function importEndpoints(projectId: string, endpoints: DetailedEndpointRow[]) {
   if (!endpoints.length) return;
-  for (const ep of endpoints) {
+  // Idempotent and write-minimal: only operations whose discovered content
+  // changed are written. The ON CONFLICT target is the (project_id, method,
+  // path) unique constraint, so a re-import updates the existing row (keeping
+  // its id and traffic metrics) instead of creating a duplicate.
+  const pending = pendingEndpointImports(await listEndpoints(projectId), endpoints);
+  // Record the API base path discovered with the specification (OpenAPI
+  // `servers[0].url`) inside the existing project detection record: no schema
+  // change, and written only when it actually changed. Consumers — the
+  // Playground, generated docs, gateway callers — need it to address operations
+  // where the deployed API really serves them.
+  const projectRecord = await getProject(projectId);
+  const discoveredBasePath = String(
+    (
+      endpoints.find((row) => typeof (row as { basePath?: unknown }).basePath === 'string') as
+        | { basePath?: string }
+        | undefined
+    )?.basePath ?? '',
+  );
+  const storedDetection = (projectRecord?.detection as Record<string, unknown> | undefined) || null;
+  if (projectRecord && String(storedDetection?.basePath ?? '') !== discoveredBasePath) {
+    await saveProject({
+      ...projectRecord,
+      detection: { ...(storedDetection || {}), basePath: discoveredBasePath },
+      updatedAt: nowIso(),
+    });
+  }
+  if (!pending.length) return;
+  for (const ep of pending) {
     await pool.query(
       `INSERT INTO api_build_endpoints
          (project_id, id, method, path, summary, description, category, auth_required, rate_limit_per_min, status,
@@ -220,7 +298,7 @@ export async function importEndpoints(projectId: string, endpoints: DetailedEndp
        JSON.stringify(ep.parameters), ep.requestBody ? JSON.stringify(ep.requestBody) : null, JSON.stringify(ep.responses)]);
   }
   await pool.query('UPDATE api_build_projects SET updated_at = NOW() WHERE id = $1', [projectId]);
-  await addActivity(projectId, `Imported ${endpoints.length} endpoint${endpoints.length === 1 ? '' : 's'} from the OpenAPI specification`, 'ok');
+  await addActivity(projectId, `Imported ${pending.length} endpoint${pending.length === 1 ? '' : 's'} from the OpenAPI specification`, 'ok');
 }
 
 export async function updateEndpoint(projectId: string, id: string, patch: Record<string, unknown>): Promise<DetailedEndpointRow | null> {

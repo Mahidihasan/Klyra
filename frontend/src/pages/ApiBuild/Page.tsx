@@ -36,7 +36,40 @@ export const ApiBuildPage: React.FC<{
     name: ep.summary || `${ep.method} ${ep.path}`,
     description: ep.description || undefined,
     sampleBody: ep.requestBody?.sampleBody || undefined,
+    // The inputs the endpoint needs (path/query/header) travel with it so the
+    // Playground can ask the user for the values instead of sending a request
+    // that cannot succeed.
+    parameters:
+      Array.isArray(ep.parameters) && ep.parameters.length
+        ? ep.parameters.map((param) => ({
+            name: param.name,
+            in: param.in,
+            type: param.type,
+            required: param.required,
+            description: param.description,
+            example: param.example,
+          }))
+        : undefined,
   });
+
+  /**
+   * Path prefix the deployed API serves its operations under. It comes from the
+   * detected specification (`servers[0].url`) and is stored with the project's
+   * detection record; without it every Playground request 404s.
+   */
+  const playgroundBasePath = (project: ProviderProject | null | undefined): string | undefined => {
+    const detected = String(project?.detection?.basePath || '').trim();
+    if (detected) return detected.startsWith('/') ? detected : `/${detected}`;
+    const specUrl = String(project?.openApiUrl || '').trim();
+    const directory = /^(.*\/)[^/]+\.(?:json|yaml|yml)$/i.exec(specUrl)?.[1];
+    if (!directory) return undefined;
+    try {
+      const path = new URL(directory).pathname.replace(/\/+$/, '');
+      return path || undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const openPlaygroundWithUrl = async (ep?: DetailedEndpoint) => {
     const project = activeRef.current;
     // The "Open API Tester Playground" action carries the project's complete
@@ -65,6 +98,7 @@ export const ApiBuildPage: React.FC<{
       apiName: project?.name || undefined,
       folderName: project?.name || undefined,
       baseUrl: project?.gatewayUrl || project?.baseUrl || undefined,
+      basePath: playgroundBasePath(project),
       endpoint: ep ? { method: ep.method, path: ep.path } : undefined,
       endpoints: catalog.map(toPlaygroundEndpoint),
     });
@@ -291,11 +325,20 @@ function ApiBuildRouter({ s, onBack }: { s: ApiBuildState; onBack?: () => void }
   const { view, projects, active } = s;
   const openDashboard = () => { s.setActiveId(null); s.setView('dash'); };
   const openProj = (p: ProviderProject) => { s.setActiveId(p.id); s.setTab('overview'); s.setView('workspace'); };
+  // Real discovery state for container sources: the deploy pipeline imports the
+  // operations it discovers once the container is healthy, and the composed
+  // project reports them as endpointCount — so Step 3 shows what actually
+  // happened instead of a permanent "nothing to scan yet".
+  const deployed = Boolean(
+    (active && ['healthy', 'degraded'].includes(String(active.status))) ||
+      active?.deployment?.status === 'healthy',
+  );
+  const importedEndpoints = active?.endpointCount ?? 0;
 
   if (view === 'dash') return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} onBack={onBack} />;
   if (view === 'new') return <StepNewProject init={s.draft} onBack={openDashboard} onNext={(d) => { s.setDraft(d); s.setView('source'); }} />;
   if (view === 'source') return <StepSource init={s.source} busy={s.busy} onBack={() => s.setView('new')} onNext={(v) => { s.setSource(v); submitSource(s, v); }} />;
-  if (view === 'detect') return <StepDetect loading={s.detecting} detection={s.detection} progress={s.detectProgress} containerSource={s.source.kind === 'docker' || s.source.kind === 'github'} manualMode={s.manual} setManualMode={s.setManual} onBack={() => s.setView('source')} onRetry={() => retryDetection(s, active)} onNext={() => s.setView('configure')} />;
+  if (view === 'detect') return <StepDetect loading={s.detecting} detection={s.detection} progress={s.detectProgress} containerSource={s.source.kind === 'docker' || s.source.kind === 'github'} importedEndpoints={importedEndpoints} deployed={deployed} manualMode={s.manual} setManualMode={s.setManual} onBack={() => s.setView('source')} onRetry={() => retryDetection(s, active)} onNext={() => s.setView('configure')} />;
   if (!active) return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} onBack={onBack} />;
   if (view === 'configure') return <StepConfigure project={active} onBack={() => s.setView('detect')} onNext={(c) => {
     apiBuildService.update(active.id, {

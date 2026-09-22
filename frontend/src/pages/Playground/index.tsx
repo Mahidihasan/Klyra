@@ -533,6 +533,14 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
     importingFolderRef.current = importKey;
     try {
       const rootUrl = base.replace(/\/+$/, '');
+      // The API's declared base path (OpenAPI `servers[0].url`, e.g. `/api/v3`)
+      // sits between the deployment URL and every operation path — without it
+      // the deployed API answers 404 for every discovered endpoint.
+      const declaredBasePath = (ctx.basePath || '').trim().replace(/\/+$/, '');
+      const apiUrl =
+        declaredBasePath && declaredBasePath !== '/'
+          ? `${rootUrl}${declaredBasePath.startsWith('/') ? declaredBasePath : `/${declaredBasePath}`}`
+          : rootUrl;
 
       // Reuse an existing folder with the same name so repeated openings
       // never duplicate the catalog; create (and persist) it when missing.
@@ -584,7 +592,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       for (const ep of catalog) {
         const method = (ep.method || 'GET').toUpperCase();
         const epPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
-        const epUrl = rootUrl ? `${rootUrl}${epPath}` : epPath;
+        const epUrl = apiUrl ? `${apiUrl}${epPath}` : epPath;
         const key = `${method} ${epUrl.replace(/\/+$/, '')}`;
         if (knownKeys.has(key)) continue;
         knownKeys.add(key);
@@ -592,6 +600,24 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
         req.name = (ep.name || '').trim() || `${method} ${epPath}`;
         req.method = method as HttpMethod;
         req.url = epUrl;
+        // Ask for the inputs the endpoint needs instead of sending placeholders:
+        // declared parameters arrive as rows (with the specification's example
+        // when it has one) and stay disabled until the user provides a value.
+        const declared = Array.isArray(ep.parameters) ? ep.parameters : [];
+        const toRows = (location: string) =>
+          declared
+            .filter((param) => String(param.in || '').toLowerCase() === location)
+            .map((param) => ({
+              id: generateId(),
+              key: param.name,
+              value: param.example || '',
+              enabled: Boolean(param.example),
+              description: param.description || (param.required ? `${param.name} (required)` : param.name),
+            }));
+        const queryRows = toRows('query');
+        if (queryRows.length) req.params = queryRows;
+        const headerRows = toRows('header');
+        if (headerRows.length) req.headers = headerRows;
         if (ep.sampleBody) {
           try {
             req.body = { type: 'json', json: JSON.stringify(JSON.parse(ep.sampleBody), null, 2) };
@@ -632,7 +658,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       const targetMethod = (target?.method || '').toUpperCase();
       const targetPath = (target?.path || '').trim();
       const targetUrl = targetPath
-        ? `${rootUrl}${targetPath.startsWith('/') ? targetPath : `/${targetPath}`}`.replace(
+        ? `${apiUrl}${targetPath.startsWith('/') ? targetPath : `/${targetPath}`}`.replace(
             /\/+$/,
             '',
           )
@@ -688,8 +714,15 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       // Single-endpoint prefill (repository bridge / marketplace deep links).
       const path = (openContext.endpoint?.path || '').trim();
       const method = openContext.endpoint?.method;
+      // Insert the API's declared base path so the prefilled URL addresses the
+      // operation where the deployed API actually serves it.
+      const declared = (openContext.basePath || '').trim().replace(/\/+$/, '');
+      const apiUrl =
+        declared && declared !== '/'
+          ? `${base.replace(/\/+$/, '')}${declared.startsWith('/') ? declared : `/${declared}`}`
+          : base.replace(/\/+$/, '');
       const url = path
-        ? `${base.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
+        ? `${apiUrl}${path.startsWith('/') ? path : `/${path}`}`
         : base;
       setConfig((prev) => ({
         ...prev,
@@ -791,6 +824,22 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
     ];
     const unresolved = [...new Set(values.flatMap(extractVariables).filter((name) => !(name in envVariables)))];
     if (!config.url.trim()) issues.push({ severity: 'error', message: 'Add a request URL before sending.', tab: 'params' });
+    // OpenAPI path templates (`/pet/{petId}`) need a real value — sending the
+    // placeholder only produces a 404. The user supplies it in the URL by hand.
+    const openPathParams = [
+      ...new Set(
+        (config.url.match(/\{[^{}]+\}/g) || [])
+          .map((token) => token.slice(1, -1).trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (openPathParams.length > 0) {
+      issues.push({
+        severity: 'error',
+        message: `Provide path parameter${openPathParams.length > 1 ? 's' : ''} in the URL: ${openPathParams.join(', ')}`,
+        tab: 'params',
+      });
+    }
     if (unresolved.length > 0) {
       issues.push({
         severity: 'error',

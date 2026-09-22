@@ -402,6 +402,19 @@ export interface PlaygroundOpenEndpoint {
   description?: string;
   /** Optional sample request body (JSON string) used to prefill the body editor. */
   sampleBody?: string;
+  /**
+   * Parameters the API declares (path/query/header). The Playground uses them to
+   * ask the user for the values an endpoint needs instead of sending a request
+   * that cannot succeed.
+   */
+  parameters?: {
+    name: string;
+    in: string;
+    type?: string;
+    required?: boolean;
+    description?: string;
+    example?: string;
+  }[];
 }
 
 /**
@@ -419,6 +432,12 @@ export interface PlaygroundOpenPayload {
   folderName?: string;
   /** Base URL to put in the URL field (gateway URL, falling back to the upstream origin). */
   baseUrl?: string;
+  /**
+   * Path prefix the API serves its operations under (OpenAPI `servers[0].url`,
+   * e.g. `/api/v3`). Inserted between the base URL and every endpoint path —
+   * without it the deployed API answers 404 for every discovered endpoint.
+   */
+  basePath?: string;
   /** Optional endpoint to append to the base URL. */
   endpoint?: {
     method: string;

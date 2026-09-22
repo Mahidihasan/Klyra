@@ -21,11 +21,33 @@ function sourceFailed(detection: DetectionResult | null): boolean {
   );
 }
 
+/**
+ * Container sources are discovered *after* deployment: the deploy pipeline
+ * probes the healthy container and imports the operations it finds. These
+ * helpers render that real state instead of a static "nothing to scan" notice.
+ */
+function containerTitle(importedEndpoints: number, deployed: boolean): string {
+  if (importedEndpoints > 0) return 'OpenAPI specification detected';
+  return deployed ? 'Specification not discovered automatically' : 'Specification detected after deployment';
+}
+
+function containerBody(importedEndpoints: number, deployed: boolean): string {
+  if (importedEndpoints > 0) {
+    return `${importedEndpoints} endpoint${importedEndpoints === 1 ? '' : 's'} imported into this project from the deployed API. Continue to configure them, or scan again to refresh.`;
+  }
+  if (deployed) {
+    return 'Klyra reached the deployed API but found no OpenAPI specification at the conventional locations or at the URL the API itself declares. Manual configuration is available below.';
+  }
+  return 'Nothing to scan yet — Klyra discovers the OpenAPI specification automatically once the container is healthy, then imports the endpoints into this project.';
+}
+
 export const StepDetect: React.FC<{
   loading: boolean; detection: DetectionResult | null; progress: number; containerSource: boolean;
   manualMode: boolean; setManualMode: (v: boolean) => void;
+  /** Real post-deployment discovery state for container sources. */
+  importedEndpoints?: number; deployed?: boolean;
   onNext: () => void; onBack: () => void; onRetry: () => void;
-}> = ({ loading, detection, progress, containerSource, manualMode, setManualMode, onNext, onBack, onRetry }) => (
+}> = ({ loading, detection, progress, containerSource, manualMode, setManualMode, importedEndpoints = 0, deployed = false, onNext, onBack, onRetry }) => (
   <WizardChrome step={2} total={8} labels={['Project', 'Source', 'Detect', 'Configure', 'Deploy', 'Product', 'Pricing', 'Publish']}>
     {loading && (<>
       <h2 style={{ fontSize: 19, marginBottom: 4 }}>Detecting API specification...</h2>
@@ -70,9 +92,9 @@ export const StepDetect: React.FC<{
           <button className="ab2-primary" onClick={onNext}>Continue <ArrowRight size={14} /></button>
         </div>
       </>) : (<>
-        <h2 style={{ fontSize: 19, marginBottom: 4 }}>{sourceFailed(detection) ? 'Source could not be prepared' : containerSource ? 'Specification detected after deployment' : 'API specification not found'}</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>{sourceFailed(detection) ? detection.reason : containerSource ? 'Nothing to scan yet — Klyra discovers the OpenAPI specification automatically once the container is healthy, then imports the endpoints into this project.' : <>Klyra couldn't automatically detect an API specification at <span className="ab2-mono">{detection.baseUrl}</span>.</>}</p>
-        <Alert kind={sourceFailed(detection) ? 'err' : 'warn'}>{sourceFailed(detection) ? 'Fix the source above and use "Back" to retry — nothing has been deployed.' : containerSource ? `Specification discovery: ${detection.reason || 'runs automatically after the container is healthy.'}` : 'Connection error handling: verify the URL is reachable, or continue manually. Nothing is deployed yet.'}</Alert>
+        <h2 style={{ fontSize: 19, marginBottom: 4 }}>{sourceFailed(detection) ? 'Source could not be prepared' : containerSource ? containerTitle(importedEndpoints, deployed) : 'API specification not found'}</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>{sourceFailed(detection) ? detection.reason : containerSource ? containerBody(importedEndpoints, deployed) : <>Klyra couldn't automatically detect an API specification at <span className="ab2-mono">{detection.baseUrl}</span>.</>}</p>
+        <Alert kind={sourceFailed(detection) ? 'err' : containerSource && importedEndpoints > 0 ? 'ok' : 'warn'}>{sourceFailed(detection) ? 'Fix the source above and use "Back" to retry — nothing has been deployed.' : containerSource ? (importedEndpoints > 0 ? `Imported ${importedEndpoints} operation${importedEndpoints === 1 ? '' : 's'} into this project's endpoint catalog from the deployed API.` : `Specification discovery: ${detection.reason || 'runs automatically after the container is healthy.'}`) : 'Connection error handling: verify the URL is reachable, or continue manually. Nothing is deployed yet.'}</Alert>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="ab2-ghost" onClick={onNext}><Upload size={14} /> Upload OpenAPI</button>
           <button className="ab2-ghost" onClick={onBack}><Link2 size={14} /> Enter URL</button>

@@ -38,6 +38,11 @@ export interface DetectionResult {
   baseUrl: string;
   endpoints: DetectedEndpoint[];
   found: boolean;
+  /**
+   * Path prefix the API serves its operations under (OpenAPI `servers[0].url`,
+   * e.g. `/api/v3`). Requests must be sent to baseUrl + basePath + endpoint path.
+   */
+  basePath?: string;
   /** true when the upstream base URL answered (live connectivity check). */
   reachable?: boolean;
   latencyMs?: number | null;

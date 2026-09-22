@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "node --require ts-node/register/transpile-only --test src/__tests__/otp.test.ts src/__tests__/operations.test.ts src/__tests__/login-totp.test.ts src/__tests__/account-deactivation.test.ts src/__tests__/docker.deploy.test.ts src/__tests__/upload.security.test.ts src/__tests__/gateway.docker.test.ts src/__tests__/github.source.test.ts src/__tests__/deployment.source.test.ts src/__tests__/projectbuild.build.test.ts",
+    "test": "node --require ts-node/register/transpile-only --test src/__tests__/otp.test.ts src/__tests__/operations.test.ts src/__tests__/login-totp.test.ts src/__tests__/account-deactivation.test.ts src/__tests__/docker.deploy.test.ts src/__tests__/upload.security.test.ts src/__tests__/gateway.docker.test.ts src/__tests__/github.source.test.ts src/__tests__/deployment.source.test.ts src/__tests__/projectbuild.build.test.ts src/__tests__/spec.discovery.test.ts",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:status": "node scripts/migrate.mjs --status",
     "db:audit": "node scripts/audit-db.mjs",
