@@ -45,6 +45,7 @@ import {
   FileText,
   Radio,
 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { ProviderProject } from '../../types/apibuild';
 import { CatalogApi, CatalogCategory, catalogApi } from '../../services/api/catalog';
 import { apiBuildService } from '../../services/apiBuild';
@@ -554,11 +555,15 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
     );
   };
 
-  const hasActiveFilters =
-    selectedEnv !== 'All Environments' ||
-    selectedCategory !== 'All Categories' ||
-    selectedTag !== 'All Tags' ||
-    selectedPricingModel !== 'all';
+  const activeFilterCount = [
+    Boolean(searchQuery.trim()),
+    selectedEnv !== 'All Environments',
+    selectedCategory !== 'All Categories',
+    selectedTag !== 'All Tags',
+    selectedPricingModel !== 'all',
+    activePill !== 'all',
+  ].filter(Boolean).length;
+  const hasActiveFilters = activeFilterCount > 0;
 
   return (
     <div className="my-apis-page animate-fade-in">
@@ -1068,10 +1073,12 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
             className={`toolbar-btn ${isAdvancedFilterOpen || hasActiveFilters ? 'active' : ''}`}
             onClick={() => setIsAdvancedFilterOpen((prev) => !prev)}
             title="Toggle advanced filters"
+            aria-expanded={isAdvancedFilterOpen}
+            aria-controls="my-apis-filter-panel"
           >
             <SlidersHorizontal size={14} />
             <span>Filters</span>
-            {hasActiveFilters && <span className="filter-active-dot" />}
+            {hasActiveFilters && <span className="filter-count">{activeFilterCount}</span>}
           </button>
 
           {/* Layout Toggle Group */}
@@ -1096,37 +1103,45 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
 
       {/* Advanced Filter Drawer when Filters is toggled */}
       {isAdvancedFilterOpen && (
-        <div className="advanced-filter-drawer">
-          <div className="drawer-row">
-            <div className="drawer-group">
-              <span className="drawer-label">Pricing Tier:</span>
-              <div className="drawer-chips">
-                {['all', 'FREE', 'FREEMIUM', 'PAID'].map((tier) => (
-                  <button
-                    key={tier}
-                    className={`drawer-chip ${selectedPricingModel === tier ? 'active' : ''}`}
-                    onClick={() => setSelectedPricingModel(tier)}
-                  >
-                    {tier === 'all' ? 'All Tiers' : tier}
-                  </button>
-                ))}
-              </div>
+        <div className="api-filter-panel" id="my-apis-filter-panel">
+          <div className="api-filter-panel-header">
+            <div>
+              <h3>Refine your APIs</h3>
+              <p>Choose a pricing tier to narrow the results.</p>
             </div>
-
-            {hasActiveFilters && (
-              <button
-                className="drawer-reset-btn"
-                onClick={() => {
-                  setSelectedEnv('All Environments');
-                  setSelectedCategory('All Categories');
-                  setSelectedTag('All Tags');
-                  setSelectedPricingModel('all');
-                  setSearchQuery('');
-                }}
-              >
-                Reset All Filters
-              </button>
-            )}
+            <div className="api-filter-panel-actions">
+              <span className="api-filter-results">{filteredApis.length} of {unifiedApis.length} APIs</span>
+              {hasActiveFilters && (
+                <button
+                  className="drawer-reset-btn"
+                  onClick={() => {
+                    setSelectedEnv('All Environments');
+                    setSelectedCategory('All Categories');
+                    setSelectedTag('All Tags');
+                    setSelectedPricingModel('all');
+                    setSearchQuery('');
+                    setActivePill('all');
+                  }}
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="drawer-group">
+            <span className="drawer-label">Pricing tier</span>
+            <div className="drawer-chips">
+              {['all', 'FREE', 'FREEMIUM', 'PAID', 'ENTERPRISE'].map((tier) => (
+                <button
+                  key={tier}
+                  className={`drawer-chip ${selectedPricingModel === tier ? 'active' : ''}`}
+                  onClick={() => setSelectedPricingModel(tier)}
+                  aria-pressed={selectedPricingModel === tier}
+                >
+                  {tier === 'all' ? 'All tiers' : tier === 'FREE' ? 'Free' : tier === 'FREEMIUM' ? 'Freemium' : tier === 'PAID' ? 'Paid' : 'Enterprise'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -1221,7 +1236,7 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
             <p className="empty-state-title">Loading your APIs...</p>
           </div>
         ) : filteredApis.length > 0 ? (
-          <div className="api-cards-grid">
+          <div className={`api-cards-grid ${viewLayout === 'list' ? 'list-view' : ''}`}>
             {filteredApis.map((api) => (
               <div key={api.id} className="api-card">
                 {/* Card Header: Icon, Name, External Link, Status Badge, Version */}
@@ -1697,13 +1712,13 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
       {/* ------------------------------------------------------------------
          10. Animated Neon Publishing & Growth Playbook Overlay (Replacing Pro Tips Navigation)
          ------------------------------------------------------------------ */}
-      {showPlaybookModal && (
+      {showPlaybookModal && createPortal((
         <div
-          className="status-modal-backdrop"
+          className="status-modal-backdrop playbook-modal-backdrop"
           onClick={() => setShowPlaybookModal(false)}
         >
           <div
-            className="status-modal-card neon-glow"
+            className="status-modal-card neon-glow playbook-modal-card"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -1796,7 +1811,7 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {/* ------------------------------------------------------------------
          11. Existing Klyra Publish API Modal

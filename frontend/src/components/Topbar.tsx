@@ -11,7 +11,6 @@ import {
   CheckCircle,
   Sliders,
   Shield,
-  ShoppingCart,
 } from 'lucide-react';
 import { MOCK_NOTIFICATIONS } from '../data/mockData';
 import { NotificationItem } from '../types/api';
@@ -55,24 +54,7 @@ export const Topbar: React.FC<TopbarProps> = ({
     } catch { }
     return MOCK_NOTIFICATIONS;
   });
-  const [cartItemCount, setCartItemCount] = useState<number>(() => {
-    try {
-      const stored = localStorage.getItem('klyra_cart_items');
-      return stored ? JSON.parse(stored).length : 0;
-    } catch {
-      return 0;
-    }
-  });
-  const [cartJustAdded, setCartJustAdded] = useState(false);
-
   useEffect(() => {
-    const handleCartUpdated = (e: any) => {
-      setCartItemCount(e.detail?.count ?? 0);
-    };
-    const handleCartAdded = () => {
-      setCartJustAdded(true);
-      setTimeout(() => setCartJustAdded(false), 800);
-    };
     const handleNewNotif = (e: any) => {
       if (e.detail) {
         setNotifications((prev) => {
@@ -85,12 +67,8 @@ export const Topbar: React.FC<TopbarProps> = ({
       }
     };
 
-    window.addEventListener('klyra:cart-updated', handleCartUpdated);
-    window.addEventListener('klyra:cart-item-added', handleCartAdded);
     window.addEventListener('klyra:add-notification', handleNewNotif);
     return () => {
-      window.removeEventListener('klyra:cart-updated', handleCartUpdated);
-      window.removeEventListener('klyra:cart-item-added', handleCartAdded);
       window.removeEventListener('klyra:add-notification', handleNewNotif);
     };
   }, []);
@@ -171,16 +149,6 @@ export const Topbar: React.FC<TopbarProps> = ({
 
       {/* Right: Authentication or User Profile */}
       <div className="topbar-right">
-        <button
-          className={`topbar-btn topbar-cart-btn ${cartItemCount > 0 ? 'has-items' : ''} ${cartJustAdded ? 'just-added' : ''}`}
-          onClick={() => window.dispatchEvent(new Event('klyra:open-cart'))}
-          title={cartItemCount > 0 ? `API Cart (${cartItemCount} item${cartItemCount === 1 ? '' : 's'})` : 'API Cart is empty'}
-          aria-label="Open API cart"
-        >
-          <ShoppingCart size={18} />
-          {cartItemCount > 0 && <span className="topbar-cart-badge">{cartItemCount}</span>}
-        </button>
-
         {!isAuthenticated ? (
           <div className="topbar-auth-group">
             <button

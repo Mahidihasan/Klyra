@@ -173,26 +173,41 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
   return (
     <div className="aos-container">
       {/* Capability Highlights Bar */}
-      <div className="aos-meta-strip" style={{ flexWrap: "nowrap" }}>
-        <div className="aos-meta-item">
+      <div
+        className="aos-meta-strip"
+        style={{ display: 'flex', flexWrap: 'nowrap', width: '100%', alignItems: 'center' }}
+      >
+        <div
+          className="aos-meta-item"
+          style={{ flex: '0 1 auto', minWidth: 0, whiteSpace: 'nowrap' }}
+        >
           <Sparkles size={15} className="aos-meta-icon purple" />
           <span>AI Tool-Calling Ready</span>
           <span className="aos-meta-pill">MCP & LangChain</span>
         </div>
-        <div className="aos-meta-divider" />
-        <div className="aos-meta-item">
+        <div className="aos-meta-divider" style={{ flexShrink: 0 }} />
+        <div
+          className="aos-meta-item"
+          style={{ flex: '0 1 auto', minWidth: 0, whiteSpace: 'nowrap' }}
+        >
           <Activity size={15} className="aos-meta-icon green" />
           <span>Real-time Telemetry</span>
           <span className="aos-meta-pill">Active ({api.latencyMs}ms)</span>
         </div>
-        <div className="aos-meta-divider" />
-        <div className="aos-meta-item">
+        <div className="aos-meta-divider" style={{ flexShrink: 0 }} />
+        <div
+          className="aos-meta-item"
+          style={{ flex: '0 1 auto', minWidth: 0, whiteSpace: 'nowrap' }}
+        >
           <ShieldCheck size={15} className="aos-meta-icon blue" />
           <span>Production Ready</span>
           <span className="aos-meta-pill">{api.uptimePercentage}% SLA</span>
         </div>
-        <div className="aos-meta-divider" />
-        <div className="aos-meta-item">
+        <div className="aos-meta-divider" style={{ flexShrink: 0 }} />
+        <div
+          className="aos-meta-item"
+          style={{ flex: '0 1 auto', minWidth: 0, whiteSpace: 'nowrap' }}
+        >
           <Boxes size={15} className="aos-meta-icon orange" />
           <span>Architecture</span>
           <span className="aos-meta-pill">v{api.currentVersion} REST</span>
@@ -258,7 +273,9 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
                 </div>
                 <div className="aos-feature-point">
                   <Check size={14} className="aos-check-icon" />
-                  <span>Sub-{api.latencyMs}ms roundtrip maintains fluid streaming conversational UI</span>
+                  <span>
+                    Sub-{api.latencyMs}ms roundtrip maintains fluid streaming conversational UI
+                  </span>
                 </div>
                 <div className="aos-feature-point">
                   <Check size={14} className="aos-check-icon" />
@@ -279,7 +296,7 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
                               repoName: api.name,
                               baseUrl: api.baseUrl,
                             },
-                          })
+                          }),
                         );
                       }}
                     >
@@ -333,7 +350,7 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
                       {canAccess
                         ? currentScenario.inputPayload
                         : currentScenario.inputPayload.split('\n').slice(0, 3).join('\n') +
-                        '\n// ... [remaining lines hidden]'}
+                          '\n// ... [remaining lines hidden]'}
                     </code>
                   </pre>
                   {!canAccess && (
@@ -361,7 +378,7 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
                       {canAccess
                         ? currentScenario.outputPayload
                         : currentScenario.outputPayload.split('\n').slice(0, 3).join('\n') +
-                        '\n// ... [payload hidden]'}
+                          '\n// ... [payload hidden]'}
                     </code>
                   </pre>
                   {!canAccess && (
@@ -436,7 +453,8 @@ const response = await fetch("${api.baseUrl || 'https://api.klyra.dev'}/batch", 
             </span>
             <h3 className="aos-deep-title">Designed for scalable modern stacks</h3>
             <p className="aos-deep-desc">
-              {api.longDescription || api.description ||
+              {api.longDescription ||
+                api.description ||
                 `${api.name} provides clean RESTful interfaces designed for teams demanding fast iteration cycles and reliable SLAs. With built-in versioning and strict semantic payloads, you can ship features faster with minimal breaking changes.`}
             </p>
 
