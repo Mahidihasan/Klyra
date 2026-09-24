@@ -69,11 +69,10 @@ export const TabViews: React.FC<TabViewsProps> = ({
     );
   }
 
-  // API catalog pages (APIs, My APIs, Subscriptions, Playground)
-  if (activeTab === 'apis' || activeTab === 'my-apis' || activeTab === 'subscriptions' || activeTab === 'playground') {
+  // API catalog pages (APIs, Subscriptions, Playground)
+  if (activeTab === 'apis' || activeTab === 'subscriptions' || activeTab === 'playground') {
     const titleMap: Record<string, string> = {
       'apis': 'All Developer APIs',
-      'my-apis': 'My Published APIs',
       'subscriptions': 'Subscribed APIs',
       'playground': 'API Playground'
     };

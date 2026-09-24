@@ -5,10 +5,7 @@ import {
   Layers, 
   Repeat, 
   Terminal, 
-  FolderOpen, 
-  Sliders, 
   Key, 
-  Clock, 
   BarChart3, 
   Wallet, 
   CreditCard, 
@@ -67,9 +64,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     
     { id: 'api-keys', label: 'API Keys', icon: Key },
-    { id: 'collections', label: 'Collections', icon: FolderOpen },
-    { id: 'environments', label: 'Environments', icon: Sliders },
-    { id: 'history', label: 'History', icon: Clock },
   ];
 
   const adminNav = [

@@ -23,6 +23,7 @@ import { catalogApi, toApiItem } from './services/api/catalog';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ProfilePage } from './pages/Profile';
 import { ApiKeysPage } from './pages/ApiKeys';
+import { MyApisPage } from './pages/MyApis';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -221,7 +222,8 @@ function AppContent() {
   // repository bridge) so the arriving request starts with the API's URL.
   // The Playground consumes it via onPrefillConsumed once applied.
   const [playgroundPrefill, setPlaygroundPrefill] = useState<PlaygroundOpenPayload | null>(null);
-  const [apiBuildInitialView, setApiBuildInitialView] = useState<'dash' | 'new'>('dash');
+  const [apiBuildInitialView, setApiBuildInitialView] = useState<'dash' | 'new' | 'workspace'>('dash');
+  const [apiBuildProjectId, setApiBuildProjectId] = useState<string | undefined>(undefined);
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -244,8 +246,9 @@ function AppContent() {
     const navHandler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail?.tab) {
-        if (detail.tab === 'api-build' && detail.apiBuildView) {
-          setApiBuildInitialView(detail.apiBuildView);
+        if (detail.tab === 'api-build') {
+          if (detail.apiBuildView) setApiBuildInitialView(detail.apiBuildView);
+          if (detail.projectId) setApiBuildProjectId(detail.projectId);
         }
         setActiveTab(detail.tab);
         try {
@@ -530,8 +533,10 @@ function AppContent() {
           <div style={{ position: 'fixed', top: 12, left: 16, zIndex: 60 }}></div>
           <ApiBuildPage
             initialView={apiBuildInitialView}
+            initialProjectId={apiBuildProjectId}
             onBack={() => {
               setApiBuildInitialView('dash');
+              setApiBuildProjectId(undefined);
               goBack();
             }}
             onOpenPlayground={(prefill) => {
@@ -832,6 +837,37 @@ function AppContent() {
                     onOpenTester={(api: any) => {
                       const item = api.baseUrl ? toApiItem(api) : api;
                       handleOpenTester(item);
+                    }}
+                  />
+                </main>
+              ) : activeTab === 'my-apis' ? (
+                <main className="content-page-wrapper">
+                  <MyApisPage
+                    onSelectApi={(api) => setSelectedApi(api)}
+                    onOpenTester={(api) => handleOpenTester(api)}
+                    onNavigateTab={(tab, detail) => {
+                      if (tab === 'api-build' && detail?.apiBuildView) {
+                        setApiBuildInitialView(detail.apiBuildView);
+                      }
+                      setActiveTab(tab as NavigationTab);
+                      try {
+                        localStorage.setItem('activeTab', tab);
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                    onOpenPlayground={(prefill) => {
+                      setPlaygroundContext({
+                        repoId: prefill?.apiId || activeApiProject?.id || '',
+                        repoName: prefill?.apiName || activeApiProject?.name || 'API Project',
+                      });
+                      if (prefill) setPlaygroundPrefill(prefill);
+                      setActiveTab('playground');
+                      try {
+                        localStorage.setItem('activeTab', 'playground');
+                      } catch {
+                        /* ignore */
+                      }
                     }}
                   />
                 </main>

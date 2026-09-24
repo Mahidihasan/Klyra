@@ -22,7 +22,8 @@ export const ApiBuildPage: React.FC<{
   onOpenPlayground: (prefill?: PlaygroundOpenPayload) => void;
   onBack?: () => void;
   initialView?: BuildView;
-}> = ({ onOpenPlayground, onBack, initialView }) => {
+  initialProjectId?: string;
+}> = ({ onOpenPlayground, onBack, initialView, initialProjectId }) => {
   // The playground lives outside this page, so the navigation callback must
   // carry the API's URL with it. The active project is captured through a ref
   // (same pattern as AdminApis' listRef) so the wrapper below can always read
@@ -103,7 +104,7 @@ export const ApiBuildPage: React.FC<{
       endpoints: catalog.map(toPlaygroundEndpoint),
     });
   };
-  const s = useApiBuild(openPlaygroundWithUrl, initialView);
+  const s = useApiBuild(openPlaygroundWithUrl, initialView, initialProjectId);
   const { active } = s;
   activeRef.current = active || null;
 

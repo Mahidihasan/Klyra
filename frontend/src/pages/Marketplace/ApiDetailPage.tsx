@@ -12,7 +12,6 @@ import {
   MessageSquare,
   Globe,
   BookOpen,
-  ShoppingCart,
   Lock,
 } from 'lucide-react';
 import {
@@ -20,13 +19,11 @@ import {
   CatalogPricingPlan,
   ApiReviewsResponse,
   catalogApi,
-  getApiCartPrice,
 } from '../../services/api/catalog';
 import { ReviewList } from './components/ReviewList';
 import { ApiOverviewSection } from './components/ApiOverviewSection';
 import { ApiShowcaseSection } from './components/ApiShowcaseSection';
 import { ApiPricingSection } from './components/ApiPricingSection';
-import { useCart } from '../../context/CartContext';
 import { ApiThumbnail } from './components/ApiThumbnail';
 import { useSubscription } from './useSubscription';
 
@@ -45,7 +42,6 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
   onOpenProvider,
   onOpenTester,
 }) => {
-  const { addToCart, isInCart } = useCart();
   const { isCurrentSubscribed, subscribe: subscribeToApi } = useSubscription(api.id);
   const isFreeApi = api.pricingModel === 'FREE';
   const canTest = isFreeApi || isCurrentSubscribed;
@@ -187,23 +183,6 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
 
         {/* Actions */}
         <div className="adp-hero-actions">
-          <button
-            className={`adp-action-btn adp-cart-action ${isInCart(api.id) ? 'in-cart' : ''}`}
-            onClick={() =>
-              addToCart({
-                id: api.id,
-                name: api.name,
-                category: api.categoryName,
-                price: getApiCartPrice(api),
-                pricingModel: api.pricingModel,
-                logoUrl: api.logoUrl,
-                slug: api.slug,
-              })
-            }
-            disabled={isInCart(api.id)}
-          >
-            <ShoppingCart size={14} /> {isInCart(api.id) ? 'In Cart ✓' : `Add to Cart${getApiCartPrice(api) > 0 ? ` · $${getApiCartPrice(api)}/mo` : ''}`}
-          </button>
           {onOpenTester && (
             canTest ? (
               <button className="adp-action-btn primary" onClick={() => {

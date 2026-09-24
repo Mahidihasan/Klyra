@@ -17,10 +17,8 @@ import {
   AdminApiRow,
   ApiStatusValue,
   ModerateAction,
-  ApiLifecyclePayload,
 } from './admin.apis.types';
 import { AuditContext } from './admin.users.types';
-import { resolveMockReportByApiId } from './admin.moderation.mock';
 
 const SORT_COLUMN: Record<AdminApiListQuery['sort'], string> = {
   created: 'a.created_at',
@@ -196,7 +194,7 @@ export async function moderateApi(
     // 1. Fetch current API
     const { rows: apiRows } = await client.query<Record<string, unknown>>(
       `
-      SELECT ${API_SELECT}
+      SELECT ${API_SELECT}, a.api_spec
       FROM apis a
       LEFT JOIN users u ON a.owner_id = u.id
       LEFT JOIN categories c ON a.category_id = c.id
@@ -225,27 +223,62 @@ export async function moderateApi(
     } else if (action === 'DEPRECATED') {
       deprecateVersion = true;
       auditAction = 'UPDATE'; // Assuming no native DEPRECATE in audit_action enum
-    } else if (action === 'CHANGES_REQUESTED') {
-      newStatus = 'REJECTED';
-      auditAction = 'UPDATE'; // Logs that changes were requested
-    } else if (action === 'WARN') {
-      auditAction = 'UPDATE';
-    } else if (action === 'QUARANTINE') {
-      newStatus = 'ARCHIVED';
-      auditAction = 'UPDATE';
-    } else if (action === 'SUSPEND') {
-      newStatus = 'REJECTED';
-      auditAction = 'REJECT';
-    } else if (action === 'DISMISS') {
-      auditAction = 'UPDATE';
     }
 
     // 3. Apply mutations
     if (newStatus !== api.status) {
-      await client.query(
-        `UPDATE apis SET status = $1::api_status, updated_at = NOW() WHERE id = $2`,
-        [newStatus, targetId]
-      );
+      if (newStatus === 'PUBLISHED') {
+        await client.query(
+          `UPDATE apis SET status = $1::api_status, last_published_at = NOW(), updated_at = NOW() WHERE id = $2`,
+          [newStatus, targetId]
+        );
+      } else {
+        await client.query(
+          `UPDATE apis SET status = $1::api_status, updated_at = NOW() WHERE id = $2`,
+          [newStatus, targetId]
+        );
+      }
+    }
+
+    // If approved, apply proposed Studio pricing changes back to Studio project
+    if (action === 'APPROVED') {
+      let specObj: any = {};
+      try {
+        specObj = typeof api.api_spec === 'string' ? JSON.parse(api.api_spec as string) : (api.api_spec || {});
+      } catch {
+        specObj = {};
+      }
+
+      if (specObj && specObj.studioProjectId && specObj.proposedStudioChanges) {
+        const studioProjectId = String(specObj.studioProjectId);
+        const proposedPlans = specObj.proposedStudioChanges.plans || [];
+
+        for (const plan of proposedPlans) {
+          if (plan && plan.name && plan.priceMonthly !== undefined) {
+            await client.query(
+              `UPDATE api_build_plans
+               SET price_monthly = $1,
+                   requests_per_month = COALESCE($2, requests_per_month),
+                   rate_limit_per_min = COALESCE($3, rate_limit_per_min)
+               WHERE project_id = $4 AND (id = $5 OR name = $6)`,
+              [
+                plan.priceMonthly,
+                plan.requestsPerMonth || null,
+                plan.rateLimitPerMin || null,
+                studioProjectId,
+                plan.id || '',
+                plan.name,
+              ]
+            ).catch(() => {});
+          }
+        }
+
+        await client.query(
+          `INSERT INTO api_build_activity (project_id, label, kind, at)
+           VALUES ($1, $2, 'ok', NOW())`,
+          [studioProjectId, `Marketplace listing approved. Studio pricing synced.`]
+        ).catch(() => {});
+      }
     }
 
     if (deprecateVersion) {
@@ -265,7 +298,29 @@ export async function moderateApi(
       context,
     });
 
-    // 5. Fetch updated API
+    // 5. Build provider notification
+    const notification = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      userId: String(api.owner_id),
+      type: 'api',
+      title:
+        action === 'APPROVED'
+          ? `API Approved: ${api.name}`
+          : action === 'REJECTED'
+          ? `API Submission Rejected: ${api.name}`
+          : `API Deprecated: ${api.name}`,
+      message:
+        action === 'APPROVED'
+          ? `Your API "${api.name}" has been approved and published to the Marketplace! Studio pricing plans have been synchronized.`
+          : action === 'REJECTED'
+          ? `Your submission for "${api.name}" was not approved. ${reason ? `Reason: ${reason}` : ''}`
+          : `Your API "${api.name}" has been marked as deprecated.`,
+      time: 'Just now',
+      read: false,
+      actionUrl: action === 'APPROVED' ? `/marketplace` : undefined,
+    };
+
+    // 6. Fetch updated API
     const { rows: updatedRows } = await client.query<Record<string, unknown>>(
       `
       SELECT ${API_SELECT}
@@ -278,14 +333,6 @@ export async function moderateApi(
       [targetId]
     );
 
-    if (['WARN', 'QUARANTINE', 'SUSPEND', 'DISMISS'].includes(action)) {
-      resolveMockReportByApiId(targetId);
-      if (action === 'QUARANTINE' || action === 'SUSPEND') {
-        // Redis client is not installed, so we simulate the cache invalidation
-        console.log(`[Redis Simulation] Cache invalidated for API ${targetId}`);
-      }
-    }
-
-    return { api: mapApiRow(updatedRows[0]), auditLogged: true };
+    return { api: mapApiRow(updatedRows[0]), auditLogged: true, notification };
   });
 }
