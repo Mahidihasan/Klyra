@@ -45,7 +45,7 @@ import {
   updateProject,
 } from './api-build.service';
 import { addCategory, listCategories, removeCategory } from './api-build.categories';
-import { detectUpstream, extractOperations } from './api-build.detect';
+import { detectUpstream, extractOperations, extractOperationsFromSpec } from './api-build.detect';
 import { probeProjectHealth } from './api-build.telemetry';
 import {
   getDraftState,
@@ -286,14 +286,34 @@ router.put('/projects/:id/endpoints/:eid', async (req, res) => {
 router.post('/projects/:id/endpoints/import', async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
-  const payload = req.body || {};
-  let endpoints = Array.isArray(payload.endpoints) ? payload.endpoints : [];
-  if (endpoints.length === 0 && (payload.baseUrl || payload.openApiUrl)) {
-    const detection = await detectUpstream(str(payload.baseUrl), str(payload.openApiUrl));
-    endpoints = extractOperations(detection.foundAt || '', detection.endpoints);
-  }
+  const payload = (req.body || {}) as { endpoints?: unknown[]; baseUrl?: string; openApiUrl?: string };
+  const endpoints = (
+    Array.isArray(payload.endpoints) ? payload.endpoints : []
+  ) as Parameters<typeof importEndpoints>[1];
   await importEndpoints(req.params.id, endpoints);
-  ok(res, { imported: endpoints.length });
+  let discovered = 0;
+  // A project whose specification can be re-read gets its discovered rows
+  // refreshed from the document itself (see extractOperationsFromSpec — a
+  // `$ref` request body resolves to the schema it points at). Stored rows that
+  // still carry the old placeholder bodies (`"example"`) are exactly what this
+  // updates.
+  if (payload.baseUrl || payload.openApiUrl) {
+    try {
+      const detection = await detectUpstream(str(payload.baseUrl), str(payload.openApiUrl));
+      const rehydrated = detection.foundAt
+        ? await extractOperationsFromSpec(String(detection.foundAt), detection.endpoints)
+        : [];
+      const rows = rehydrated.length ? rehydrated : extractOperations(detection.foundAt || '', detection.endpoints);
+      await importEndpoints(
+        req.params.id,
+        rows as Parameters<typeof importEndpoints>[1],
+      );
+      discovered = rows.length;
+    } catch {
+      // Discovery on a stale/dead upstream must never fail an import call.
+    }
+  }
+  ok(res, { imported: endpoints.length, endpoints: endpoints.length, discovered });
 });
 router.delete('/projects/:id/endpoints/:eid', async (req, res) => {
   const { pool } = await import('../../services/database.service');

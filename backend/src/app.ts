@@ -51,8 +51,29 @@ app.use(
 // express.json(), like the Git Smart HTTP route does.
 app.use('/api/wallet/webhook', express.raw({ type: 'application/json' }), walletWebhookRouter);
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// The API gateway owns the request stream: it forwards bodies byte-for-byte, so
+// Klyra's global body parsers must never read (or reject) a payload that belongs
+// to a deployed API. express.json() in its default strict mode answered 400 for
+// legal JSON that is not an object or array — which is exactly what a
+// specification may declare as a request body — and express.urlencoded()
+// rewrote form bodies into JSON. express.raw (mounted on the gateway below)
+// reads the untouched stream instead.
+const GATEWAY_MOUNT = '/api/gateway';
+// Typed structurally: body-parser calls the `type` option with a raw
+// IncomingMessage, while the gateway mount receives an express.Request.
+const isGatewayRequest = (req: { originalUrl?: string; url?: string }): boolean => {
+  const path = String(req.originalUrl || req.url || '').split('?')[0].replace(/\/+$/, '');
+  return path === GATEWAY_MOUNT || path.startsWith(`${GATEWAY_MOUNT}/`);
+};
+
+app.use(express.json({ limit: '10mb', type: (req) => (isGatewayRequest(req) ? false : 'application/json') }));
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: '10mb',
+    type: (req) => (isGatewayRequest(req) ? false : 'application/x-www-form-urlencoded'),
+  }),
+);
 
 import authRouter from './modules/auth/auth.routes';
 import { checkMaintenanceMode } from './middleware/maintenance.middleware';
@@ -83,8 +104,14 @@ app.use('/api/usage', usageRouter);
 // API Build module (projects, endpoints, versions, …) and its dev gateway.
 // The gateway answers /api/gateway/{slug}/* — the same path the project's
 // gatewayUrl advertises — and forwards to the project's upstream origin.
+//
+// The gateway reads bodies as raw bytes (never as parsed JSON/urlencoded): a
+// parsed body is re-encoded before forwarding, and express.json()'s strict mode
+// rejected legal payloads (a JSON string body) with Klyra's own 400 before the
+// request ever reached the API. express.raw keeps every content type intact —
+// which is why the global parsers above skip this path entirely.
 app.use('/api/api-build', apiBuildRouter);
-app.use('/api/gateway', express.json({ limit: '10mb' }), express.urlencoded({ extended: true, limit: '10mb' }), apiBuildGateway);
+app.use(GATEWAY_MOUNT, express.raw({ type: () => true, limit: '25mb' }), apiBuildGateway);
 
 // Public Marketplace Catalog routes (curated rails, search, filters, API details, reviews, providers, publishing)
 app.use('/api/v1/catalog', catalogRouter);

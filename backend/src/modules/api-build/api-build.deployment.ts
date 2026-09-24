@@ -55,6 +55,90 @@ export function slugOfProject(project: Record<string, unknown> | null | undefine
   return String(project?.slug || '') || slugFromProjectId(String(project?.id || ''));
 }
 
+/* ==========================================================================
+ * API base path — the prefix a project's operations are served under
+ * ========================================================================== */
+
+/**
+ * Normalizes any base-path form a record may hold into the canonical `/api/v3`
+ * form: a relative `servers[0].url` (`/api/v3`), a bare token (`api/v3`),
+ * trailing slashes, and the origin root (`/` — which means "no base path").
+ * Returns '' when the API is served at the origin root.
+ */
+export function normalizeApiBasePath(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw === '/' || raw === '.') return '';
+  const trimmed = (raw.startsWith('/') ? raw : `/${raw}`).replace(/\/+$/, '');
+  return trimmed === '' || trimmed === '/' ? '' : trimmed;
+}
+
+/**
+ * The path prefix a project's operations are served under, as declared by its
+ * OpenAPI document (`servers[0].url`, recorded as `basePath` by detection).
+ *
+ * Klyra-hosted APIs (swagger-inflector, springdoc, FastAPI sub-mounts, …) serve
+ * their operations below such a prefix: a request must address
+ * `<origin><basePath><operation path>`, or the origin answers 404. The gateway
+ * therefore resolves every incoming request through this value.
+ */
+export function projectApiBasePath(project: Record<string, unknown> | null | undefined): string {
+  const detection = asRecord(project?.detection);
+  return normalizeApiBasePath(detection?.basePath ?? project?.basePath);
+}
+
+/** Pathname of a URL without a trailing slash ('https://host/v1/' -> '/v1'). */
+function pathnameOf(url: string): string {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Resolves the path the gateway must ask the upstream for, given the sub-path
+ * the caller asked the gateway for. This is what makes a gateway URL behave
+ * exactly like the API's own base URL:
+ *
+ *   /api/gateway/{slug}/pet/1        -> /api/v3/pet/1   (base path inserted)
+ *   /api/gateway/{slug}/api/v3/pet/1 -> /api/v3/pet/1   (already qualified)
+ *   /api/gateway/{slug}              -> /api/v3          (the API root)
+ *
+ * Rules:
+ *   - `stripBasePath` projects serve their operations at the origin root, so a
+ *     present base path is removed instead of ensured;
+ *   - an upstream whose own URL already ends with the base path (baseUrl
+ *     `https://host/v1` with the document declaring `/v1`) is never prefixed
+ *     twice.
+ */
+export function resolveGatewayForwardPath(opts: {
+  /** Sub-path after /gateway/{slug}, without a leading slash ('' for the root). */
+  requestedPath: string;
+  /** Resolved upstream origin the request is forwarded to. */
+  upstream: string;
+  /** API base path the project declares (see projectApiBasePath). */
+  basePath: string;
+  /** Project flag: strip a present base path instead of ensuring it. */
+  stripBasePath?: boolean;
+}): string {
+  const requested = `/${String(opts.requestedPath || '').replace(/^\/+/, '')}`;
+  const rest = requested === '/' ? '' : requested.replace(/\/+$/, '');
+  const basePath = normalizeApiBasePath(opts.basePath);
+  if (!basePath) return rest;
+
+  const alreadyQualified = rest === basePath || rest.startsWith(`${basePath}/`);
+
+  if (opts.stripBasePath) {
+    if (!alreadyQualified) return rest;
+    const stripped = rest.slice(basePath.length);
+    return stripped === '' || stripped.startsWith('/') ? stripped : `/${stripped}`;
+  }
+
+  if (alreadyQualified) return rest;
+  if (pathnameOf(opts.upstream).endsWith(basePath)) return rest;
+  return `${basePath}${rest}`;
+}
+
 /**
  * Read-time normalization ("heal on read", the established Klyra pattern).
  *

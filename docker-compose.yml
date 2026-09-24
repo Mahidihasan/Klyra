@@ -47,7 +47,7 @@ services:
     ports:
       - '4000:4000'
     env_file:
-      - ./backend/.env
+      - ./.env.development
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER:-api_marketplace}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-api_marketplace_dev}
@@ -72,9 +72,11 @@ services:
     ports:
       - '3000:3000'
     env_file:
-      - ./frontend/.env
+      - ./.env.development
     environment:
       NODE_ENV: development
+      # Vite dev-server proxy target: the backend Compose service, not localhost
+      VITE_PROXY_TARGET: http://backend:4000
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/package.json:/app/package.json

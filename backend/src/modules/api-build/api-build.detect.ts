@@ -170,7 +170,8 @@ function inspect(doc: Record<string, unknown>, baseUrl: string): DetectionPayloa
     for (const [key, operation] of Object.entries(operationMap as Record<string, unknown>)) {
       const method = key.toUpperCase(); if (!METHODS.has(method)) continue;
       const details = operation && typeof operation === 'object' ? operation as Record<string, unknown> : {};
-      const shape = operationDetails(details);
+      // `doc` resolves every `$ref` a sampled body contains (components.schemas).
+      const shape = operationDetails(details, doc);
       endpoints.push({
         id: `ep-${endpoints.length + 1}`,
         method,
@@ -369,30 +370,104 @@ export function extractOperations(specUrl: string, detected: DetectedEndpoint[])
 }
 const SAMPLE_VALUES: Record<string, unknown> = { string: 'example', integer: 1, number: 1, boolean: true };
 
+/** The `type` a schema node declares; '' when it carries no type signal. */
 function schemaType(node: Record<string, unknown>): string {
   const t = node.type;
   if (typeof t === 'string') return t;
-  if (Array.isArray(t)) return String(t[0] ?? 'string');
+  if (Array.isArray(t)) return String(t[0] ?? '');
   if (node.properties) return 'object';
-  return 'string';
+  return '';
 }
 
-function sampleFromSchema(node: unknown, depth = 0): string {
-  if (depth > 4 || !node || typeof node !== 'object') return JSON.stringify('example');
+/**
+ * Resolves a LOCAL JSON pointer — `#/components/schemas/Pet` — inside the
+ * specification document. References into another file resolve to null: a sample
+ * is generated from the document that was already fetched, never by fetching more.
+ */
+function resolveSchemaReference(ref: string, document: Record<string, unknown> | null): unknown {
+  if (!document || !ref.startsWith('#/')) return null;
+  let node: unknown = document;
+  for (const rawPart of ref.slice(2).split('/')) {
+    if (!node || typeof node !== 'object') return null;
+    const part = rawPart.replace(/~1/g, '/').replace(/~0/g, '~');
+    node = (node as Record<string, unknown>)[part];
+  }
+  return node ?? null;
+}
+
+/**
+ * A JSON sample for a schema node — the request body / response example the
+ * endpoint catalog and the Playground start from.
+ *
+ * References are resolved against the specification (`components.schemas` /
+ * `definitions`), so `{"$ref": "#/components/schemas/Pet"}` produces a real Pet
+ * body. Before this, a `$ref` node carried no `type`, was therefore read as a
+ * string, and every referenced request body arrived as the placeholder
+ * `"example"` — a payload no API accepts. A node with no readable shape yields
+ * `{}` (never a fabricated scalar), and a reference cycle stops at the deepest
+ * resolvable level.
+ */
+function sampleFromSchema(
+  node: unknown,
+  depth = 0,
+  document: Record<string, unknown> | null = null,
+  visited: readonly string[] = [],
+): string {
+  if (depth > 6 || !node || typeof node !== 'object') return '{}';
   const schema = node as Record<string, unknown>;
+
+  const ref = typeof schema.$ref === 'string' ? schema.$ref : '';
+  if (ref) {
+    if (visited.includes(ref)) return '{}';
+    const target = resolveSchemaReference(ref, document);
+    if (!target || typeof target !== 'object') return '{}';
+    return sampleFromSchema(target, depth + 1, document, [...visited, ref]);
+  }
+
+  // Unions: the first alternative describes the sample (an array stays an array).
+  for (const key of ['oneOf', 'anyOf'] as const) {
+    const alternatives = schema[key];
+    if (Array.isArray(alternatives) && alternatives.length) {
+      return sampleFromSchema(alternatives[0], depth + 1, document, visited);
+    }
+  }
+  if (Array.isArray(schema.allOf) && schema.allOf.length) {
+    const properties: Record<string, unknown> = {
+      ...((schema.properties as Record<string, unknown> | undefined) ?? {}),
+    };
+    for (const part of schema.allOf) {
+      const partRef =
+        part && typeof part === 'object' && typeof (part as Record<string, unknown>).$ref === 'string'
+          ? String((part as Record<string, unknown>).$ref)
+          : '';
+      const member = partRef ? resolveSchemaReference(partRef, document) : part;
+      const memberProperties =
+        member && typeof member === 'object' ? (member as Record<string, unknown>).properties : null;
+      if (memberProperties && typeof memberProperties === 'object') {
+        Object.assign(properties, memberProperties as Record<string, unknown>);
+      }
+    }
+    const merged: Record<string, unknown> = { ...schema, allOf: undefined };
+    if (Object.keys(properties).length) merged.properties = properties;
+    return sampleFromSchema(merged, depth + 1, document, visited);
+  }
+
   if (schema.example !== undefined) return JSON.stringify(schema.example);
   if (schema.default !== undefined) return JSON.stringify(schema.default);
   if (schema.enum && Array.isArray(schema.enum) && schema.enum.length) return JSON.stringify(schema.enum[0]);
   if (Array.isArray(schema.items)) return '[]';
-  if (schema.items) return `[${sampleFromSchema(schema.items, depth + 1)}]`;
+  if (schema.items && typeof schema.items === 'object') {
+    return `[${sampleFromSchema(schema.items, depth + 1, document, visited)}]`;
+  }
   if (schema.properties && typeof schema.properties === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(schema.properties as Record<string, unknown>)) {
-      out[key] = depth === 0 ? JSON.parse(sampleFromSchema(child, depth + 1)) : sampleFromSchema(child, depth + 1);
+      out[key] = JSON.parse(sampleFromSchema(child, depth + 1, document, visited));
     }
     return JSON.stringify(out);
   }
-  return JSON.stringify(SAMPLE_VALUES[schemaType(schema)] ?? 'example');
+  const type = schemaType(schema);
+  return type ? JSON.stringify(SAMPLE_VALUES[type] ?? 'example') : '{}';
 }
 
 /**
@@ -401,7 +476,10 @@ function sampleFromSchema(node: unknown, depth = 0): string {
  * Shared by detection (so a detected endpoint carries what it needs) and by the
  * spec-aware extractor, so both describe an operation identically.
  */
-function operationDetails(operation: Record<string, unknown>): {
+function operationDetails(
+  operation: Record<string, unknown>,
+  document: Record<string, unknown> | null = null,
+): {
   parameters: ImportableEndpoint['parameters'];
   requestBody: ImportableEndpoint['requestBody'];
   responses: ImportableEndpoint['responses'];
@@ -436,7 +514,7 @@ function operationDetails(operation: Record<string, unknown>): {
     const [contentType, media] = Object.entries(content)[0] ?? ['application/json', undefined];
     const schema = media && typeof media === 'object' ? (media as Record<string, unknown>).schema : null;
     let sampleBody = '';
-    if (schema) { try { sampleBody = JSON.stringify(JSON.parse(sampleFromSchema(schema)), null, 2); } catch { sampleBody = ''; } }
+    if (schema) { try { sampleBody = JSON.stringify(JSON.parse(sampleFromSchema(schema, 0, document)), null, 2); } catch { sampleBody = ''; } }
     requestBody = { contentType: String(contentType), schema: schema ? JSON.stringify(schema, null, 2) : '', sampleBody };
   }
 
@@ -449,7 +527,7 @@ function operationDetails(operation: Record<string, unknown>): {
       const [, media] = Object.entries(content)[0] ?? ['', undefined];
       const schema = media && typeof media === 'object' ? (media as Record<string, unknown>).schema : null;
       let sampleBody = '';
-      if (schema) { try { sampleBody = JSON.stringify(JSON.parse(sampleFromSchema(schema)), null, 2); } catch { sampleBody = ''; } }
+      if (schema) { try { sampleBody = JSON.stringify(JSON.parse(sampleFromSchema(schema, 0, document)), null, 2); } catch { sampleBody = ''; } }
       responses.push({ statusCode: Number(code) || 200, description: String(resp.description ?? ''), schema: schema ? JSON.stringify(schema) : '', sampleBody });
     }
   }
@@ -459,8 +537,12 @@ function operationDetails(operation: Record<string, unknown>): {
 
 /** Merges a document's operation shape into an endpoint row — real values win
  *  over the inferred path-template placeholders. */
-function describeOperation(operation: Record<string, unknown>, row: ImportableEndpoint): ImportableEndpoint {
-  const details = operationDetails(operation);
+function describeOperation(
+  operation: Record<string, unknown>,
+  row: ImportableEndpoint,
+  document: Record<string, unknown> | null = null,
+): ImportableEndpoint {
+  const details = operationDetails(operation, document);
   row.parameters = mergeParameters(row.parameters, details.parameters);
   if (row.requestBody && details.requestBody) {
     row.requestBody = {
@@ -491,6 +573,6 @@ export async function extractOperationsFromSpec(specUrl: string, detected: Detec
     if (!operation || typeof operation !== 'object') return row;
     const op = operation as Record<string, unknown>;
 
-    return describeOperation(op, row);
+    return describeOperation(op, row, doc);
   });
 }

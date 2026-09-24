@@ -119,12 +119,14 @@ export const apiBuildService = {
     if (source.dockerImage?.trim()) sent.dockerImage = source.dockerImage.trim();
     return api(DETECT_ROOT, { method: 'POST', body: JSON.stringify(sent) });
   },
-  /** Imports endpoint operations discovered from the upstream spec. */
+  /** Imports endpoint operations: explicit rows first, then a fresh read of the
+   *  upstream spec (so stored rows are refreshed from the document itself).
+   *  Returns the number of explicit rows written plus the rediscovered count. */
   async importEndpoints(
     projectId: string,
     source: { baseUrl?: string; openApiUrl?: string; endpoints?: unknown[] },
   ): Promise<number> {
-    const result = await api<{ imported: number }>(
+    const result = await api<{ imported: number; discovered: number }>(
       `${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/endpoints/import`,
       { method: 'POST', body: JSON.stringify(source) },
     );

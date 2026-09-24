@@ -7,7 +7,6 @@ import {
 } from 'lucide-react';
 import { ExtendedVersion } from '../types';
 import { ProviderProject } from '../../../types/apibuild';
-import { releaseStatusLabel } from '../format';
 
 interface TabVersionsProps {
   project: ProviderProject;
@@ -343,6 +342,8 @@ export const TabVersions: React.FC<TabVersionsProps> = ({ project, versions: ini
 
     {/* ── Pipeline stages ─────────────────────────────────────── */}
     <div className="kly-version-stage">
+      <div className="kly-stage-step is-complete"><Check size={13} /><span>Development</span><b>Contract ready</b></div>
+      <ArrowRight size={14} />
       <div className="kly-stage-step is-active"><ShieldCheck size={13} /><span>Staging</span><b>{versions.filter((v) => v.status === 'Beta').length} reviewable</b></div>
       <ArrowRight size={14} />
       <div className="kly-stage-step"><Rocket size={13} /><span>Production</span><b>{currentVersion?.semver || 'Not deployed'}</b></div>
@@ -354,8 +355,8 @@ export const TabVersions: React.FC<TabVersionsProps> = ({ project, versions: ini
       <div><span>Running instances</span><b>{runningVersions.filter(v => v.runtimeState === 'running').length} <small style={{fontWeight:400,fontSize:11,color:'var(--kly-text-dim)'}}>of {versions.length}</small></b></div>
       <div><span>Deprecated versions</span><b className="is-warning">{versions.filter((v) => v.status === 'Deprecated').length}</b></div>
       <div><span>Routing policy</span><b style={{textTransform:'capitalize'}}>{routingPolicy}</b></div>
-      <div><span>Release readiness</span><b><CheckCircle2 size={15} color="#34d399" /> {versions.filter((v) => v.status === 'Beta').length} reviewable</b></div>
-      <div><span>Change control</span><b><LockKeyhole size={15} color={releaseLock ? '#fbbf24' : '#34d399'} /> {releaseLock ? 'Locked' : 'Open'}</b></div>
+      <div><span>Release readiness</span><b>{versions.filter((v) => v.status === 'Beta').length} reviewable</b></div>
+      <div><span>Change control</span><b>{releaseLock ? 'Locked' : 'Open'}</b></div>
     </div>
 
     {/* ── Runtime matrix ──────────────────────────────────────── */}
@@ -386,7 +387,6 @@ export const TabVersions: React.FC<TabVersionsProps> = ({ project, versions: ini
           return (
             <div key={v.id} className={`kly-runtime-row ${isConsumer ? 'kly-runtime-row--consumer' : ''} ${v.runtimeState === 'paused' ? 'kly-runtime-row--paused' : ''}`}>
               <span className="kly-runtime-semver">
-                <span className="kly-mono">{v.semver}</span>
                 {isConsumer && <span className="kly-runtime-consumer-chip"><Zap size={9} /> consumer</span>}
               </span>
               <span><RuntimeDot state={v.runtimeState} />{v.runtimeState}</span>
@@ -482,7 +482,7 @@ export const TabVersions: React.FC<TabVersionsProps> = ({ project, versions: ini
             <span className="kly-version-radio">{v.id === activeVerId && <span />}</span>
             <span className="kly-version-row-main">
               <strong className="kly-mono">{v.semver}</strong>
-              <small>{v.endpointsCount} routes · {v.consumersCount} consumers · {releaseStatusLabel(v.releasedAt)}</small>
+              <small>{v.endpointsCount} routes · {v.consumersCount} consumers · released {v.releasedAt?.slice(0, 10) ?? '—'}</small>
             </span>
             <RuntimeDot state={v.runtimeState} />
             <span className={`kly-badge ${v.status === 'Current' ? 'kly-badge-healthy' : v.status === 'Beta' ? 'kly-badge-deploying' : 'kly-badge-paused'}`}>{v.status}</span>

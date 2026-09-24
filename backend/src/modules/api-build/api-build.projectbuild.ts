@@ -35,12 +35,66 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { runDocker, type DeployLog } from './api-build.docker';
+import type { DeployLog } from './api-build.docker';
+
+interface DockerRunOptions {
+  timeoutMs?: number;
+  onLine?: (line: string) => void;
+}
+
+interface DockerRunResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+/** Runs Docker without a shell; arguments are supplied as an argv array. */
+function runDocker(args: string[], options: DockerRunOptions = {}): Promise<DockerRunResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timeout = options.timeoutMs
+      ? setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(new Error(`Docker command timed out after ${options.timeoutMs}ms`));
+        }, options.timeoutMs)
+      : undefined;
+    const consume = (chunk: Buffer, isError: boolean): void => {
+      const text = chunk.toString();
+      if (isError) stderr += text;
+      else stdout += text;
+      if (options.onLine) {
+        for (const line of text.split(/\r?\n/)) {
+          if (line) options.onLine(line);
+        }
+      }
+    };
+    child.stdout.on('data', (chunk: Buffer) => consume(chunk, false));
+    child.stderr.on('data', (chunk: Buffer) => consume(chunk, true));
+    child.once('error', (error) => {
+      if (timeout) clearTimeout(timeout);
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
+    });
+    child.once('close', (code) => {
+      if (timeout) clearTimeout(timeout);
+      if (!settled) {
+        settled = true;
+        resolve({ code: code ?? 1, stdout, stderr });
+      }
+    });
+  });
+}
 
 /** Maven build budget — a first build downloads the full dependency tree. */
 const MAVEN_BUILD_TIMEOUT_MS = 15 * 60 * 1000;

@@ -62,6 +62,7 @@ import {
   HttpMethod,
   AuthType,
   BodyType,
+  BodyConfig,
   AuthConfig,
   AiAction,
   ApiWorkspaceItem,
@@ -98,6 +99,7 @@ import {
   diagnoseError,
   generateSecureCode,
   isSecretValue,
+  isPlaceholderBody,
   toEnvVarName,
 } from '../../utils/playground';
 import {
@@ -515,6 +517,65 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
   // concurrent imports of the same project catalog).
   const importingFolderRef = useRef<string | null>(null);
 
+  /**
+   * The request body a specification sample becomes in the editor: formatted
+   * JSON, or raw text when the sample is not JSON at all (binary / multipart).
+   * The rest of the body config (form-data & urlencoded rows) is preserved.
+   */
+  const bodyConfigForSample = (sampleBody: string | undefined): Partial<BodyConfig> | null => {
+    if (!sampleBody) return null;
+    try {
+      return { type: 'json', json: JSON.stringify(JSON.parse(sampleBody), null, 2) };
+    } catch {
+      return { type: 'raw', raw: sampleBody, rawLanguage: 'json' };
+    }
+  };
+
+  /**
+   * Replaces a still-placeholder body of an already-imported request with the
+   * sample the specification declares (see isPlaceholderBody). Without this, a
+   * folder imported before a `$ref` request body could be resolved keeps the
+   * placeholder body `"example"` — a payload every API rejects — forever, since
+   * a re-import otherwise skips endpoints it already has.
+   *
+   * Only untouched placeholder bodies are eligible; user edits are never
+   * overwritten, and a failed write leaves the in-memory update in place.
+   */
+  const refreshPlaceholderBody = async (
+    folderRequests: WorkspaceItem[],
+    key: string,
+    sampleBody: string | undefined,
+  ): Promise<void> => {
+    const body = bodyConfigForSample(sampleBody);
+    if (!body) return;
+    const existing = folderRequests.find(
+      (item) => `${(item.method || '').toUpperCase()} ${(item.url || '').replace(/\/+$/, '')}` === key,
+    );
+    if (!existing?.request || !isPlaceholderBody(existing.request.body)) return;
+    const nextBody: BodyConfig = { ...existing.request.body, ...body };
+    if (nextBody.json === existing.request.body.json && nextBody.raw === existing.request.body.raw) return;
+
+    const updated: WorkspaceItem = {
+      ...existing,
+      request: { ...existing.request, body: nextBody },
+      updatedAt: new Date().toISOString(),
+    };
+    const index = folderRequests.findIndex((item) => item.id === existing.id);
+    if (index >= 0) folderRequests[index] = updated;
+    setWorkspaceItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+    setOpenTabs((prev) =>
+      prev.map((tab) => (tab.itemId === updated.id ? { ...tab, config: { ...tab.config, body: nextBody } } : tab)),
+    );
+    try {
+      await playgroundApi.updateWorkspaceItem(updated.id, {
+        request: updated.request,
+        updatedAt: updated.updatedAt,
+      });
+    } catch {
+      // Backend unreachable — the in-memory update above still applies.
+    }
+  };
+
   // Import an API project's complete endpoint catalog into the workspace tree
   // as a folder named after the project. Fired when the Playground is opened
   // from the ApiBuild workspace ("Open API Tester Playground" button, or
@@ -594,7 +655,16 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
         const epPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
         const epUrl = apiUrl ? `${apiUrl}${epPath}` : epPath;
         const key = `${method} ${epUrl.replace(/\/+$/, '')}`;
-        if (knownKeys.has(key)) continue;
+        if (knownKeys.has(key)) {
+          // The endpoint is already in the folder. A body that is still the
+          // import placeholder is refreshed from the specification (a request
+          // body referenced with `$ref` used to arrive as `"example"`, which
+          // every API rejects), so re-opening a folder imported before the
+          // specification could be read leaves working requests behind. Anything
+          // the user has edited is left exactly as it is.
+          await refreshPlaceholderBody(folderRequests, key, ep.sampleBody);
+          continue;
+        }
         knownKeys.add(key);
         const req = emptyRequestConfig();
         req.name = (ep.name || '').trim() || `${method} ${epPath}`;
@@ -619,11 +689,8 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
         const headerRows = toRows('header');
         if (headerRows.length) req.headers = headerRows;
         if (ep.sampleBody) {
-          try {
-            req.body = { type: 'json', json: JSON.stringify(JSON.parse(ep.sampleBody), null, 2) };
-          } catch {
-            req.body = { type: 'raw', raw: ep.sampleBody, rawLanguage: 'json' };
-          }
+          const sample = bodyConfigForSample(ep.sampleBody);
+          if (sample) req.body = { ...req.body, ...sample };
         }
         const item: WorkspaceItem = {
           id: generateId(),

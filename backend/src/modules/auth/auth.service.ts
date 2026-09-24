@@ -1,3 +1,4 @@
+import { isIP } from 'net';
 import bcrypt from 'bcryptjs';
 import geoip from 'geoip-lite';
 import type { Express } from 'express';
@@ -49,6 +50,41 @@ export class AccountDeactivationError extends Error {
     super(message);
     this.name = 'AccountDeactivationError';
   }
+}
+
+/**
+ * Normalize a client IP into a value PostgreSQL `inet` accepts.
+ *
+ * The previous implementation stripped every character outside [0-9.:] which
+ * mangled IPv6 addresses: "::ffff:172.19.0.5" lost its "ffff" hex letters and
+ * became ":::172.19.0.5", and "fe80::1" became "80::1" — both rejected by
+ * PostgreSQL with "invalid input syntax for type inet". The address is now
+ * only ever unwrapped/validated, never rebuilt by prepending separators.
+ *
+ * - IPv4                172.19.0.5        -> 172.19.0.5
+ * - IPv4-mapped IPv6    ::ffff:172.19.0.5 -> 172.19.0.5
+ * - IPv6                ::1 / 2001:db8::1 -> unchanged
+ * - missing/invalid     -> fallback (127.0.0.1)
+ */
+export function normalizeClientIp(rawIp?: string | null, fallback = '127.0.0.1'): string {
+  let candidate = typeof rawIp === 'string' ? rawIp.trim() : '';
+
+  // Proxies may send "client, proxy1, proxy2": keep the left-most entry.
+  const commaIndex = candidate.indexOf(',');
+  if (commaIndex !== -1) candidate = candidate.slice(0, commaIndex).trim();
+  // Drop bracketed and zone-scoped forms: "[::1]", "fe80::1%eth0".
+  if (candidate.startsWith('[') && candidate.endsWith(']')) candidate = candidate.slice(1, -1);
+  const zoneIndex = candidate.indexOf('%');
+  if (zoneIndex !== -1) candidate = candidate.slice(0, zoneIndex);
+
+  // Unwrap IPv4-mapped IPv6 so the stored value matches the real client IP.
+  if (candidate.toLowerCase().startsWith('::ffff:')) {
+    const mapped = candidate.slice('::ffff:'.length);
+    if (isIP(mapped) === 4) candidate = mapped;
+  }
+
+  if (isIP(candidate)) return candidate;
+  return isIP(fallback) ? fallback : '127.0.0.1';
 }
 
 function sanitizeUser(user: any): UserPublicProfile {
@@ -574,7 +610,7 @@ export class AuthService {
       await pool.query(
         `INSERT INTO audit_logs (action, entity_type, new_values, ip_address, user_agent)
          VALUES ('LOGIN', 'users', $1, $2::inet, $3)`,
-        [JSON.stringify({ success: false, reason: 'user_not_found', email: cleanEmail }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
+        [JSON.stringify({ success: false, reason: 'user_not_found', email: cleanEmail }), normalizeClientIp(ip), userAgent]
       );
       throw new Error('Invalid email or password.');
     }
@@ -667,7 +703,7 @@ export class AuthService {
         await pool.query(
           `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values, ip_address, user_agent)
            VALUES ($1, 'LOGIN', 'users', $1, $2, $3::inet, $4)`,
-          [user.id, JSON.stringify({ success: false, reason: 'locked_3_attempts' }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
+          [user.id, JSON.stringify({ success: false, reason: 'locked_3_attempts' }), normalizeClientIp(ip), userAgent]
         );
 
         throw new Error('Account locked for 20 minutes due to 3 failed login attempts.');
@@ -677,7 +713,7 @@ export class AuthService {
         await pool.query(
           `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values, ip_address, user_agent)
            VALUES ($1, 'LOGIN', 'users', $1, $2, $3::inet, $4)`,
-          [user.id, JSON.stringify({ success: false, reason: 'invalid_password', failedAttempts }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
+          [user.id, JSON.stringify({ success: false, reason: 'invalid_password', failedAttempts }), normalizeClientIp(ip), userAgent]
         );
 
         throw new Error(`Invalid email or password. You have ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before a 20-minute account lockout.`);
@@ -918,7 +954,7 @@ export class AuthService {
         user_id, refresh_token_hash, user_agent, ip_address, expires_at
       ) VALUES ($1, $2, $3, $4::inet, $5)
       RETURNING id`,
-      [user.id, refreshTokenHash, userAgent, ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', refreshExpiresAt]
+      [user.id, refreshTokenHash, userAgent, normalizeClientIp(ip), refreshExpiresAt]
     );
 
     const sessionId = sessionRes.rows[0].id;
@@ -942,7 +978,7 @@ export class AuthService {
     let resolvedLocation = 'Unknown Location';
     let resolvedLatitude = null;
     let resolvedLongitude = null;
-    const cleanIp = ip.replace(/[^0-9.:]/g, '') || '127.0.0.1';
+    const cleanIp = normalizeClientIp(ip);
 
     if (cleanIp === '::1' || cleanIp === '127.0.0.1' || cleanIp.startsWith('192.168.')) {
       resolvedLocation = 'Localhost (Dev)';
@@ -996,7 +1032,7 @@ export class AuthService {
       `UPDATE users
        SET last_login_at = NOW(), last_login_ip = $1::inet, metadata = $2
        WHERE id = $3`,
-      [ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', JSON.stringify(metadata), user.id]
+      [normalizeClientIp(ip), JSON.stringify(metadata), user.id]
     );
 
     // Record successful login in audit_logs securely using Prisma
@@ -1008,7 +1044,7 @@ export class AuthService {
           entity_id: user.id,
           user_id: user.id,
           new_values: { success: true, rememberMe, sessionId } as any,
-          ip_address: ip.replace(/[^0-9.:]/g, '') || '127.0.0.1',
+          ip_address: normalizeClientIp(ip),
           user_agent: userAgent
         }
       });
@@ -1397,7 +1433,7 @@ export class AuthService {
     }
 
     if (userId) {
-      const cleanIp = ipAddress.replace(/[^0-9.:]/g, '') || '127.0.0.1';
+      const cleanIp = normalizeClientIp(ipAddress);
       await pool.query(
         `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values, ip_address, user_agent)
          VALUES ($1, 'LOGOUT', 'users', $1, '{"action": "user_logout"}', $2::inet, $3)`,

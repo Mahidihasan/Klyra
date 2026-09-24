@@ -1,13 +1,16 @@
 import { getProject, appendLog, recordUsage, listEndpoints, setEndpointMetrics, saveIncident, listIncidents, listProjects, addActivity } from './api-build.service';
+import { projectApiBasePath, resolveDeploymentUpstream } from './api-build.deployment';
 
 /* ==========================================================================
  * Telemetry worker — the source of REAL operational data for the workspace.
  *
- * For every live project it periodically probes the upstream health endpoint
- * (project.baseUrl + healthCheckPath) server-side and records what actually
- * happened: a request log row, an hourly usage bucket, endpoint latency
- * metrics, and — after repeated failures — a genuine incident. No number in
- * the workspace is fabricated: it is observed here first.
+ * For every live project it periodically probes the API's own upstream health
+ * endpoint (the deployment's container origin for Docker projects,
+ * project.baseUrl for external projects — never the gateway URL, which would
+ * only exercise Klyra itself) and records what actually happened: a request
+ * log row, an hourly usage bucket, endpoint latency metrics, and — after
+ * repeated failures — a genuine incident. No number in the workspace is
+ * fabricated: it is observed here first.
  * ========================================================================== */
 
 const PROBE_INTERVAL_MS = 60_000;
@@ -24,6 +27,42 @@ export interface ProbeResult {
   checkedAt: string;
   target: string;
   reason?: string;
+}
+
+/**
+ * The target a probe must ask for: the deployment origin plus the health path,
+ * inserting the API base path the specification declares when neither the
+ * origin nor the health path carries it already. A project whose specification
+ * serves under `/api/v3` (the deployed Petstore) must probe
+ * `<origin>/api/v3/health`, not `<origin>/health` — probing the root produced
+ * a fabricated 404 failure for every healthy container, poisoned the traffic
+ * telemetry, and opened a bogus "health checks failing" incident for it.
+ */
+export function resolveProbeTarget(
+  upstream: string,
+  healthPath: string,
+  basePath: string,
+): { target: string; reason?: string } {
+  const origin = String(upstream || '').trim().replace(/\/+$/, '');
+  if (!origin || !/^https?:\/\//i.test(origin)) {
+    return { target: '', reason: 'No reachable upstream base URL configured yet.' };
+  }
+  const health = `/${String(healthPath || '/health').replace(/^\/+/, '')}`;
+  const base = basePath && basePath !== '/'
+    ? (basePath.startsWith('/') ? basePath : `/${basePath}`).replace(/\/+$/, '')
+    : '';
+
+  let upstreamPath = '';
+  try {
+    upstreamPath = new URL(origin).pathname.replace(/\/+$/, '');
+  } catch { upstreamPath = ''; }
+
+  const qualified = base && (health === base || health.startsWith(`${base}/`));
+  // The upstream origin can already carry the API prefix (an external baseUrl
+  // of `https://host/v1` with the document declaring `/v1`).
+  const originated = base && (upstreamPath === base || upstreamPath.endsWith(base));
+  const path = base && !qualified && !originated ? `${base}${health}` : health;
+  return { target: `${origin}${path}` };
 }
 
 async function fetchHealth(url: string, timeoutMs = TIMEOUT_MS): Promise<{ ok: boolean; statusCode: number; latencyMs: number }> {
@@ -43,12 +82,17 @@ async function fetchHealth(url: string, timeoutMs = TIMEOUT_MS): Promise<{ ok: b
 export async function probeProjectHealth(projectId: string): Promise<ProbeResult> {
   const project = await getProject(projectId);
   if (!project) throw new Error('Project not found.');
-  const base = String(project.baseUrl || '').trim();
   const healthPath = String(project.healthCheckPath || '/health');
-  const target = base ? `${base.replace(/\/+$/, '')}${healthPath.startsWith('/') ? healthPath : `/${healthPath}`}` : '';
+  // A Docker project's stored baseUrl is its gateway URL; probing it would only
+  // exercise Klyra's own forwarding (and fail the API-key gate on locked
+  // projects). The probe must address the API itself: the container origin for
+  // Docker deployments, the recorded upstream for external ones.
+  const projectRecord = project as unknown as Record<string, unknown>;
+  const upstream = resolveDeploymentUpstream(projectRecord) || String(project.baseUrl || '').trim();
+  const { target, reason } = resolveProbeTarget(upstream, healthPath, projectApiBasePath(projectRecord));
 
-  if (!target || !/^https?:\/\//i.test(target)) {
-    return { projectId, ok: false, statusCode: 0, latencyMs: 0, checkedAt: new Date().toISOString(), target, reason: 'No reachable upstream base URL configured yet.' };
+  if (!target) {
+    return { projectId, ok: false, statusCode: 0, latencyMs: 0, checkedAt: new Date().toISOString(), target, reason };
   }
 
   const outcome = await fetchHealth(target);
@@ -140,7 +184,12 @@ async function probeAllLive() {
   await Promise.allSettled(projects.map(async (p) => {
     const status = String(p.status ?? '');
     if (status === 'draft') return;
-    if (!String(p.baseUrl ?? '').trim()) return;
+    // A Docker project's stored baseUrl is its gateway URL; the container
+    // origin behind it is what answers. Only projects with no origin at all
+    // are skipped — the probe itself resolves the right target.
+    const record = p as unknown as Record<string, unknown>;
+    const upstream = resolveDeploymentUpstream(record);
+    if (!upstream && !String(p.baseUrl ?? '').trim()) return;
     try { await probeProjectHealth(String(p.id)); } catch (error) { console.error('[api-build telemetry] probe failed', error); }
   }));
 }

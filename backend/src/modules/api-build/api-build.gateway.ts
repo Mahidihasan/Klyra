@@ -9,8 +9,23 @@ import { ResolvedGatewayKey } from '../api-keys/api-keys.types';
  * Every project advertises a "gateway URL" of the form
  *   {GATEWAY_URL|http://localhost:PORT}/gateway/{slug}
  * Requests arriving there are looked up by project slug and forwarded to the
- * project's upstream origin (project.baseUrl), so "Test in Playground" hits a
- * URL that actually resolves instead of a fictional api.klyra.com address.
+ * project's upstream origin, so "Test in Playground" hits a URL that actually
+ * resolves instead of a fictional api.klyra.com address.
+ *
+ * Two rules make the advertised URL behave exactly like the API's own base URL,
+ * so no caller (Playground, curl, Postman, a consumer) has to know how the API
+ * is mounted internally:
+ *
+ *   1. API base path — the prefix the API's specification declares
+ *      (`servers[0].url`, e.g. `/api/v3` for swagger-inflector / springdoc) is
+ *      inserted when the caller's path does not already carry it, removed for
+ *      projects flagged `stripBasePath`, and never applied twice to an upstream
+ *      that already ends with it. Requests that were saved before the base path
+ *      was known therefore work unchanged.
+ *   2. Byte-for-byte bodies — the request body reaches the upstream exactly as
+ *      the caller sent it (express.raw mounts this router, see app.ts), for
+ *      every content type. Klyra's own parsers never validate or re-encode a
+ *      payload on the way through.
  *
  * Authentication:
  *   - A presented `kly…` key (Authorization: Bearer or x-api-key) is always
@@ -52,6 +67,8 @@ import {
   resolveDeploymentUpstream,
   resolveDeploymentKind,
   activeDeploymentRuntime,
+  projectApiBasePath,
+  resolveGatewayForwardPath,
 } from './api-build.deployment';
 
 const handleGateway = async (req: Request, res: Response): Promise<Response> => {
@@ -121,10 +138,21 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
     }
 
 
-    // Remaining path after /gateway/{slug}; preserve the caller's query string.
+    // Remaining path after /gateway/{slug}, resolved against the API base path
+    // the project's specification declares (OpenAPI `servers[0].url`) so the
+    // gateway URL behaves like the API's own base URL: the caller may address an
+    // operation directly (`/gateway/{slug}/pet/1`) or include the prefix itself
+    // (`/gateway/{slug}/api/v3/pet/1`) — both reach `/api/v3/pet/1` upstream.
+    // Without this, every discovered operation answered 404 on the origin.
     const rest = (req.params[0] as string) || '';
+    const forwardPath = resolveGatewayForwardPath({
+      requestedPath: rest,
+      upstream,
+      basePath: projectApiBasePath(project),
+      stripBasePath: project.stripBasePath === true,
+    });
     const search = new URL(req.originalUrl, 'http://localhost').search;
-    let target = `${upstream.replace(/\/+$/, '')}/${rest.replace(/^\/+/, '')}`.replace(/\/+$/, '') || upstream;
+    let target = `${upstream.replace(/\/+$/, '')}${forwardPath}`;
     if (search && search !== '?') target += search;
 
     const headers: Record<string, string> = {};
@@ -144,13 +172,18 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
     }
 
     const method = req.method.toUpperCase();
-    const hasBody = !['GET', 'HEAD'].includes(method);
-    const body = hasBody
-      ? (Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : JSON.stringify(req.body ?? {}))
-      : undefined;
-    if (hasBody && body !== undefined && !Buffer.isBuffer(req.body)) {
-      headers['content-type'] = headers['content-type'] || 'application/json';
-    }
+    // Bodies are forwarded byte-for-byte. The gateway must never let Klyra's own
+    // body parsers interpret (and re-encode, or reject) a payload: express.json()
+    // in its default strict mode answered 400 for legal JSON that is not an
+    // object or array (a string body such as the sample a specification can
+    // declare), and re-serialising a parsed body destroyed form-urlencoded and
+    // multipart payloads. express.raw (app.ts) hands these bytes over untouched.
+    const rawBody = req.body;
+    const body =
+      !['GET', 'HEAD'].includes(method) && Buffer.isBuffer(rawBody) && rawBody.length > 0
+        ? new Uint8Array(rawBody)
+        : undefined;
+    if (body && !headers['content-type']) headers['content-type'] = 'application/json';
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
