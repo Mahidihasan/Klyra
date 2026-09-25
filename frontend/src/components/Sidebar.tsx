@@ -213,7 +213,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Upgrade Card at Bottom */}
         <div className="sidebar-footer">
-          <div className="upgrade-card" onClick={() => handleNavClick('billing')}>
+          <div
+            className="upgrade-card"
+            onClick={() => handleNavClick('pricing')}
+          >
             <div className="upgrade-card-left">
               <div className="crown-icon-badge">
                 <Crown size={16} color="#f59e0b" />

@@ -23,6 +23,7 @@ interface OverviewTabProps {
   onViewInvoices: () => void;
   onViewPayments: () => void;
   onViewMethods: () => void;
+  onViewPlans?: () => void;
 }
 
 /** Totals arrive per currency, so render each one rather than adding them up. */
@@ -51,6 +52,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   onViewInvoices,
   onViewPayments,
   onViewMethods,
+  onViewPlans,
 }) => {
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [spending, setSpending] = useState<SpendingPoint[]>([]);
@@ -139,6 +141,25 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   return (
     <div className="ov-wrap">
+      {onViewPlans && (
+        <div className="ov-plan-banner card-base">
+          <div className="ov-plan-banner-info">
+            <div className="ov-plan-pill">
+              <span className="ov-plan-dot" />
+              <span>CURRENT PLAN: FREE TIER</span>
+            </div>
+            <div className="ov-plan-text">
+              <span className="ov-plan-specs">10,000 requests/mo &bull; 10 req/sec &bull; 2 API keys &bull; 1 environment</span>
+              <span className="ov-plan-sub">Scaling your workload? Upgrade to <strong>Pro</strong> for 1,000,000 requests/mo, 200 req/sec, unlimited keys, and 99.9% SLA.</span>
+            </div>
+          </div>
+          <button className="ov-plan-btn" onClick={onViewPlans}>
+            <span>Upgrade to Pro</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
+
       <div className="ov-stats">
         <div className={`ov-stat ${hasOutstanding ? 'primary' : ''}`}>
           <span className="ov-stat-label">Outstanding</span>
@@ -627,6 +648,91 @@ const OverviewStyles: React.FC = () => (
       .ov-row-date.fixed {
         flex: 0 0 auto;
       }
+    }
+
+    .ov-plan-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 18px 24px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(135deg, rgba(20, 22, 40, 0.8), rgba(28, 25, 54, 0.7));
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 30px rgba(139, 92, 246, 0.1);
+      flex-wrap: wrap;
+    }
+
+    .ov-plan-banner-info {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .ov-plan-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 6px;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--status-active);
+      width: fit-content;
+      letter-spacing: 0.05em;
+    }
+
+    .ov-plan-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+    }
+
+    .ov-plan-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .ov-plan-specs {
+      font-size: 14px;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+
+    .ov-plan-sub {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .ov-plan-sub strong {
+      color: #c084fc;
+    }
+
+    .ov-plan-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      flex-shrink: 0;
+    }
+
+    .ov-plan-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 22px rgba(168, 85, 247, 0.5);
     }
   `}</style>
 );
