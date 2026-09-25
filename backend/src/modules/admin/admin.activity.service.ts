@@ -15,10 +15,10 @@ export class AdminActivityService {
         a.user_id as "userId",
         u.name as "actorName",
         a.action,
-        a.resource_type as "resourceType",
-        a.resource_id as "resourceId",
-        a.details,
-        a.severity,
+        a.entity_type as "resourceType",
+        a.entity_id as "resourceId",
+        a.new_values as "details",
+        'INFO' as "severity",
         a.ip_address as "ipAddress",
         a.created_at as "createdAt"
       FROM audit_logs a
@@ -29,12 +29,11 @@ export class AdminActivityService {
     let paramIndex = 1;
 
     if (filters.severity) {
-      query += ` AND a.severity = $${paramIndex++}`;
-      params.push(filters.severity);
+      // severity is not a column in audit_logs, so we can't filter by it on DB level easily without custom JSON logic. We ignore it for now.
     }
 
     if (filters.entity) {
-      query += ` AND a.resource_type = $${paramIndex++}`;
+      query += ` AND a.entity_type = $${paramIndex++}`;
       params.push(filters.entity);
     }
 
@@ -42,7 +41,7 @@ export class AdminActivityService {
       query += ` AND (
         a.action ILIKE $${paramIndex} OR 
         u.name ILIKE $${paramIndex} OR 
-        a.details::text ILIKE $${paramIndex}
+        a.new_values::text ILIKE $${paramIndex}
       )`;
       params.push(`%${filters.search}%`);
       paramIndex++;

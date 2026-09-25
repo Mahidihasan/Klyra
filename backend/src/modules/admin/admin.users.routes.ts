@@ -2,7 +2,7 @@
  * Admin user-management routes.
  *
  * Mounted at /api/v1/admin/users by admin.routes.ts, *after* its `requireAdmin`
- * middleware, so every handler here is already known to be ADMIN or MODERATOR.
+ * middleware, so every handler here is already known to be SUPER_ADMIN or ADMIN.
  * The finer-grained "may this specific actor do this specific thing" question
  * is answered by admin.users.policy.ts, not here.
  *
@@ -76,7 +76,7 @@ function parseListQuery(req: Request, res: Response): AdminUserListQuery | null 
   const { search, role, status, subscriptionTier, sort, direction } = req.query;
 
   if (role !== undefined && role !== '' && !isUserRole(role)) {
-    fail(res, 400, 'INVALID_ROLE', 'role must be one of: USER, PROVIDER, MODERATOR, ADMIN');
+    fail(res, 400, 'INVALID_ROLE', 'role must be one of: SUPER_ADMIN, ADMIN, USER');
     return null;
   }
 
@@ -204,6 +204,74 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// ============================ POST /users ===========================
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    console.log("INCOMING PAYLOAD:", req.body);
+    const actor = requireActor(req, res);
+    if (!actor) return;
+
+    const { name, email, password, role } = req.body ?? {};
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'name, email, password, and role are required' });
+    }
+
+    if (!isUserRole(role)) {
+      return fail(res, 400, 'INVALID_ROLE', 'role must be one of: SUPER_ADMIN, ADMIN, USER');
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    
+    // Hash password with bcrypt
+    const bcrypt = require('bcryptjs');
+    const BCRYPT_ROUNDS = 12;
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+    // Create user in Prisma (using PrismaClient)
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    // Check if user exists
+    const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    if (existing) {
+      return res.status(400).json({ error: 'EMAIL_EXISTS', message: 'An account with this email address already exists.' });
+    }
+
+    // Insert user
+    const user = await prisma.user.create({
+      data: {
+        name: name.trim(),
+        email: cleanEmail,
+        passwordHash: passwordHash,
+        role: role.toUpperCase(),
+        status: 'ACTIVE',
+        isActive: true,
+        metadata: {}
+      }
+    });
+
+    // Audit log
+    await prisma.auditLog.create({
+      data: {
+        user_id: actor.id,
+        action: 'CREATE',
+        entity_type: 'users',
+        entity_id: user.id,
+        ip_address: req.ip || 'unknown',
+        new_values: { name: user.name, email: user.email, role: user.role }
+      }
+    });
+
+    return res.status(201).json({ success: true, data: user });
+  } catch (err) {
+    console.error("🚨 CRITICAL API ERROR:", err);
+    return res.status(500).json({ 
+      error: err instanceof Error ? err.message : String(err), 
+      details: err 
+    });
+  }
+});
+
 // ========================== GET /users/:id ==========================
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -215,7 +283,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// ====================== GET /users/:id/details ======================
+// ===================== GET /users/:id/details ======================
 router.get('/:id/details', async (req: Request, res: Response) => {
   try {
     const data = await getUserDetails(req.params.id);
@@ -223,6 +291,24 @@ router.get('/:id/details', async (req: Request, res: Response) => {
     return res.json({ success: true, data });
   } catch (err) {
     return handleError(res, 'GET /users/:id/details', err);
+  }
+});
+
+// ===================== GET /users/:id/api-keys =====================
+router.get('/:id/api-keys', async (req: Request, res: Response) => {
+  try {
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    const apiKeys = await prisma.api_keys.findMany({
+      where: { user_id: req.params.id, status: 'ACTIVE' },
+      orderBy: { created_at: 'desc' }
+    });
+    
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, data: apiKeys });
+  } catch (err) {
+    return handleError(res, 'GET /users/:id/api-keys', err);
   }
 });
 
@@ -336,24 +422,64 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // ====================== PATCH /users/:id/role =======================
 router.patch('/:id/role', async (req: Request, res: Response) => {
   try {
+    console.log("INCOMING PAYLOAD:", req.body);
     const actor = requireActor(req, res);
     if (!actor) return;
 
-    const { role } = req.body ?? {};
+    let { role } = req.body ?? {};
+    const formattedRole = role ? (typeof role === 'string' ? role.toUpperCase() : role) : undefined;
+    role = formattedRole;
 
     if (!isUserRole(role)) {
-      return fail(
-        res,
-        400,
-        'INVALID_ROLE',
-        'role must be one of: USER, PROVIDER, MODERATOR, ADMIN',
-      );
+      return res.status(400).json({
+        error: 'INVALID_ROLE',
+        message: 'role must be one of: SUPER_ADMIN, ADMIN, USER',
+      });
     }
 
-    const data = await updateUserRole(actor, req.params.id, role, auditContext(req));
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+
+    const targetUser = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (actor.id === targetUser.id) {
+      return res.status(403).json({ error: 'You cannot change your own role. Ask another admin to do it.' });
+    }
+
+    if (actor.role === 'ADMIN' && targetUser.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access Denied: You cannot modify a SUPER_ADMIN.' });
+    }
+
+    if (actor.role === 'ADMIN' && role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access Denied: Only a SUPER_ADMIN can assign the SUPER_ADMIN role.' });
+    }
+
+    const data = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { role }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        user_id: actor.id,
+        action: 'UPDATE',
+        entity_type: 'users',
+        entity_id: req.params.id,
+        ip_address: req.ip || 'unknown',
+        new_values: { action: 'USER_ROLE_CHANGED', role }
+      }
+    });
+
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, 'PATCH /users/:id/role', err);
+    console.error("🚨 CRITICAL API ERROR:", err);
+    return res.status(500).json({ 
+      error: err instanceof Error ? err.message : String(err), 
+      details: err 
+    });
   }
 });
 
@@ -436,6 +562,48 @@ router.post('/:id/subscription/override', async (req: Request, res: Response) =>
     return res.json({ success: true, data });
   } catch (err) {
     return handleError(res, 'POST /users/:id/subscription/override', err);
+  }
+});
+
+// =================== POST /users/:id/reset-key ====================
+// Revokes all existing API keys for the user and issues a fresh one.
+// This is a high-friction, admin-only action logged in audit_logs.
+router.post('/:id/reset-key', async (req: Request, res: Response) => {
+  try {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+
+    const userId = req.params.id;
+
+    // 1. Revoke all existing active keys for this user
+    await (await import('../../services/database.service')).pool.query(
+      `UPDATE api_keys
+         SET status = 'revoked', is_active = false, revoked_at = NOW()
+       WHERE user_id = $1 AND is_active = true`,
+      [userId],
+    );
+
+    // 2. Create a fresh key named "Admin Reset Key"
+    const { ApiKeysService } = await import('../api-keys/api-keys.service');
+    const { apiKey, secret } = await ApiKeysService.create(userId, { name: 'Admin Reset Key' });
+
+    // 3. Audit the admin action
+    await (await import('../../services/database.service')).pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'ADMIN_KEY_RESET', 'api_keys', $2, $3::jsonb)`,
+      [actor.id, apiKey.id, JSON.stringify({ targetUserId: userId, resetBy: actor.id })],
+    );
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      success: true,
+      data: {
+        keyPrefix: apiKey.keyPrefix,
+        message: `All previous API keys revoked. New key issued with prefix ${apiKey.keyPrefix}`,
+      },
+    });
+  } catch (err) {
+    return handleError(res, 'POST /users/:id/reset-key', err);
   }
 });
 

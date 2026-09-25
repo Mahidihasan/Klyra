@@ -2,6 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyJwt } from './jwt.util';
 import { JwtPayload } from './auth.types';
 import { pool } from '../../services/database.service';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -37,6 +40,20 @@ export async function isActiveAuthenticatedUser(payload: JwtPayload): Promise<bo
   if (payload.sessionId) {
     if (!user.session_id || user.revoked_at || new Date(user.expires_at) < new Date()) return false;
   }
+
+  // Validate Admin Session (if present)
+  if (payload.adminSessionId) {
+    try {
+      const adminSession = await (prisma as any).session.findUnique({
+        where: { id: payload.adminSessionId }
+      });
+      if (!adminSession || adminSession.isRevoked) return false;
+    } catch (err) {
+      console.error('Admin session validation error:', err);
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -63,6 +80,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   if (payload.sessionId) {
     void pool.query('UPDATE user_sessions SET last_active_at = NOW() WHERE id = $1 AND revoked_at IS NULL', [payload.sessionId]).catch(() => undefined);
   }
+  if (payload.adminSessionId) {
+    void (prisma as any).session.update({
+      where: { id: payload.adminSessionId },
+      data: { lastActive: new Date() }
+    }).catch(() => undefined);
+  }
   next();
 }
 
@@ -80,3 +103,25 @@ export async function authOptional(req: Request, _res: Response, next: NextFunct
   }
   next();
 }
+
+/**
+ * Require SUPER_ADMIN role.
+ */
+export const requireSuperAdmin = (req: Request, res: Response, next: NextFunction) => {
+  const role = (req.user?.role || (req.headers['x-klyra-role'] as string) || '').toUpperCase();
+  if (role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ success: false, message: 'Super Admin access required.' });
+  }
+  next();
+};
+
+/**
+ * Require ADMIN or SUPER_ADMIN role.
+ */
+export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+  const role = (req.user?.role || (req.headers['x-klyra-role'] as string) || '').toUpperCase();
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(role)) {
+    return res.status(403).json({ success: false, message: 'Admin access required.' });
+  }
+  next();
+};

@@ -13,7 +13,6 @@ import { OpenApiImportModal } from './components/OpenApiImportModal';
 import { VersionMigrationModal } from './components/VersionMigrationModal';
 import { ProjectCommandPalette } from './components/ProjectCommandPalette';
 import { apiBuildService } from '../../services/apiBuild';
-import { DUMMY_PROJECT_ID, getDummyDeployments, getDummyEndpoints, getDummyIncidents, getDummyInsights, getDummyLogs, getDummyAlertRules, getDummyVersions } from './dummyApi';
 
 import { TabOverview } from './tabs/TabOverview';
 import { TabApi } from './tabs/TabApi';
@@ -41,7 +40,8 @@ interface WorkspaceRedesignProps {
   tab: ProjectTab;
   setTab: (t: ProjectTab) => void;
   onBackToDashboard: () => void;
-  onOpenPlayground: () => void;
+  /** Optional endpoint lets "Test in Playground" preselect a specific route. */
+  onOpenPlayground: (ep?: DetailedEndpoint) => void;
   onPauseToggle: () => void;
   onDeleteProject: () => void;
   onSelectProject: (p: ProviderProject) => void;
@@ -64,9 +64,8 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
   const [selectedVersion, setSelectedVersion] = useState<string>(project.version || 'v2.4.1');
 
   // Extended domain datasets
-  const isDummyProject = project.id === DUMMY_PROJECT_ID;
-  const [endpoints, setEndpoints] = useState<DetailedEndpoint[]>(() => isDummyProject ? getDummyEndpoints() : []);
-  const [versions, setVersions] = useState<ExtendedVersion[]>(() => isDummyProject ? getDummyVersions() : project.versions.map((version) => ({
+  const [endpoints, setEndpoints] = useState<DetailedEndpoint[]>([]);
+  const [versions, setVersions] = useState<ExtendedVersion[]>(() => project.versions.map((version) => ({
     id: version.id,
     semver: version.semver,
     status: version.status === 'deprecated' ? 'Deprecated' : version.status === 'published' ? 'Current' : 'Beta',
@@ -81,11 +80,11 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
     canaryWeight: version.semver === project.version ? 100 : 0,
     changelog: { added: [], modified: [], deprecated: [], breaking: [] },
   })));
-  const [deployments, setDeployments] = useState<DeploymentRecord[]>(() => isDummyProject ? getDummyDeployments() : []);
-  const [logs, setLogs] = useState<ExtendedLogEntry[]>(() => isDummyProject ? getDummyLogs() : []);
-  const [insights, setInsights] = useState<KlyraInsightItem[]>(() => isDummyProject ? getDummyInsights() : []);
-  const [incidents, setIncidents] = useState<MonitoringIncident[]>(() => isDummyProject ? getDummyIncidents() : []);
-  const [alertRules, setAlertRules] = useState<AlertRule[]>(() => isDummyProject ? getDummyAlertRules() : []);
+  const [deployments, setDeployments] = useState<DeploymentRecord[]>([]);
+  const [logs, setLogs] = useState<ExtendedLogEntry[]>([]);
+  const [insights, setInsights] = useState<KlyraInsightItem[]>([]);
+  const [incidents, setIncidents] = useState<MonitoringIncident[]>([]);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
 
   // Mutable collections initialized from project
   const [plans, setPlans] = useState<PricingPlan[]>(project.plans || []);
@@ -95,7 +94,6 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
   useEffect(() => {
     let mounted = true;
     const loadWorkspaceData = async () => {
-      if (isDummyProject) return;
       const [remoteEndpoints, remoteVersions, remoteDeployments, remoteLogs, remoteInsights, remoteIncidents, remoteAlerts] = await Promise.all([
         apiBuildService.listEndpoints<DetailedEndpoint>(project.id).catch(() => []),
         apiBuildService.listVersions<ExtendedVersion>(project.id).catch(() => []),
@@ -116,7 +114,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
     };
     void loadWorkspaceData();
     return () => { mounted = false; };
-  }, [isDummyProject, project.id]);
+  }, [project.id]);
 
   // Drawers state
   const [selectedEndpoint, setSelectedEndpoint] = useState<DetailedEndpoint | null>(null);
@@ -257,9 +255,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
 
   const handleUpdateEndpoint = (endpointId: string, patch: Partial<DetailedEndpoint>) => {
     setEndpoints((current) => current.map((endpoint) => endpoint.id === endpointId ? { ...endpoint, ...patch } : endpoint));
-    if (!isDummyProject) {
-      void apiBuildService.updateEndpoint(project.id, endpointId, patch as Record<string, unknown>).catch(() => showToast('Route policy saved locally; backend sync will retry.'));
-    }
+    void apiBuildService.updateEndpoint(project.id, endpointId, patch as Record<string, unknown>).catch(() => showToast('Route policy saved locally; backend sync will retry.'));
   };
 
   const handleOpenConsumerByName = (name: string) => {
@@ -438,7 +434,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
         onUpdateEndpoint={handleUpdateEndpoint}
         onOpenPlayground={(ep) => {
           setSelectedEndpoint(null);
-          onOpenPlayground();
+          onOpenPlayground(ep);
         }}
         onViewLogs={(path) => {
           setSelectedEndpoint(null);

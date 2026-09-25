@@ -47,6 +47,39 @@ export const extractVariables = (str: string): string[] => {
   return matches.map((m) => m.replace(/[{}]/g, '').trim());
 };
 
+/**
+ * True when a request body is only the placeholder an import writes for an
+ * endpoint whose specification declares nothing usable: `{}`, `[]`,
+ * `"example"`, or `{"example": "value"}`.
+ *
+ * Used when a catalog is imported again: such a body is replaced by the real
+ * sample the specification declares (a `$ref` request body is resolved now), so
+ * a folder imported before the specification could be read ends up with bodies
+ * the API accepts instead of a placeholder every endpoint rejects. A body the
+ * user has edited — any other content, or text that is not JSON — is never
+ * touched, and neither is a body whose parse fails.
+ */
+export const isPlaceholderBody = (body: BodyConfig | undefined): boolean => {
+  const json = (body?.json || '').trim();
+  if (!json) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return false;
+  }
+  const placeholder = (value: unknown): boolean => {
+    if (value === 'example') return true;
+    if (Array.isArray(value)) return value.length === 0 || value.every(placeholder);
+    if (value && typeof value === 'object') {
+      const keys = Object.keys(value as Record<string, unknown>);
+      return keys.length === 0 || keys.every((key) => key === 'example');
+    }
+    return false;
+  };
+  return placeholder(parsed);
+};
+
 export const buildAuthHeaders = (auth: AuthConfig): Record<string, string> => {
   const headers: Record<string, string> = {};
   switch (auth.type) {

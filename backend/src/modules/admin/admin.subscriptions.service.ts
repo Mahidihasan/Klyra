@@ -59,7 +59,7 @@ export class AdminSubscriptionsService {
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
       VALUES ($1, 'UPDATE', 'SUBSCRIPTION', $2, $3)
       `,
       [viewer.id, id, { status: 'CANCELED', manual_override: true }]
@@ -93,7 +93,7 @@ export class AdminSubscriptionsService {
 
     await db.query(
       `
-      INSERT INTO audit_logs (user_id, action, resource_type, details)
+      INSERT INTO audit_logs (user_id, action, entity_type, new_values)
       VALUES ($1, 'UPDATE', 'TIER_TEMPLATES', $2)
       `,
       [viewer.id, { templates }]

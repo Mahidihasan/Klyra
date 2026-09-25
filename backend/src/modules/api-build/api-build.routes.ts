@@ -45,7 +45,7 @@ import {
   updateProject,
 } from './api-build.service';
 import { addCategory, listCategories, removeCategory } from './api-build.categories';
-import { detectUpstream, extractOperations } from './api-build.detect';
+import { detectUpstream, extractOperations, extractOperationsFromSpec } from './api-build.detect';
 import { probeProjectHealth } from './api-build.telemetry';
 import {
   getDraftState,
@@ -73,9 +73,17 @@ import {
 } from './api-build.history';
 import {
   buildGatewayUrl,
+  normalizeDeploymentSource,
   sanitizeProjectForClient,
   slugFromProjectId,
 } from './api-build.deployment';
+import multer from 'multer';
+import { processProjectZip, inspectUploadedProject, prepareGitHubSource } from './api-build.upload';
+
+const projectUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+});
 
 const router = Router();
 
@@ -115,6 +123,14 @@ const newProjectRecord = (body: Record<string, unknown>) => {
     environment: 'development' as const,
     version: 'v1.0.0',
     sourceKind: str(body.sourceKind, 'existing'),
+    dockerSourceMode: str(body.dockerSourceMode, 'image') as 'image' | 'folder',
+    dockerImage: str(body.dockerImage, ''),
+    dockerUploadId: str(body.dockerUploadId, ''),
+    dockerfilePath: str(body.dockerfilePath, 'Dockerfile'),
+    buildContext: str(body.buildContext, '.'),
+    dockerPort: numField(body.dockerPort, 8080),
+    readinessMode: str(body.readinessMode, 'auto'),
+    readinessPath: str(body.readinessPath, ''),
     baseUrl: '',
     openApiUrl: '',
     gatewayUrl: buildGatewayUrl(slug),
@@ -270,14 +286,34 @@ router.put('/projects/:id/endpoints/:eid', async (req, res) => {
 router.post('/projects/:id/endpoints/import', async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
-  const payload = req.body || {};
-  let endpoints = Array.isArray(payload.endpoints) ? payload.endpoints : [];
-  if (endpoints.length === 0 && (payload.baseUrl || payload.openApiUrl)) {
-    const detection = await detectUpstream(str(payload.baseUrl), str(payload.openApiUrl));
-    endpoints = extractOperations(detection.foundAt || '', detection.endpoints);
-  }
+  const payload = (req.body || {}) as { endpoints?: unknown[]; baseUrl?: string; openApiUrl?: string };
+  const endpoints = (
+    Array.isArray(payload.endpoints) ? payload.endpoints : []
+  ) as Parameters<typeof importEndpoints>[1];
   await importEndpoints(req.params.id, endpoints);
-  ok(res, { imported: endpoints.length });
+  let discovered = 0;
+  // A project whose specification can be re-read gets its discovered rows
+  // refreshed from the document itself (see extractOperationsFromSpec — a
+  // `$ref` request body resolves to the schema it points at). Stored rows that
+  // still carry the old placeholder bodies (`"example"`) are exactly what this
+  // updates.
+  if (payload.baseUrl || payload.openApiUrl) {
+    try {
+      const detection = await detectUpstream(str(payload.baseUrl), str(payload.openApiUrl));
+      const rehydrated = detection.foundAt
+        ? await extractOperationsFromSpec(String(detection.foundAt), detection.endpoints)
+        : [];
+      const rows = rehydrated.length ? rehydrated : extractOperations(detection.foundAt || '', detection.endpoints);
+      await importEndpoints(
+        req.params.id,
+        rows as Parameters<typeof importEndpoints>[1],
+      );
+      discovered = rows.length;
+    } catch {
+      // Discovery on a stale/dead upstream must never fail an import call.
+    }
+  }
+  ok(res, { imported: endpoints.length, endpoints: endpoints.length, discovered });
 });
 router.delete('/projects/:id/endpoints/:eid', async (req, res) => {
   const { pool } = await import('../../services/database.service');
@@ -445,13 +481,13 @@ router.post('/projects/:id/deployments', async (req, res) => {
   if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
   const body = req.body || {};
   if (body.enqueue === true || (!body.version && !body.status)) {
-    const job = await enqueueDeploy(req.params.id);
+    const job = await enqueueDeploy(req.params.id, body);
     return ok(res, { jobId: job.id, status: job.status }, 202);
   }
   const record = await addDeployment(req.params.id, {
     version: str(body.version, str(project.version, 'v1.0.0')),
     environment: str(body.environment, str(project.environment, 'development')),
-    source: str(body.source, 'Klyra Hosted'),
+    source: normalizeDeploymentSource(body.source, 'Klyra Hosted'),
     branch: str(body.branch) || null,
     commitHash: str(body.commitHash) || null,
     commitMessage: str(body.commitMessage) || null,
@@ -646,10 +682,109 @@ router.delete('/categories/:name', async (req, res) => {
 router.post('/detect', async (req, res) => {
   const baseUrl = String(req.body?.baseUrl || '').trim();
   const openApiUrl = String(req.body?.openApiUrl || '').trim();
+  const repository = String(req.body?.repository || '').trim();
+  const dockerImage = String(req.body?.dockerImage || '').trim();
   if (!baseUrl && !openApiUrl) {
+    // Container sources have no reachable upstream until the container runs.
+    // This is NOT an error: the deploy pipeline discovers the specification
+    // automatically after the container reports healthy (api-build.deploy.ts).
+    if (repository || dockerImage) {
+      return ok(res, {
+        found: false,
+        reachable: false,
+        baseUrl: '',
+        openApiVersion: null,
+        endpointCount: 0,
+        schemaCount: 0,
+        authKind: null,
+        endpoints: [],
+        servers: [],
+        securitySchemes: [],
+        title: null,
+        description: null,
+        foundAt: null,
+        latencyMs: null,
+        reason: repository
+          ? `Repository source: Klyra clones ${repository} and discovers the OpenAPI specification automatically once the container is running.`
+          : 'Container image source: Klyra discovers the OpenAPI specification automatically once the container is running.',
+      });
+    }
     return fail(res, 400, 'MISSING_URL', 'Provide a base URL or an OpenAPI URL.');
   }
   ok(res, await detectUpstream(baseUrl, openApiUrl));
+});
+
+/* Project Folder / ZIP Upload for Docker container build */
+router.post('/upload-project', projectUpload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return fail(res, 400, 'NO_FILE', 'No project file uploaded. Provide a ZIP archive in the "file" field.');
+    const descriptor = await processProjectZip(file.buffer, file.originalname);
+    ok(res, descriptor, 201);
+  } catch (error) {
+    fail(res, 400, 'UPLOAD_FAILED', error instanceof Error ? error.message : String(error));
+  }
+});
+
+router.post('/projects/:id/upload', projectUpload.single('file'), async (req, res) => {
+  try {
+    const project = await getProject(req.params.id);
+    if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
+    const file = req.file;
+    if (!file) return fail(res, 400, 'NO_FILE', 'No project file uploaded. Provide a ZIP archive in the "file" field.');
+    const descriptor = await processProjectZip(file.buffer, file.originalname);
+    await updateProject(req.params.id, {
+      dockerSourceMode: 'folder',
+      dockerUploadId: descriptor.uploadId,
+      dockerfilePath: descriptor.dockerfilePath,
+      buildContext: descriptor.buildContext,
+      dockerPort: descriptor.detectedPort,
+    });
+    ok(res, descriptor, 201);
+  } catch (error) {
+    fail(res, 400, 'UPLOAD_FAILED', error instanceof Error ? error.message : String(error));
+  }
+});
+
+/* Inspect a previously extracted project upload (build context facts only —
+   never absolute filesystem paths). Used by the wizard after a page reload. */
+router.get('/uploads/:uploadId', async (req, res) => {
+  try {
+    ok(res, await inspectUploadedProject(String(req.params.uploadId || '')));
+  } catch (error) {
+    fail(res, 404, 'UPLOAD_NOT_FOUND', error instanceof Error ? error.message : String(error));
+  }
+});
+
+/* Obtain a GitHub repository as a buildable container source: shallow clone,
+   Dockerfile/build-context/EXPOSE detection, and persistence of both the
+   repository reference and the discovered build facts on the project. */
+router.post('/projects/:id/source/github', async (req, res) => {
+  const project = await getProject(req.params.id);
+  if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
+  try {
+    const repository = str(req.body?.repository).trim();
+    const requestedBranch = str(req.body?.branch).trim() || 'main';
+    const descriptor = await prepareGitHubSource(repository, requestedBranch);
+    await updateProject(req.params.id, {
+      sourceKind: 'github',
+      repository,
+      branch: descriptor.branch || requestedBranch,
+      dockerSourceMode: 'folder',
+      dockerUploadId: descriptor.uploadId,
+      dockerfilePath: descriptor.dockerfilePath,
+      buildContext: descriptor.buildContext,
+      dockerPort: descriptor.detectedPort,
+    });
+    ok(res, descriptor, 201);
+  } catch (error) {
+    fail(
+      res,
+      400,
+      'GITHUB_SOURCE_FAILED',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 });
 
 /* Deployment job status polling. */
@@ -845,7 +980,7 @@ router.post('/projects/:id/operations', async (req, res) => {
       res,
       400,
       'INVALID_OPERATION_TYPE',
-      `type must be one of: ${[...OPERATION_TYPES].join(', ')}.`,
+      `type must be one of: ${Array.from(OPERATION_TYPES).join(', ')}.`,
     );
   }
   const project = await getProject(req.params.id);

@@ -214,6 +214,12 @@ router.post('/apis', requireAuth, async (req: Request, res: Response) => {
       apiSpec,
       tags,
       plans,
+      requireApproval,
+      studioProjectId,
+      proposedStudioChanges,
+      marketplaceAvailability,
+      media,
+      documentationMarkdown,
     } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length < 3) {
@@ -256,13 +262,21 @@ router.post('/apis', requireAuth, async (req: Request, res: Response) => {
       apiSpec,
       tags: Array.isArray(tags) ? tags : [],
       plans: Array.isArray(plans) ? plans : undefined,
+      requireApproval: Boolean(requireApproval),
+      studioProjectId,
+      proposedStudioChanges,
+      marketplaceAvailability,
+      media,
+      documentationMarkdown,
     });
 
     res.status(201).json({
       success: true,
       data: createdApi,
       message:
-        req.user!.role === 'ADMIN'
+        requireApproval || createdApi.status === 'PENDING'
+          ? 'Approval request created. Your API listing will be published upon admin approval.'
+          : req.user!.role === 'ADMIN'
           ? 'API published successfully to marketplace'
           : 'API submitted for review and published',
     });

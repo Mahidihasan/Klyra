@@ -1,0 +1,23 @@
+/* AdminDatabase.css */
+
+.admin-database-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  animation: fadeIn 0.4s ease-out;
+  color: var(--text-primary);
+  height: calc(100vh - var(--topbar-height) - 40px);
+}
+
+.database-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.database-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}

@@ -72,8 +72,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [clearRefreshTimer]);
 
   const cacheProfile = useCallback((profile: UserProfile) => {
-    setUser(profile);
-    localStorage.setItem('klyra_user', JSON.stringify(profile));
+    setUser(current => {
+      const merged = { ...profile };
+      if (current?.permissions && !merged.permissions) {
+        merged.permissions = current.permissions;
+      }
+      localStorage.setItem('klyra_user', JSON.stringify(merged));
+      return merged;
+    });
   }, []);
 
   useEffect(() => {
@@ -153,8 +159,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         // Try fetching current user profile
-        const { user: profile } = await authApi.me();
-        cacheProfile(profile);
+        const { user: profile, permissions } = await authApi.me();
+        cacheProfile({ ...profile, permissions });
         scheduleTokenRefresh();
       } catch {
         clearSession();
@@ -169,17 +175,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string, rememberMe = false): Promise<LoginResponse> => {
     const res = await authApi.login(email, password, rememberMe);
     if (!res.requires2FA) {
-      saveSession(res.tokens, res.user);
+      saveSession((res as any).tokens, (res as any).user);
     }
     return res;
   };
 
   const verify2FA = async (tempToken: string, code: string): Promise<{ challengeType?: 'totp' }> => {
     const res = await authApi.verify2FA(tempToken, code);
-    if (!res.requires2FA) saveSession(res.tokens, res.user);
+    if (!res.requires2FA) saveSession((res as any).tokens, (res as any).user);
     return res.requires2FA ? { challengeType: res.challengeType } : {};
   };
-  const verifyTotp = async (tempToken: string, code: string): Promise<void> => { const res = await authApi.verifyTotp(tempToken, code); saveSession(res.tokens, res.user); };
+  const verifyTotp = async (tempToken: string, code: string): Promise<void> => { const res = await authApi.verifyTotp(tempToken, code); saveSession((res as any).tokens, (res as any).user); };
 
   const logout = async (): Promise<void> => {
     try {
@@ -193,8 +199,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshProfile = useCallback(async (): Promise<void> => {
     try {
-      const { user: profile } = await authApi.me();
-      cacheProfile(profile);
+      const { user: profile, permissions } = await authApi.me();
+      cacheProfile({ ...profile, permissions });
     } catch {
       // Keep existing profile
     }

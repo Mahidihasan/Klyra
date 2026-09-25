@@ -177,11 +177,28 @@ export const TrendingApiCard: React.FC<TrendingApiCardProps> = ({ api, onSelectA
 
         .category-tag {
           margin-left: auto;
+          box-sizing: border-box;
+          min-width: 0;
+          max-width: 50%;
+          flex: 0 1 auto;
           font-size: 10px;
           color: var(--text-accent);
           background: rgba(139, 92, 246, 0.1);
-          padding: 2px 6px;
+          padding: 2px 4px;
           border-radius: 10px;
+          gap: 3px;
+          white-space: normal;
+        }
+
+        .category-tag svg {
+          flex-shrink: 0;
+        }
+
+        .category-tag span {
+          min-width: 0;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          line-height: 1.2;
         }
       `}</style>
     </div>

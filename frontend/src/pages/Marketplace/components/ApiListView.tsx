@@ -1,7 +1,6 @@
 import React from 'react';
-import { Star, Zap, Shield, Activity, ArrowRight, Clock, Users, ShoppingCart, Check } from 'lucide-react';
-import { CatalogApi, getApiCartPrice } from '../../../services/api/catalog';
-import { useCart } from '../../../context/CartContext';
+import { Star, Zap, Shield, Activity, ArrowRight, Clock, Users } from 'lucide-react';
+import { CatalogApi } from '../../../services/api/catalog';
 import { ApiThumbnail } from './ApiThumbnail';
 
 interface ApiListViewProps {
@@ -17,7 +16,6 @@ export const ApiListView: React.FC<ApiListViewProps> = ({
   onOpenProvider,
   isLoading,
 }) => {
-  const { addToCart, isInCart } = useCart();
   const getPricingBadge = (model: string) => {
     switch (model) {
       case 'FREE':
@@ -136,38 +134,6 @@ export const ApiListView: React.FC<ApiListViewProps> = ({
             {/* Pricing */}
             <span className="alv-col alv-col-pricing">
               <span className={`alv-pricing-badge ${pricing.cls}`}>{pricing.label}</span>
-            </span>
-
-            <span className="alv-col alv-col-cart">
-              <button
-                className={`alv-cart-btn ${isInCart(api.id) ? 'in-cart' : ''}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  addToCart({
-                    id: api.id,
-                    name: api.name,
-                    category: api.categoryName,
-                    price: getApiCartPrice(api),
-                    pricingModel: api.pricingModel,
-                    logoUrl: api.logoUrl,
-                    slug: api.slug,
-                  });
-                }}
-                disabled={isInCart(api.id)}
-                title={isInCart(api.id) ? 'Already in cart' : `Add ${api.name} to cart ($${getApiCartPrice(api)}/mo)`}
-              >
-                {isInCart(api.id) ? (
-                  <>
-                    <Check size={11} className="alv-cart-icon" />
-                    <span>In Cart</span>
-                  </>
-                ) : (
-                  <>
-                    <ShoppingCart size={11} className="alv-cart-icon" />
-                    <span>Add</span>
-                  </>
-                )}
-              </button>
             </span>
 
             {/* Action */}

@@ -63,7 +63,11 @@ function mapApiRow(row: any): CatalogApi {
     uptimePercentage: parseFloat(row.uptime_percentage || '99.95'),
     tags: Array.isArray(row.tags) ? row.tags : [],
     endpointsCount:
-      endpoints.length > 0 ? endpoints.length : parseInt(row.endpoints_count || '1', 10),
+      endpoints.length > 0
+        ? endpoints.length
+        : row.endpoints_count !== undefined && row.endpoints_count !== null
+          ? parseInt(row.endpoints_count, 10)
+          : 1,
     endpoints: endpoints.length > 0 ? endpoints : undefined,
     lastPublishedAt: row.last_published_at
       ? new Date(row.last_published_at).toISOString()
@@ -78,7 +82,7 @@ const SELECT_API_FIELDS = `
   a.logo_url, a.category_id, c.name AS category_name, c.slug AS category_slug,
   COALESCE(c.icon_name, 'Layers') AS category_icon,
   a.owner_id, u.name AS owner_name, u.avatar_url AS owner_avatar_url, u.company AS owner_company,
-  a.pricing_model, a.status, a.is_public, a.api_spec, a.endpoints_count, a.tags, a.rating, a.total_reviews,
+  a.pricing_model, a.status, a.is_public, a.api_spec, a.tags, a.rating, a.total_reviews,
   a.total_subscribers, a.total_requests, COALESCE(a.latency_ms, 120) AS latency_ms,
   COALESCE(a.uptime_percentage, 99.95) AS uptime_percentage,
   a.trending_score, a.popularity_score, a.last_published_at, a.created_at, a.updated_at
@@ -504,17 +508,26 @@ export class CatalogService {
         .replace(/(^-|-$)/g, '') ||
       `api-${Date.now()}`;
 
-    // Admin or verified provider gets instant PUBLISHED status, others PENDING
-    const initialStatus = userRole === 'ADMIN' ? 'PUBLISHED' : 'PENDING';
+    // When requireApproval is set, always set to PENDING to create an admin approval request
+    const initialStatus = payload.requireApproval ? 'PENDING' : userRole === 'ADMIN' ? 'PUBLISHED' : 'PENDING';
 
     const client = await db.connect();
     try {
       await client.query('BEGIN');
 
-      const apiSpec = payload.apiSpec || {
-        openapi: '3.0.0',
-        info: { title: payload.name, version: '1.0.0', description: payload.description },
-        paths: {},
+      const currentVersion = payload.proposedStudioChanges?.semver || '1.0.0';
+
+      const apiSpec = {
+        ...(payload.apiSpec || {
+          openapi: '3.0.0',
+          info: { title: payload.name, version: currentVersion, description: payload.description },
+          paths: {},
+        }),
+        studioProjectId: payload.studioProjectId,
+        proposedStudioChanges: payload.proposedStudioChanges,
+        marketplaceAvailability: payload.marketplaceAvailability,
+        media: payload.media,
+        documentationMarkdown: payload.documentationMarkdown,
       };
 
       const res = await client.query(
@@ -524,12 +537,13 @@ export class CatalogService {
            rating, total_reviews, total_subscribers, total_requests, latency_ms,
            uptime_percentage, trending_score, popularity_score, last_published_at
          )
-         VALUES ($1, $2, $3, '1.0.0', $4, $5, $6, $7, $8, $9, $10, true, $11, $12, 5.00, 0, 1, 0, 110, 99.99, 10.0, 50.0, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $13, 5.00, 0, 1, 0, 110, 99.99, 10.0, 50.0, ${initialStatus === 'PUBLISHED' ? 'NOW()' : 'NULL'})
          RETURNING id`,
         [
           payload.name,
           slug,
           payload.description,
+          currentVersion,
           payload.baseUrl,
           payload.docsUrl || null,
           payload.logoUrl || null,
@@ -544,11 +558,11 @@ export class CatalogService {
 
       const apiId = res.rows[0].id;
 
-      // Create v1.0.0 version
+      // Create version
       await client.query(
         `INSERT INTO api_versions (api_id, version, api_spec, is_current, released_at)
-         VALUES ($1, '1.0.0', $2, true, NOW())`,
-        [apiId, JSON.stringify(apiSpec)],
+         VALUES ($1, $2, $3, true, NOW())`,
+        [apiId, currentVersion, JSON.stringify(apiSpec)],
       );
 
       // Create subscription plans

@@ -1,7 +1,6 @@
 import React from 'react';
-import { Star, Zap, Clock, Users, ArrowRight, Shield, Activity, ShoppingCart, Check } from 'lucide-react';
-import { CatalogApi, getApiCartPrice } from '../../../services/api/catalog';
-import { useCart } from '../../../context/CartContext';
+import { Star, Zap, Clock, Users, ArrowRight, Shield, Activity } from 'lucide-react';
+import { CatalogApi } from '../../../services/api/catalog';
 import { ApiThumbnail } from './ApiThumbnail';
 
 interface ApiGridViewProps {
@@ -17,7 +16,6 @@ export const ApiGridView: React.FC<ApiGridViewProps> = ({
   onOpenProvider,
   isLoading,
 }) => {
-  const { addToCart, isInCart } = useCart();
   if (isLoading) {
     return (
       <div className="agv-grid">
@@ -142,35 +140,6 @@ export const ApiGridView: React.FC<ApiGridViewProps> = ({
                 </span>
               </div>
               <div className="agv-card-actions">
-                <button
-                  className={`agv-cart-btn ${isInCart(api.id) ? 'in-cart' : ''}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    addToCart({
-                      id: api.id,
-                      name: api.name,
-                      category: api.categoryName,
-                      price: getApiCartPrice(api),
-                      pricingModel: api.pricingModel,
-                      logoUrl: api.logoUrl,
-                      slug: api.slug,
-                    });
-                  }}
-                  disabled={isInCart(api.id)}
-                  title={isInCart(api.id) ? 'Already in cart' : `Add ${api.name} to cart ($${getApiCartPrice(api)}/mo)`}
-                >
-                  {isInCart(api.id) ? (
-                    <>
-                      <Check size={12} className="agv-cart-icon" />
-                      <span>In Cart</span>
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingCart size={12} className="agv-cart-icon" />
-                      <span>Add to Cart</span>
-                    </>
-                  )}
-                </button>
                 <button className="agv-explore-btn">
                   Explore <ArrowRight size={13} />
                 </button>

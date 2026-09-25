@@ -5,10 +5,7 @@ import {
   Layers, 
   Repeat, 
   Terminal, 
-  FolderOpen, 
-  Sliders, 
   Key, 
-  Clock, 
   BarChart3, 
   Wallet, 
   CreditCard, 
@@ -62,13 +59,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const workspaceNav = [
     { id: 'playground', label: 'Playground', icon: Terminal },
     { id: 'my-apis', label: 'My APIs', icon: Layers },
+    { id: 'publish-api', label: 'Publish API', icon: Zap },
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
 
     
     { id: 'api-keys', label: 'API Keys', icon: Key },
-    { id: 'collections', label: 'Collections', icon: FolderOpen },
-    { id: 'environments', label: 'Environments', icon: Sliders },
-    { id: 'history', label: 'History', icon: Clock },
   ];
 
   const adminNav = [
@@ -169,26 +164,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </div>
 
-          {/* ADMIN — only rendered for ADMIN/MODERATOR accounts */}
-          {showAdminNav && (
-            <div className="nav-section">
-              <div className="nav-section-title">ADMIN</div>
-              {adminNav.map((item) => {
-                const IconComponent = item.icon;
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    className={`nav-item ${isActive ? 'active' : ''}`}
-                    onClick={() => handleNavClick(item.id)}
-                  >
-                    <IconComponent size={18} className="nav-icon" />
-                    <span className="nav-label">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
 
           {/* ACCOUNT */}
           <div className="nav-section">

@@ -8,7 +8,7 @@
  */
 
 /** Mirrors ADMIN_ROLES in backend/src/modules/admin/admin.routes.ts. */
-const ADMIN_ROLES = new Set(['ADMIN', 'MODERATOR']);
+const ADMIN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN']);
 
 export function isAdminRole(role?: string | null): boolean {
   return Boolean(role && ADMIN_ROLES.has(role.toUpperCase()));

@@ -5,17 +5,24 @@ import { DUMMY_PROJECT } from './dummyApi';
 
 export type BuildView = 'dash' | 'new' | 'source' | 'detect' | 'configure' | 'deploy' | 'product' | 'pricing' | 'publish' | 'success' | 'workspace';
 
-export function useApiBuild(onPlayground: () => void, initialView?: BuildView) {
+export function useApiBuild(onPlayground: () => void, initialView?: BuildView, initialProjectId?: string) {
   // The backend is the single source of truth — start empty and hydrate.
   const [projects, setProjects] = useState<ProviderProject[]>([]);
   const [view, setView] = useState<BuildView>(initialView || 'dash');
+  const [activeId, setActiveId] = useState<string | null>(initialProjectId || null);
 
   useEffect(() => {
     if (initialView) {
       setView(initialView);
     }
   }, [initialView]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialProjectId) {
+      setActiveId(initialProjectId);
+      setView('workspace');
+    }
+  }, [initialProjectId]);
   const [tab, setTab] = useState<ProjectTab>('overview');
   const [draft, setDraft] = useState<CreateProjectInput>({ name: '', description: '', category: 'AI / Developer Tools' });
   const [source, setSource] = useState<SourceConfig>({ kind: 'existing', baseUrl: '', openApiUrl: '', upstreamAuth: 'Bearer Token', branch: 'main', dockerPort: 8080 });

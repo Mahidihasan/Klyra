@@ -17,12 +17,13 @@
 
 import { spawn } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {
   DEFAULT_INTERNAL_PORT,
   containerNameFor,
   imageNameFor,
-  slugOfProject,
+  sanitizeContainerToken,
   type DeploymentRuntime,
 } from './api-build.deployment';
 import type { DetailedEndpointRow } from './api-build.service';
@@ -198,4 +199,167 @@ export async function waitForHealth(baseUrl: string, log: DeployLog, attempts = 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   throw new Error(`Container did not become healthy: ${target} did not answer /health in time.`);
+}
+
+/* ==========================================================================
+ * Artifact scaffold + full deploy orchestration
+ *
+ * A Klyra-hosted API is a tiny zero-dependency Node HTTP service generated
+ * from the project's endpoint catalog. The scaffold is written to a temp
+ * build context and turned into an image by buildImage() — no registry, no
+ * external tooling, just the Docker CLI.
+ * ======================================================================== */
+
+const esc = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+const jsonLiteral = (value: unknown): string => JSON.stringify(value ?? null);
+
+/** Writes the runnable API artifact (server.js + package.json + Dockerfile) into a fresh temp directory. */
+export async function scaffoldApiArtifact(
+  slug: string,
+  version: string,
+  endpoints: DetailedEndpointRow[],
+): Promise<string> {
+  const contextDir = path.join(os.tmpdir(), `klyra-api-build-${sanitizeContainerToken(slug)}-${Date.now()}`);
+  await rm(contextDir, { recursive: true, force: true });
+  await mkdir(contextDir, { recursive: true });
+
+  const routeHandlers = endpoints
+    .filter((e) => e.method && e.path)
+    .map((e) => ({ method: String(e.method).toUpperCase(), path: String(e.path), summary: String(e.summary || '') }));
+
+  const serverJs = `// Klyra-generated API — ${esc(slug)} ${esc(version)}
+// Zero-dependency Node HTTP service. Regenerated on every deploy.
+const http = require('node:http');
+
+const ENDPOINTS = ${jsonLiteral(routeHandlers)};
+
+function matchPath(pattern, pathname) {
+  const patternParts = pattern.split('/').filter(Boolean);
+  const pathParts = pathname.split('/').filter(Boolean);
+  if (patternParts.length !== pathParts.length) return null;
+  const params = {};
+  for (let i = 0; i < patternParts.length; i += 1) {
+    if (patternParts[i].startsWith(':')) params[patternParts[i].slice(1)] = decodeURIComponent(pathParts[i]);
+    else if (patternParts[i] !== pathParts[i]) return null;
+  }
+  return params;
+}
+
+async function readBody(request) {
+  const chunks = [];
+  for await (const chunk of request) chunks.push(chunk);
+  const raw = Buffer.concat(chunks).toString('utf8');
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return raw; }
+}
+
+const server = http.createServer(async (request, response) => {
+  const url = new URL(request.url, 'http://localhost');
+  const pathname = url.pathname;
+  const method = (request.method || 'GET').toUpperCase();
+  const payload = await readBody(request);
+  const send = (status, body) => {
+    response.writeHead(status, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(body));
+  };
+
+  try {
+    if (pathname === '/health') return send(200, { status: 'ok', service: '${esc(slug)}', version: '${esc(version)}' });
+
+    for (const endpoint of ENDPOINTS) {
+      if (endpoint.method !== method) continue;
+      const params = matchPath(endpoint.path, pathname);
+      if (!params) continue;
+      return send(200, {
+        endpoint: endpoint.path,
+        method,
+        params,
+        query: Object.fromEntries(url.searchParams.entries()),
+        body: payload,
+      });
+    }
+
+    return send(404, { error: 'Not found', path: pathname, method });
+  } catch (error) {
+    return send(500, { error: 'Internal error', detail: String((error && error.message) || error) });
+  }
+});
+
+const PORT = process.env.PORT || ${DEFAULT_INTERNAL_PORT};
+server.listen(PORT, '0.0.0.0', () => {
+  process.stdout.write('${esc(slug)} ${esc(version)} listening on port ' + PORT + '\\n');
+});
+`;
+
+  const packageJson = JSON.stringify({
+    name: `klyra-api-${sanitizeContainerToken(slug)}`,
+    version: version.replace(/^v/, '') || '1.0.0',
+    private: true,
+    scripts: { start: 'node server.js' },
+  }, null, 2);
+
+  const dockerfile = `FROM node:20-alpine
+WORKDIR /app
+COPY package.json server.js ./
+ENV PORT=${DEFAULT_INTERNAL_PORT}
+EXPOSE ${DEFAULT_INTERNAL_PORT}
+CMD ["node", "server.js"]
+`;
+
+  await writeFile(path.join(contextDir, 'server.js'), serverJs, 'utf8');
+  await writeFile(path.join(contextDir, 'package.json'), packageJson, 'utf8');
+  await writeFile(path.join(contextDir, 'Dockerfile'), dockerfile, 'utf8');
+  return contextDir;
+}
+
+/**
+ * Full Docker deploy pipeline for one Klyra-hosted API:
+ *   availability check -> shared network -> (pull user image | scaffold + build)
+ *   -> run container -> wait for /health -> runtime descriptor.
+ * Throws on any failure — the caller records a failed deployment, never a
+ * healthy one.
+ */
+export async function deployProjectDocker(opts: {
+  slug: string;
+  version: string;
+  /** Pre-built image reference (skips the build; pulled before run). */
+  image?: string;
+  endpoints: DetailedEndpointRow[];
+  log: DeployLog;
+}): Promise<DeploymentRuntime> {
+  const available = await isDockerAvailable();
+  if (!available) throw new DockerUnavailableError();
+  const log = opts.log;
+
+  const network = await ensureNetwork(log);
+  const image = opts.image?.trim() || imageNameFor(opts.slug, opts.version);
+  if (opts.image?.trim()) {
+    await pullImage(image, log);
+  } else {
+    const contextDir = await scaffoldApiArtifact(opts.slug, opts.version, opts.endpoints);
+    try {
+      await buildImage(contextDir, image, log);
+    } finally {
+      await rm(contextDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  const name = containerNameFor(opts.slug, opts.version);
+  const internalPort = DEFAULT_INTERNAL_PORT;
+  const { hostPort } = await runContainer({ name, image, network, internalPort, log });
+
+  const runtime: DeploymentRuntime = { kind: 'docker', containerName: name, image, internalPort };
+  if (hostPort !== undefined) {
+    runtime.hostPort = hostPort;
+    runtime.hostUrl = `http://127.0.0.1:${hostPort}`;
+    runtime.upstream = runtime.hostUrl;
+  } else {
+    runtime.internalUrl = `http://${name}:${internalPort}`;
+    runtime.upstream = runtime.internalUrl;
+  }
+
+  const healthBase = runtime.hostUrl || runtime.internalUrl || '';
+  await waitForHealth(healthBase, log);
+  return runtime;
 }

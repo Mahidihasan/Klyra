@@ -1,5 +1,9 @@
+import { isIP } from 'net';
 import bcrypt from 'bcryptjs';
+import geoip from 'geoip-lite';
 import type { Express } from 'express';
+import { PrismaClient, Permission } from '@prisma/client';
+const prisma = new PrismaClient();
 import { pool } from '../../services/database.service';
 import { CLOUDINARY_FOLDERS, deleteFile, uploadFile } from '../../services/storage.service';
 import {
@@ -46,6 +50,41 @@ export class AccountDeactivationError extends Error {
     super(message);
     this.name = 'AccountDeactivationError';
   }
+}
+
+/**
+ * Normalize a client IP into a value PostgreSQL `inet` accepts.
+ *
+ * The previous implementation stripped every character outside [0-9.:] which
+ * mangled IPv6 addresses: "::ffff:172.19.0.5" lost its "ffff" hex letters and
+ * became ":::172.19.0.5", and "fe80::1" became "80::1" — both rejected by
+ * PostgreSQL with "invalid input syntax for type inet". The address is now
+ * only ever unwrapped/validated, never rebuilt by prepending separators.
+ *
+ * - IPv4                172.19.0.5        -> 172.19.0.5
+ * - IPv4-mapped IPv6    ::ffff:172.19.0.5 -> 172.19.0.5
+ * - IPv6                ::1 / 2001:db8::1 -> unchanged
+ * - missing/invalid     -> fallback (127.0.0.1)
+ */
+export function normalizeClientIp(rawIp?: string | null, fallback = '127.0.0.1'): string {
+  let candidate = typeof rawIp === 'string' ? rawIp.trim() : '';
+
+  // Proxies may send "client, proxy1, proxy2": keep the left-most entry.
+  const commaIndex = candidate.indexOf(',');
+  if (commaIndex !== -1) candidate = candidate.slice(0, commaIndex).trim();
+  // Drop bracketed and zone-scoped forms: "[::1]", "fe80::1%eth0".
+  if (candidate.startsWith('[') && candidate.endsWith(']')) candidate = candidate.slice(1, -1);
+  const zoneIndex = candidate.indexOf('%');
+  if (zoneIndex !== -1) candidate = candidate.slice(0, zoneIndex);
+
+  // Unwrap IPv4-mapped IPv6 so the stored value matches the real client IP.
+  if (candidate.toLowerCase().startsWith('::ffff:')) {
+    const mapped = candidate.slice('::ffff:'.length);
+    if (isIP(mapped) === 4) candidate = mapped;
+  }
+
+  if (isIP(candidate)) return candidate;
+  return isIP(fallback) ? fallback : '127.0.0.1';
 }
 
 function sanitizeUser(user: any): UserPublicProfile {
@@ -562,13 +601,16 @@ export class AuthService {
       [cleanEmail]
     );
     const user: UserRecord = userRes.rows[0];
+    if (user && user.role) {
+      user.role = user.role.toUpperCase();
+    }
 
     if (!user) {
       // Record failed attempt in audit log
       await pool.query(
         `INSERT INTO audit_logs (action, entity_type, new_values, ip_address, user_agent)
          VALUES ('LOGIN', 'users', $1, $2::inet, $3)`,
-        [JSON.stringify({ success: false, reason: 'user_not_found', email: cleanEmail }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
+        [JSON.stringify({ success: false, reason: 'user_not_found', email: cleanEmail }), normalizeClientIp(ip), userAgent]
       );
       throw new Error('Invalid email or password.');
     }
@@ -576,6 +618,29 @@ export class AuthService {
     if (user.status !== 'ACTIVE' || !user.is_active) {
       const err = new Error('Account is inactive or suspended.') as any;
       if (user.status === 'INACTIVE' && !user.is_active) err.code = 'ACCOUNT_INACTIVE';
+      throw err;
+    }
+
+    // Check System Lockdown (Maintenance Mode & DEFCON)
+    let isMaintenance = false;
+    let isDefcon = false;
+    try {
+      const settingsRes = await pool.query(`SELECT key, value FROM system_settings WHERE key IN ('maintenance_mode', 'defcon_lockdown')`);
+      for (const row of settingsRes.rows) {
+        if (row.key === 'maintenance_mode') isMaintenance = row.value === true || row.value === 'true';
+        if (row.key === 'defcon_lockdown') isDefcon = row.value === true || row.value === 'true';
+      }
+    } catch (err) {
+      console.warn('System settings fetch failed, defaulting to lockdown = false', err);
+    }
+
+    if ((isMaintenance || isDefcon) && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+      const err = new Error(
+        isDefcon 
+          ? '🚨 SYSTEM LOCKDOWN: The platform is currently under DEFCON emergency lockdown. Only authorized administrators can log in.' 
+          : 'System is currently under maintenance or lockdown. Only administrators can log in at this time.'
+      ) as any;
+      err.code = isDefcon ? 'DEFCON_LOCKDOWN' : 'MAINTENANCE_LOCKDOWN';
       throw err;
     }
 
@@ -638,7 +703,7 @@ export class AuthService {
         await pool.query(
           `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values, ip_address, user_agent)
            VALUES ($1, 'LOGIN', 'users', $1, $2, $3::inet, $4)`,
-          [user.id, JSON.stringify({ success: false, reason: 'locked_3_attempts' }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
+          [user.id, JSON.stringify({ success: false, reason: 'locked_3_attempts' }), normalizeClientIp(ip), userAgent]
         );
 
         throw new Error('Account locked for 20 minutes due to 3 failed login attempts.');
@@ -648,7 +713,7 @@ export class AuthService {
         await pool.query(
           `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values, ip_address, user_agent)
            VALUES ($1, 'LOGIN', 'users', $1, $2, $3::inet, $4)`,
-          [user.id, JSON.stringify({ success: false, reason: 'invalid_password', failedAttempts }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
+          [user.id, JSON.stringify({ success: false, reason: 'invalid_password', failedAttempts }), normalizeClientIp(ip), userAgent]
         );
 
         throw new Error(`Invalid email or password. You have ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before a 20-minute account lockout.`);
@@ -889,19 +954,75 @@ export class AuthService {
         user_id, refresh_token_hash, user_agent, ip_address, expires_at
       ) VALUES ($1, $2, $3, $4::inet, $5)
       RETURNING id`,
-      [user.id, refreshTokenHash, userAgent, ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', refreshExpiresAt]
+      [user.id, refreshTokenHash, userAgent, normalizeClientIp(ip), refreshExpiresAt]
     );
 
     const sessionId = sessionRes.rows[0].id;
 
+    // Parse simple user agent to extract device and browser
+    let deviceName = 'Unknown Device';
+    let browserName = 'Unknown Browser';
+    
+    const browserMatch = userAgent.match(/(firefox|msie|trident|chrome|safari|edg|opr)\/?\s*(\d+)/i);
+    if (browserMatch) {
+      browserName = `${browserMatch[1]} ${browserMatch[2]}`.replace('OPR', 'Opera').replace('Edg', 'Edge');
+    }
+    
+    const deviceMatch = userAgent.match(/\(([^)]+)\)/);
+    if (deviceMatch) {
+      const parts = deviceMatch[1].split(';');
+      deviceName = parts[0];
+      if (parts.length > 1 && parts[1].includes('OS')) deviceName = parts[1].trim();
+    }
+
+    let resolvedLocation = 'Unknown Location';
+    let resolvedLatitude = null;
+    let resolvedLongitude = null;
+    const cleanIp = normalizeClientIp(ip);
+
+    if (cleanIp === '::1' || cleanIp === '127.0.0.1' || cleanIp.startsWith('192.168.')) {
+      resolvedLocation = 'Localhost (Dev)';
+    } else {
+      const geo = geoip.lookup(cleanIp);
+      if (geo) {
+        resolvedLocation = `${geo.city || 'Unknown City'}, ${geo.country || 'Unknown Country'}`;
+        resolvedLatitude = geo.ll[0];
+        resolvedLongitude = geo.ll[1];
+      }
+    }
+
+    const adminSession = await (prisma as any).session.create({
+      data: {
+        userId: user.id,
+        device: deviceName,
+        browser: browserName,
+        ipAddress: cleanIp,
+        location: resolvedLocation,
+        latitude: resolvedLatitude,
+        longitude: resolvedLongitude
+      }
+    });
+
     // Access token valid for 15 minutes (900s)
+    let permissions: string[] = [];
+    if (user.role === 'SUPER_ADMIN') {
+      permissions = Object.values(Permission);
+    } else if (user.role === 'ADMIN') {
+      const dbRole = await (prisma as any).rolePermission.findUnique({
+        where: { role: 'ADMIN' }
+      });
+      permissions = dbRole ? dbRole.permissions : [];
+    }
+
     const accessToken = signJwt(
       {
         sub: user.id,
         email: user.email,
         name: user.name,
         role: user.role,
+        permissions,
         sessionId,
+        adminSessionId: adminSession.id
       },
       15 * 60
     );
@@ -911,16 +1032,25 @@ export class AuthService {
       `UPDATE users
        SET last_login_at = NOW(), last_login_ip = $1::inet, metadata = $2
        WHERE id = $3`,
-      [ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', JSON.stringify(metadata), user.id]
+      [normalizeClientIp(ip), JSON.stringify(metadata), user.id]
     );
 
-    // Record successful login in audit_logs
-    await pool.query(
-      `INSERT INTO audit_logs (
-        user_id, action, entity_type, entity_id, new_values, ip_address, user_agent
-      ) VALUES ($1, 'LOGIN', 'users', $1, $2, $3::inet, $4)`,
-      [user.id, JSON.stringify({ success: true, rememberMe, sessionId }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
-    );
+    // Record successful login in audit_logs securely using Prisma
+    try {
+      await (prisma as any).auditLog.create({
+        data: {
+          action: 'LOGIN',
+          entity_type: 'users',
+          entity_id: user.id,
+          user_id: user.id,
+          new_values: { success: true, rememberMe, sessionId } as any,
+          ip_address: normalizeClientIp(ip),
+          user_agent: userAgent
+        }
+      });
+    } catch (err) {
+      console.error('Failed to log login event to audit_logs:', err);
+    }
 
     return {
       tokens: {
@@ -928,7 +1058,10 @@ export class AuthService {
         refreshToken: rawRefreshToken,
         expiresIn: 900,
       },
-      user: sanitizeUser(user),
+      user: {
+        ...sanitizeUser(user),
+        permissions
+      },
     };
   }
 
@@ -1292,7 +1425,7 @@ export class AuthService {
   /**
    * Logout and revoke active session.
    */
-  static async logout(userId: string, sessionId?: string): Promise<void> {
+  static async logout(userId: string, sessionId?: string, ipAddress = '127.0.0.1', userAgent = 'Unknown'): Promise<void> {
     if (sessionId) {
       await pool.query('UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1', [sessionId]);
     } else if (userId) {
@@ -1300,10 +1433,11 @@ export class AuthService {
     }
 
     if (userId) {
+      const cleanIp = normalizeClientIp(ipAddress);
       await pool.query(
-        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
-         VALUES ($1, 'LOGOUT', 'users', $1, '{"action": "user_logout"}')`,
-        [userId]
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values, ip_address, user_agent)
+         VALUES ($1, 'LOGOUT', 'users', $1, '{"action": "user_logout"}', $2::inet, $3)`,
+        [userId, cleanIp, userAgent]
       );
     }
   }

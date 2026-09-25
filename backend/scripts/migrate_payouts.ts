@@ -1,4 +1,4 @@
-import { db } from '../src/database';
+import { pool as db } from '../src/services/database.service';
 
 async function migrate() {
   try {

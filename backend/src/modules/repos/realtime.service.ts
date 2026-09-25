@@ -27,7 +27,9 @@ const CHANNEL = 'repo_change';
 /** Heartbeat cadence so idle proxies / Node don't drop the stream. */
 const HEARTBEAT_MS = 15000;
 /** Re-attempt LISTEN after a dropped listener connection. */
-const RECONNECT_MS = 5000;
+let currentReconnectMs = 500;
+const MAX_RECONNECT_MS = 30000;
+const INITIAL_RECONNECT_MS = 500;
 
 const clientsByRepo = new Map<string, Set<Response>>();
 
@@ -59,8 +61,9 @@ function scheduleReconnect(): void {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
+    currentReconnectMs = Math.min(MAX_RECONNECT_MS, currentReconnectMs * 1.5);
     void connectRepoListener();
-  }, RECONNECT_MS);
+  }, currentReconnectMs);
 }
 
 function startHeartbeat(): void {
@@ -122,6 +125,7 @@ export async function connectRepoListener(): Promise<void> {
   }
 
   listener = client;
+  currentReconnectMs = INITIAL_RECONNECT_MS;
   startHeartbeat();
   console.log(`[repo-realtime] listening on ${CHANNEL}`);
 }

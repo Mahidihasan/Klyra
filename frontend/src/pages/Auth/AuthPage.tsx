@@ -416,6 +416,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         return;
       }
 
+      if (err.code === 'DEFCON_LOCKDOWN' || err.code === 'MAINTENANCE_LOCKDOWN') {
+        setError(err.message);
+        return;
+      }
+
       setError(err.message || 'Login failed.');
 
       // Check if account locked
