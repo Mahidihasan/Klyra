@@ -14,6 +14,7 @@ import { ApiBuilder } from './pages/ApiBuilder/index';
 import { ApiBuildPage } from './pages/ApiBuild';
 import { PublishApiPage } from './pages/PublishApi/index';
 import { BillingPage } from './pages/Billing/index';
+import { PricingPage } from './pages/Pricing/index';
 import { WalletPage } from './pages/Wallet/index';
 import { UsagePage } from './pages/Usage/index';
 import { RepositoriesPage } from './pages/Repositories/index';
@@ -813,9 +814,13 @@ function AppContent() {
                 <main className="content-page-wrapper">
                   <ApiKeysPage />
                 </main>
+              ) : activeTab === 'pricing' ? (
+                <main className="content-page-wrapper">
+                  <PricingPage onBack={() => goBack()} />
+                </main>
               ) : activeTab === 'billing' ? (
                 <main className="content-page-wrapper">
-                  <BillingPage />
+                  <BillingPage onNavigatePricing={() => setActiveTab('pricing')} />
                 </main>
               ) : activeTab === 'wallet' ? (
                 <main className="content-page-wrapper">

@@ -23,7 +23,11 @@ const SECTIONS: { id: BillingSection; label: string }[] = [
   { id: 'info', label: 'Billing Information' },
 ];
 
-export const BillingPage: React.FC = () => {
+export interface BillingPageProps {
+  onNavigatePricing?: () => void;
+}
+
+export const BillingPage: React.FC<BillingPageProps> = ({ onNavigatePricing }) => {
   const [section, setSection] = useState<BillingSection>('overview');
   const [refreshToken, setRefreshToken] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -133,6 +137,7 @@ export const BillingPage: React.FC = () => {
           onViewInvoices={() => setSection('invoices')}
           onViewPayments={() => setSection('payments')}
           onViewMethods={() => setSection('methods')}
+          onViewPlans={onNavigatePricing}
         />
       ) : section === 'invoices' ? (
         <InvoicesTab
