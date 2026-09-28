@@ -150,7 +150,6 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
               onClick={() => { if (!isCurrentSubscribed) { setShowSubRequiredToast(true); setTimeout(() => setShowSubRequiredToast(false), 2400); } }}
               style={{ cursor: !isCurrentSubscribed ? 'pointer' : 'default' }}
             >
-              {!isCurrentSubscribed && <Lock size={11} className="adp-lock-overlay" />}
               <Zap size={16} className="adp-metric-icon zap" />
               <span className="adp-metric-value">{api.latencyMs}ms</span>
               <span className="adp-metric-label">Avg Latency</span>
@@ -412,8 +411,8 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
           align-items: center;
           gap: 3px;
           padding: 14px 16px;
-          background: var(--bg-card);
-          border: 1px solid var(--border-card);
+          background: transparent;
+          border: 1px solid transparent;
           border-radius: var(--radius-lg);
           min-width: 100px;
           min-height: 82px;
@@ -431,21 +430,6 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
         .adp-metric-card.locked {
           opacity: 0.7;
         }
-        .adp-metric-card.locked::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          background: repeating-linear-gradient(135deg, transparent, transparent 6px, rgba(139, 92, 246, 0.04) 6px, rgba(139, 92, 246, 0.04) 12px);
-          pointer-events: none;
-        }
-        .adp-lock-overlay {
-          position: absolute;
-          top: 6px;
-          right: 6px;
-          color: rgba(245, 158, 11, 0.75);
-        }
-
         /* Subscription Required Toast */
         .adp-sub-required-toast {
           display: flex;
@@ -528,93 +512,16 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
           margin-left: 4px;
         }
 
-        /* 1. Rating: Warm golden twinkle & amber aura pulse */
-        .adp-metric-card.metric-rating {
-          animation: adpRatingGlow 3.5s ease-in-out infinite;
-        }
-        .adp-metric-card.metric-rating .adp-metric-icon.star {
-          animation: starTwinkle 3.5s ease-in-out infinite;
-        }
-        @keyframes adpRatingGlow {
-          0%, 100% {
-            border-color: var(--border-card);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          }
-          50% {
-            border-color: rgba(245, 158, 11, 0.45);
-            box-shadow: 0 0 16px rgba(245, 158, 11, 0.2), inset 0 0 12px rgba(245, 158, 11, 0.05);
-          }
-        }
-        @keyframes starTwinkle {
-          0%, 100% { transform: scale(1) rotate(0deg); filter: drop-shadow(0 0 1px rgba(245, 158, 11, 0.4)); }
-          50% { transform: scale(1.18) rotate(6deg); filter: drop-shadow(0 0 7px rgba(245, 158, 11, 0.9)); }
-        }
+        .adp-metric-icon.zap { color: #60a5fa; }
+        .adp-metric-icon.shield { color: #34d399; }
+        .adp-metric-icon.users { color: #c084fc; }
 
-        /* 2. Latency: Telemetry electric heartbeat flash */
-        .adp-metric-card.metric-latency {
-          animation: adpLatencyPulse 2.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        .adp-metric-card > * {
+          animation: adpMetricFloat 4.8s ease-in-out infinite;
         }
-        .adp-metric-card.metric-latency .adp-metric-icon.zap {
-          animation: zapHeartbeat 2.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        @keyframes adpLatencyPulse {
-          0%, 100% {
-            border-color: var(--border-card);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          }
-          35% {
-            border-color: rgba(59, 130, 246, 0.5);
-            box-shadow: 0 0 16px rgba(59, 130, 246, 0.25), inset 0 0 12px rgba(59, 130, 246, 0.05);
-          }
-        }
-        @keyframes zapHeartbeat {
-          0%, 100% { transform: scale(1); color: var(--text-secondary); filter: none; }
-          30% { transform: scale(1.22) translateY(-1px); color: #60a5fa; filter: drop-shadow(0 0 8px #3b82f6); }
-          45% { transform: scale(1.05); color: #93c5fd; }
-        }
-
-        /* 3. Uptime SLA: Emerald radar sweep / security vigilance breathe */
-        .adp-metric-card.metric-uptime {
-          animation: adpUptimeSweep 4s ease-in-out infinite;
-        }
-        .adp-metric-card.metric-uptime .adp-metric-icon.shield {
-          animation: shieldPulse 4s ease-in-out infinite;
-        }
-        @keyframes adpUptimeSweep {
-          0%, 100% {
-            border-color: var(--border-card);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          }
-          50% {
-            border-color: rgba(34, 197, 94, 0.5);
-            box-shadow: 0 0 16px rgba(34, 197, 94, 0.25), inset 0 0 12px rgba(34, 197, 94, 0.05);
-          }
-        }
-        @keyframes shieldPulse {
-          0%, 100% { transform: scale(1); color: var(--text-secondary); }
-          50% { transform: scale(1.15); color: #22c55e; filter: drop-shadow(0 0 7px rgba(34, 197, 94, 0.8)); }
-        }
-
-        /* 4. Subscribers: Community crowd ripple and purple aura */
-        .adp-metric-card.metric-subscribers {
-          animation: adpSubscribersAura 3.6s ease-in-out infinite;
-        }
-        .adp-metric-card.metric-subscribers .adp-metric-icon.users {
-          animation: usersFloatRipple 3.6s ease-in-out infinite;
-        }
-        @keyframes adpSubscribersAura {
-          0%, 100% {
-            border-color: var(--border-card);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          }
-          50% {
-            border-color: rgba(139, 92, 246, 0.5);
-            box-shadow: 0 0 16px rgba(139, 92, 246, 0.28), inset 0 0 12px rgba(139, 92, 246, 0.05);
-          }
-        }
-        @keyframes usersFloatRipple {
-          0%, 100% { transform: translateY(0); color: var(--text-secondary); }
-          50% { transform: translateY(-2px) scale(1.12); color: #c084fc; filter: drop-shadow(0 0 7px rgba(192, 132, 252, 0.8)); }
+        @keyframes adpMetricFloat {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-2px); }
         }
 
         .adp-metric-value {
@@ -1022,7 +929,7 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .adp-metric-card { animation: none; }
+          .adp-metric-card > * { animation: none; }
         }
       `}</style>
     </div>

@@ -30,6 +30,7 @@ export interface CatalogPricingPlan {
 
 export interface CatalogApi {
   id: string;
+  studioProjectId?: string;
   name: string;
   slug: string;
   description: string;
@@ -529,6 +530,46 @@ export const catalogApi = {
       if (signal?.aborted) throw error;
       return browseMockApis(query);
     }
+  },
+
+  async fetchOwnedApis(): Promise<CatalogApi[]> {
+    const res = await fetch(`${API_BASE}/apis/mine`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`Failed to load owned APIs (${res.status})`);
+    const json = await res.json();
+    return json.data;
+  },
+
+  async setApiVisibility(apiId: string, isPublic: boolean): Promise<void> {
+    const res = await fetch(`${API_BASE}/apis/${encodeURIComponent(apiId)}/visibility`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ isPublic }),
+    });
+    if (!res.ok) throw new Error('Failed to update Marketplace visibility');
+    browseCache.clear();
+  },
+
+  async removeFromMarketplace(apiId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/apis/${encodeURIComponent(apiId)}/remove-from-marketplace`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to remove API from Marketplace');
+    browseCache.clear();
+  },
+
+  async deleteOwnedApi(apiId: string, deleteStudioProject: boolean, studioProjectId?: string): Promise<void> {
+    const params = new URLSearchParams();
+    if (deleteStudioProject) params.set('deleteStudioProject', 'true');
+    if (studioProjectId) params.set('studioProjectId', studioProjectId);
+    const query = params.toString();
+    const suffix = query ? `?${query}` : '';
+    const res = await fetch(`${API_BASE}/apis/${encodeURIComponent(apiId)}${suffix}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to delete API');
+    browseCache.clear();
   },
 
   /** Fetch full API details */

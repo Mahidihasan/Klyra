@@ -15,6 +15,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: true,
+      watch: {
+        usePolling: true,
+      },
       proxy: {
         '/api': {
           target: proxyTarget,

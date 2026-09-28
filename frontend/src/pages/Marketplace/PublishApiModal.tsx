@@ -34,7 +34,7 @@ import {
   Activity,
   Zap,
 } from 'lucide-react';
-import { CatalogCategory, catalogApi, PublishApiPayload } from '../../services/api/catalog';
+import { CatalogApi, CatalogCategory, catalogApi, PublishApiPayload } from '../../services/api/catalog';
 import { apiBuildService } from '../../services/apiBuild';
 import { ProviderProject, PricingPlan, ProjectVersion } from '../../types/apibuild';
 import { useAuth } from '../../context/AuthContext';
@@ -59,7 +59,7 @@ const WIZARD_STEPS: StepMeta[] = [
   { key: 'details', label: 'Details', sublabel: 'Metadata & category', icon: FileText },
   { key: 'media', label: 'Media & Docs', sublabel: 'Images, video & guides', icon: ImageIcon },
   { key: 'pricing', label: 'Pricing & Versions', sublabel: 'Plans, sync & availability', icon: CreditCard },
-  { key: 'preview', label: 'Preview & Submit', sublabel: 'Review approval listing', icon: Eye },
+  { key: 'preview', label: 'Preview & Publish', sublabel: 'Review & publish listing', icon: Eye },
 ];
 
 interface ScreenshotItem {
@@ -118,6 +118,7 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
 
   // Studio projects state
   const [studioProjects, setStudioProjects] = useState<ProviderProject[]>([]);
+  const [marketplaceApis, setMarketplaceApis] = useState<CatalogApi[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
@@ -165,11 +166,11 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
     setLoadingProjects(true);
     setProjectError(null);
 
-    apiBuildService
-      .list()
-      .then((projects) => {
+    Promise.all([apiBuildService.list(), catalogApi.fetchOwnedApis()])
+      .then(([projects, apis]) => {
         if (!active) return;
         setStudioProjects(projects || []);
+        setMarketplaceApis(apis || []);
       })
       .catch((err) => {
         if (!active) return;
@@ -186,16 +187,24 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
 
   // Filter studio projects by search
   const filteredProjects = useMemo(() => {
-    if (!projectSearch.trim()) return studioProjects;
+    const unpublishedProjects = studioProjects.filter(
+      (project) =>
+        !marketplaceApis.some(
+          (api) =>
+            api.status?.toUpperCase() === 'PUBLISHED' &&
+            (api.studioProjectId === project.id || api.slug === project.slug || api.id === project.id)
+        )
+    );
+    if (!projectSearch.trim()) return unpublishedProjects;
     const q = projectSearch.toLowerCase();
-    return studioProjects.filter(
+    return unpublishedProjects.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.slug.toLowerCase().includes(q) ||
         (p.category && p.category.toLowerCase().includes(q)) ||
         (p.description && p.description.toLowerCase().includes(q))
     );
-  }, [studioProjects, projectSearch]);
+  }, [studioProjects, marketplaceApis, projectSearch]);
 
   // When a Studio API is selected, prefill details, media, and pricing
   const handleSelectStudioApi = (project: ProviderProject) => {
@@ -575,7 +584,7 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
           features: p.features,
           rateLimit: p.rateLimitPerMin,
         })),
-        requireApproval: true, // Always require approval for marketplace listing workflow
+        requireApproval: false,
         studioProjectId: selectedStudioApi?.id,
         proposedStudioChanges: {
           plans: planList.map((p) => ({
@@ -608,8 +617,8 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
         id: `notif-${Date.now()}`,
         userId: user?.id || 'provider',
         type: 'api' as const,
-        title: `Submission Queued: ${payload.name}`,
-        message: `Your API "${payload.name}" was submitted for review. It will be live on the Marketplace once approved by administrators.`,
+        title: `API Published: ${payload.name}`,
+        message: `Your API "${payload.name}" is now published on the Marketplace.`,
         time: 'Just now',
         read: false,
       };
@@ -627,7 +636,7 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
 
       onPublished();
     } catch (e: any) {
-      setSubmitError(e.message || 'Failed to submit API for approval.');
+      setSubmitError(e.message || 'Failed to publish API.');
     } finally {
       setSubmitting(false);
     }
@@ -646,8 +655,9 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
   const currentStepIndex = WIZARD_STEPS.findIndex((s) => s.key === currentStep);
 
   return (
-    <div className="pam2-overlay" onClick={onClose}>
-      <div className="pam2-shell" onClick={(e) => e.stopPropagation()}>
+    <div className={`pam2-overlay ${submitSuccess ? 'pam2-published-overlay' : ''}`} onClick={onClose}>
+      <div className={`pam2-shell ${submitSuccess ? 'pam2-published-shell' : ''}`} onClick={(e) => e.stopPropagation()}>
+        {!submitSuccess && <>
         {/* Top Header Bar */}
         <div className="pam2-header">
           <div className="pam2-header-title-block">
@@ -692,9 +702,10 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
             );
           })}
         </div>
+        </>}
 
         {/* Main Body with animated view transitions */}
-        <div className="pam2-body">
+        <div className={`pam2-body ${submitSuccess ? 'pam2-success-body' : ''}`}>
           {submitSuccess ? (
             /* Success State */
             <div className="pam2-success-card animate-fade-in">
@@ -702,40 +713,26 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
               <div className="pam2-success-icon-wrap">
                 <CheckCircle2 size={48} className="pam2-success-check" />
               </div>
-              <h3 className="pam2-success-title">Approval Request Submitted!</h3>
+              <h3 className="pam2-success-title">Congratulations!</h3>
               <p className="pam2-success-desc">
-                Your API <b>{submitSuccess.name}</b> has been queued for review by the Klyra Platform team. It will <b>not</b> appear publicly until reviewed.
+                <b>{submitSuccess.name}</b> is now live on the Marketplace. The selected pricing and plan changes have been synced to {selectedStudioApi?.name || 'your API Studio project'}.
               </p>
 
               <div className="pam2-timeline-card">
-                <h4 className="pam2-timeline-title">What happens next:</h4>
+                <h4 className="pam2-timeline-title">Publication complete</h4>
                 <div className="pam2-timeline-list">
                   <div className="pam2-timeline-step done">
                     <div className="pam2-tl-dot" />
                     <div>
-                      <strong>1. Request Registered</strong>
-                      <p>Listing details and proposed Studio pricing changes are archived.</p>
+                      <strong>Marketplace listing · Live</strong>
+                      <p>Your API is published and available in the Marketplace catalog.</p>
                     </div>
                   </div>
-                  <div className="pam2-timeline-step pending">
+                  <div className="pam2-timeline-step done">
                     <div className="pam2-tl-dot" />
                     <div>
-                      <strong>2. Admin Moderation & Guardrail Check</strong>
-                      <p>Admins verify OpenAPI endpoints, SLA compliance, and security policies.</p>
-                    </div>
-                  </div>
-                  <div className="pam2-timeline-step pending">
-                    <div className="pam2-tl-dot" />
-                    <div>
-                      <strong>3. Auto-Publish & Studio Sync</strong>
-                      <p>Approval instantly publishes your listing and synchronizes approved pricing back to API Studio.</p>
-                    </div>
-                  </div>
-                  <div className="pam2-timeline-step pending">
-                    <div className="pam2-tl-dot" />
-                    <div>
-                      <strong>4. Provider In-App Notification</strong>
-                      <p>You will receive a notification with direct links upon decision.</p>
+                      <strong>API Studio plans · Synced</strong>
+                      <p>Selected pricing and plan limits are updated on the linked Studio API.</p>
                     </div>
                   </div>
                 </div>
@@ -744,7 +741,14 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
               <div className="pam2-success-actions">
                 <button
                   className="pam2-btn pam2-btn-secondary"
-                  onClick={onClose}
+                  onClick={() => {
+                    onClose();
+                    window.dispatchEvent(
+                      new CustomEvent('klyra:navigate', {
+                        detail: { tab: 'apis' },
+                      })
+                    );
+                  }}
                 >
                   Return to Marketplace
                 </button>
@@ -754,12 +758,12 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
                     onClose();
                     window.dispatchEvent(
                       new CustomEvent('klyra:navigate', {
-                        detail: { tab: 'api-build', apiBuildView: 'dash' },
+                        detail: { tab: 'my-apis' },
                       })
                     );
                   }}
                 >
-                  View in API Studio <ArrowRight size={14} />
+                  Go to My APIs <ArrowRight size={14} />
                 </button>
               </div>
             </div>
@@ -814,7 +818,14 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
                         className="pam2-btn pam2-btn-secondary"
                         onClick={() => {
                           setLoadingProjects(true);
-                          apiBuildService.list().then(setStudioProjects).finally(() => setLoadingProjects(false));
+                          setProjectError(null);
+                          Promise.all([apiBuildService.list(), catalogApi.fetchOwnedApis()])
+                            .then(([projects, apis]) => {
+                              setStudioProjects(projects || []);
+                              setMarketplaceApis(apis || []);
+                            })
+                            .catch((err) => setProjectError(err.message || 'Failed to load Studio APIs.'))
+                            .finally(() => setLoadingProjects(false));
                         }}
                       >
                         Retry
@@ -1297,15 +1308,15 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
                     )}
                   </div>
 
-                  {/* Crucial Guardrail Callout Banner */}
+                  {/* Immediate Studio sync details */}
                   <div className="pam2-guardrail-banner">
                     <div className="pam2-gr-icon">
                       <Info size={18} />
                     </div>
                     <div className="pam2-gr-content">
-                      <strong>Studio Synchronization Guardrail:</strong>
+                      <strong>Studio plan sync:</strong>
                       <p>
-                        Editing pricing tiers or marking versions as Free creates a proposal that <b>syncs back to your Studio project only after admin approval</b>. Marketplace version and plan availability toggles remain <b>Marketplace-only</b>.
+                        Selected pricing and plan limits sync to your linked Studio project when you publish. Marketplace version and plan availability toggles remain <b>Marketplace-only</b>.
                       </p>
                     </div>
                   </div>
@@ -1424,8 +1435,8 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
 
                             {/* Studio Price Sync Diff Indicator */}
                             {isModified && (
-                              <div className="pam2-diff-badge" title="Will sync to Studio upon admin approval">
-                                <Clock size={12} /> Studio: ${plan.originalPriceMonthly} → Proposed: ${plan.priceMonthly} (Pending Approval)
+                              <div className="pam2-diff-badge" title="Will sync to Studio when published">
+                                <Clock size={12} /> Studio: ${plan.originalPriceMonthly} → Publish sync: ${plan.priceMonthly}
                               </div>
                             )}
 
@@ -1525,7 +1536,7 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
                 <div className="pam2-step-content animate-slide-in">
                   <div className="pam2-step-header">
                     <div>
-                      <h3 className="pam2-section-heading">Listing Preview & Submission</h3>
+                      <h3 className="pam2-section-heading">Review & Publish</h3>
                       <p className="pam2-section-sub">
                         Review exactly how your API will appear to prospective consumers. Use Edit controls to make final adjustments.
                       </p>
@@ -1668,25 +1679,22 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Submission Summary & Admin Approval Notice */}
+                  {/* Immediate publication summary */}
                   <div className="pam2-submission-notice-card">
                     <div className="pam2-sn-icon">
                       <Shield size={24} className="pam2-shield-pulse" />
                     </div>
                     <div className="pam2-sn-body">
-                      <h4>Submission Verification & Admin Approval</h4>
+                      <h4>Ready to publish</h4>
                       <p>
-                        Submitting creates a formal <b>Admin Approval Request</b>. Your API will <b>not be published immediately</b>.
+                        Publishing makes this listing available in the Marketplace immediately.
                       </p>
                       <ul className="pam2-sn-bullets">
                         <li>
-                          <b>Auto-Publishing:</b> Platform admins will inspect and approve the listing. Upon approval, it immediately becomes public in the catalog.
+                          <b>Marketplace:</b> Your API listing becomes live as soon as publishing completes.
                         </li>
                         <li>
-                          <b>Studio Pricing Sync:</b> Approved pricing changes will automatically synchronize back to your Studio project <code>{selectedStudioApi?.name}</code>.
-                        </li>
-                        <li>
-                          <b>Notifications:</b> You will receive an immediate in-app notification when the review decision is finalized.
+                          <b>API Studio:</b> Selected pricing and plan changes sync to <code>{selectedStudioApi?.name}</code> immediately.
                         </li>
                       </ul>
                     </div>
@@ -1742,12 +1750,12 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
                   {submitting ? (
                     <>
                       <span className="pam2-spinner" />
-                      <span>Creating Approval Request...</span>
+                      <span>Publishing API...</span>
                     </>
                   ) : (
                     <>
                       <Send size={15} />
-                      <span>Submit for Admin Approval</span>
+                      <span>Publish</span>
                     </>
                   )}
                 </button>
@@ -1773,6 +1781,12 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
           animation: pamFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
+        .pam2-published-overlay {
+          background: rgba(4, 6, 12, 0.9);
+          backdrop-filter: blur(18px);
+          -webkit-backdrop-filter: blur(18px);
+        }
+
         .pam2-shell {
           background: #0d101a;
           border: 1px solid rgba(139, 92, 246, 0.25);
@@ -1786,6 +1800,15 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
           overflow: hidden;
           position: relative;
           color: #f8fafc;
+        }
+
+        .pam2-published-shell {
+          width: min(100%, 700px);
+          max-height: none;
+          overflow: visible;
+          background: transparent;
+          border: 0;
+          box-shadow: none;
         }
 
         /* Header */
@@ -1843,6 +1866,9 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
         .pam2-stepper-bar {
           display: flex;
           align-items: center;
+          box-sizing: border-box;
+          width: 100%;
+          flex: 0 0 auto;
           background: #090c14;
           border-bottom: 1px solid rgba(255, 255, 255, 0.06);
           padding: 12px 28px;
@@ -3008,11 +3034,23 @@ export const PublishApiModal: React.FC<PublishApiModalProps> = ({
         .pam2-success-card {
           position: relative;
           padding: 40px 24px;
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid rgba(139, 92, 246, 0.32);
+          border-radius: 22px;
+          background: linear-gradient(160deg, rgba(20, 24, 39, 0.98), rgba(11, 14, 24, 0.98));
+          box-shadow: 0 28px 80px rgba(0, 0, 0, 0.6), 0 0 45px rgba(139, 92, 246, 0.14);
           text-align: center;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
+        }
+        .pam2-success-body {
+          flex: 0 0 auto;
+          min-height: 0;
+          overflow: visible;
+          padding: 0;
         }
         .pam2-success-aura {
           position: absolute;

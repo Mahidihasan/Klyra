@@ -1,0 +1,2075 @@
+/* ==========================================================================
+   KLYRA LANDING PAGE - GITHUB-INSPIRED UNANIMATED & DYNAMIC DARK THEME
+   Recreates the modern GitHub unauthenticated homepage aesthetic with
+   celestial gradients, vertical spine, bento grids, and developer feel.
+   ========================================================================== */
+
+:root {
+  --gh-bg: #040d21;
+  --gh-bg-secondary: #080f25;
+  --gh-bg-subtle: #0d1117;
+  --gh-bg-card: rgba(13, 17, 23, 0.75);
+  --gh-bg-card-hover: rgba(22, 27, 34, 0.9);
+  --gh-border: rgba(255, 255, 255, 0.1);
+  --gh-border-subtle: rgba(255, 255, 255, 0.05);
+  --gh-border-active: rgba(255, 255, 255, 0.25);
+  --gh-text-primary: #ffffff;
+  --gh-text-secondary: #8b949e;
+  --gh-text-muted: #6e7681;
+  --gh-text-heading: #f0f6fc;
+  --gh-accent-purple: #8b5cf6;
+  --gh-accent-cyan: #38bdf8;
+  --gh-accent-green: #2ea043;
+  --gh-accent-amber: #f59e0b;
+  --gh-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --gh-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Base Container */
+.gh-landing-container {
+  min-height: 100vh;
+  background-color: var(--gh-bg);
+  background-image: radial-gradient(circle at 50% 0%, rgba(120, 58, 237, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 80% 25%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 20% 65%, rgba(139, 92, 246, 0.07) 0%, transparent 45%),
+    radial-gradient(circle at 50% 90%, rgba(16, 185, 129, 0.06) 0%, transparent 50%);
+  color: var(--gh-text-primary);
+  font-family: var(--gh-font-sans);
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Background Starry Mesh Overlay */
+.gh-ambient-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, black 0%, black 85%, transparent 100%);
+  z-index: 1;
+}
+
+/* ==========================================================================
+   NAVIGATION BAR (GitHub-Inspired Unauthenticated Header)
+   ========================================================================== */
+.gh-nav-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(4, 13, 33, 0.85);
+  border-bottom: 1px solid var(--gh-border);
+  transition: all 0.25s ease;
+}
+
+.gh-nav-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.gh-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.gh-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.gh-nav-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.35);
+}
+
+.gh-nav-brand-text {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ffffff 40%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gh-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gh-nav-link-item {
+  position: relative;
+}
+
+.gh-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #c9d1d9;
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 6px 4px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.gh-nav-link:hover {
+  color: #ffffff;
+}
+
+.gh-nav-link svg {
+  transition: transform 0.2s ease;
+}
+
+.gh-nav-link:hover svg {
+  transform: translateY(1px);
+}
+
+/* Nav Dropdown Flyout */
+.gh-dropdown-flyout {
+  position: absolute;
+  top: 100%;
+  left: -12px;
+  margin-top: 8px;
+  width: 300px;
+  background: #0d1117;
+  border: 1px solid var(--gh-border);
+  border-radius: 10px;
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.7);
+  padding: 8px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+  z-index: 110;
+}
+
+.gh-nav-link-item:hover .gh-dropdown-flyout {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.gh-dropdown-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+
+.gh-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.gh-dropdown-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gh-accent-purple);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.gh-dropdown-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f0f6fc;
+  display: block;
+}
+
+.gh-dropdown-desc {
+  font-size: 11.5px;
+  color: var(--gh-text-secondary);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* Nav Right / GitHub Auth Buttons */
+.gh-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.gh-nav-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--gh-border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: var(--gh-text-secondary);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.gh-nav-search-bar:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.gh-search-key {
+  font-family: var(--gh-font-mono);
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #8b949e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Distinct GitHub-Inspired Sign in & Sign up buttons */
+.gh-nav-auth {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gh-btn-signin {
+  background: transparent;
+  border: none;
+  color: #f0f6fc;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+  text-decoration: none;
+}
+
+.gh-btn-signin:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.gh-btn-signup {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.gh-btn-signup:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: #ffffff;
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.gh-mobile-toggle {
+  display: none;
+  background: transparent;
+  border: none;
+  color: #f0f6fc;
+  cursor: pointer;
+  padding: 6px;
+}
+
+/* ==========================================================================
+   LAYOUT STRUCTURE WITH CONTINUOUS VISUAL SPINE (GitHub's Iconic Line)
+   ========================================================================== */
+.gh-main-layout {
+  position: relative;
+  z-index: 2;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.gh-content-container {
+  position: relative;
+  padding-left: 56px;
+}
+
+/* The vertical continuous connecting line */
+.gh-vertical-spine {
+  position: absolute;
+  top: 40px;
+  left: 20px;
+  bottom: 80px;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    rgba(139, 92, 246, 0.8) 0%,
+    rgba(56, 189, 248, 0.8) 25%,
+    rgba(16, 185, 129, 0.8) 55%,
+    rgba(245, 158, 11, 0.8) 80%,
+    rgba(139, 92, 246, 0.2) 100%
+  );
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+}
+
+/* Glowing Nodes along the Spine */
+.gh-spine-node {
+  position: absolute;
+  left: -17px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #0d1117;
+  border: 2px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 20px -2px currentColor;
+  z-index: 5;
+}
+
+.gh-spine-node.purple {
+  border-color: #8b5cf6;
+  color: #c4b5fd;
+}
+
+.gh-spine-node.cyan {
+  border-color: #38bdf8;
+  color: #7dd3fc;
+}
+
+.gh-spine-node.green {
+  border-color: #10b981;
+  color: #6ee7b7;
+}
+
+.gh-spine-node.amber {
+  border-color: #f59e0b;
+  color: #fcd34d;
+}
+
+/* ==========================================================================
+   HERO SECTION
+   ========================================================================== */
+.gh-hero-section {
+  padding: 72px 0 54px 0;
+  position: relative;
+}
+
+.gh-announcement-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(22, 27, 34, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  padding: 6px 14px 6px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #c9d1d9;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 28px;
+  backdrop-filter: blur(10px);
+}
+
+.gh-announcement-pill:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.gh-badge-sparkle {
+  background: linear-gradient(135deg, #8b5cf6, #d946ef);
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gh-hero-heading {
+  position: relative;
+  font-size: 68px;
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -2px;
+  color: #ffffff;
+  margin-bottom: 24px;
+  max-width: 900px;
+}
+
+.gh-hero-gradient-text {
+  background: linear-gradient(135deg, #ffffff 30%, #a78bfa 70%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: block;
+}
+
+.gh-hero-title-layout {
+  display: block;
+  visibility: hidden;
+}
+
+.gh-hero-title-animated {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+.gh-hero-title-base {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.gh-hero-description {
+  font-size: 20px;
+  line-height: 1.5;
+  color: #8b949e;
+  max-width: 720px;
+  margin-bottom: 36px;
+  font-weight: 400;
+}
+
+/* GitHub Signature Hero CTA (Input + Sign Up Button) */
+.gh-hero-cta-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
+}
+
+.gh-hero-form {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 4px 5px 4px 16px;
+  width: 100%;
+  max-width: 500px;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.gh-hero-form:focus-within {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.gh-hero-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-size: 15px;
+  font-family: var(--gh-font-sans);
+  flex: 1;
+  min-width: 160px;
+}
+
+.gh-hero-input::placeholder {
+  color: #6e7681;
+}
+
+.gh-hero-submit-btn {
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 14.5px;
+  font-weight: 600;
+  padding: 11px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.gh-hero-submit-btn:hover {
+  background: linear-gradient(135deg, #6d28d9 0%, #4f46e5 100%);
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.5);
+  transform: translateY(-1px);
+}
+
+.gh-hero-trial-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #c9d1d9;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  background: none;
+  border: none;
+}
+
+.gh-hero-trial-link:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gh-hero-trial-link svg {
+  transition: transform 0.2s ease;
+}
+
+.gh-hero-trial-link:hover svg {
+  transform: translateX(3px);
+}
+
+/* Hero Social Stats Bar */
+.gh-hero-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+  color: var(--gh-text-secondary);
+  border-top: 1px solid var(--gh-border-subtle);
+  padding-top: 24px;
+  max-width: 780px;
+}
+
+.gh-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gh-stat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+}
+
+/* ==========================================================================
+   INTERACTIVE HERO SHOWCASE (GitHub-Style Code & Sandbox Mockup)
+   ========================================================================== */
+.gh-interactive-showcase {
+  position: relative;
+  margin: 40px 0 70px 0;
+  background: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow:
+    0 30px 60px -15px rgba(0, 0, 0, 0.8),
+    0 0 35px -5px rgba(139, 92, 246, 0.15);
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+}
+
+/* Window Titlebar */
+.gh-window-header {
+  background: #161b22;
+  border-bottom: 1px solid var(--gh-border);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gh-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.gh-control-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.gh-control-dot.red {
+  background: #ff5f56;
+}
+.gh-control-dot.yellow {
+  background: #ffbd2e;
+}
+.gh-control-dot.green {
+  background: #27c93f;
+}
+
+.gh-window-title {
+  font-family: var(--gh-font-mono);
+  font-size: 12.5px;
+  color: #8b949e;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gh-window-title-badge {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.gh-window-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gh-lang-tabs {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.gh-lang-tab {
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  font-size: 12px;
+  font-family: var(--gh-font-mono);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gh-lang-tab.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.gh-execute-btn {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #4ade80;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.gh-execute-btn:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: #4ade80;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+}
+
+/* Showcase Body: Split Screen */
+.gh-showcase-body {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  min-height: 330px;
+}
+
+.gh-showcase-code {
+  position: relative;
+  padding: 20px 24px;
+  background: #090d16;
+  border-right: 1px solid var(--gh-border);
+  font-family: var(--gh-font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  color: #e6edf3;
+  overflow-x: auto;
+}
+
+.gh-showcase-code::after {
+  content: '';
+  position: absolute;
+  top: 43%;
+  left: 8%;
+  width: 76%;
+  height: 34%;
+  border-radius: 2px;
+  background: rgba(56, 139, 253, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  animation: gh-sandbox-code-select 14s ease-in-out infinite;
+}
+
+.gh-sandbox-demo-cursor {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  left: 0;
+  width: 22px;
+  height: 25px;
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.75));
+  animation: gh-sandbox-cursor 14s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+}
+
+.gh-sandbox-demo-cursor svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: #f8fafc;
+  stroke: #111827;
+  stroke-width: 1.2;
+}
+
+.gh-sandbox-demo-copied {
+  position: absolute;
+  z-index: 4;
+  top: 68%;
+  left: 39%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  border-radius: 5px;
+  background: #111b18;
+  color: #86efac;
+  font: 11px var(--gh-font-mono);
+  opacity: 0;
+  pointer-events: none;
+  animation: gh-sandbox-copied 14s ease-in-out infinite;
+}
+
+.gh-execute-btn {
+  animation: gh-sandbox-run-click 14s ease-in-out infinite;
+}
+
+@keyframes gh-sandbox-cursor {
+  0%,
+  3%,
+  100% {
+    opacity: 0;
+    left: 18%;
+    top: 49%;
+    transform: scale(1);
+  }
+  5%,
+  9% {
+    opacity: 1;
+    left: 18%;
+    top: 49%;
+    transform: scale(1);
+  }
+  17% {
+    opacity: 1;
+    left: 39%;
+    top: 72%;
+    transform: scale(1);
+  }
+  20%,
+  23% {
+    opacity: 1;
+    left: 39%;
+    top: 72%;
+    transform: scale(0.82);
+  }
+  29% {
+    opacity: 1;
+    left: 66%;
+    top: 4%;
+    transform: scale(1);
+  }
+  32%,
+  34% {
+    opacity: 1;
+    left: 66%;
+    top: 4%;
+    transform: scale(0.82);
+  }
+  39% {
+    opacity: 1;
+    left: 73%;
+    top: 4%;
+    transform: scale(1);
+  }
+  42%,
+  44% {
+    opacity: 1;
+    left: 73%;
+    top: 4%;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    left: 91%;
+    top: 4%;
+    transform: scale(1);
+  }
+  53%,
+  56% {
+    opacity: 1;
+    left: 91%;
+    top: 4%;
+    transform: scale(0.82);
+  }
+  63% {
+    opacity: 1;
+    left: 94%;
+    top: 20%;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0;
+    left: 94%;
+    top: 20%;
+    transform: scale(1);
+  }
+}
+
+@keyframes gh-sandbox-code-select {
+  0%,
+  8%,
+  29%,
+  100% {
+    opacity: 0;
+  }
+  17%,
+  23% {
+    opacity: 1;
+  }
+}
+
+@keyframes gh-sandbox-copied {
+  0%,
+  22%,
+  31%,
+  100% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  25%,
+  29% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gh-sandbox-run-click {
+  0%,
+  48%,
+  58%,
+  100% {
+    box-shadow: none;
+  }
+  51%,
+  54% {
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.24);
+  }
+}
+
+.gh-code-keyword {
+  color: #ff7b72;
+  font-weight: 600;
+}
+.gh-code-func {
+  color: #d2a8ff;
+}
+.gh-code-string {
+  color: #a5d6ff;
+}
+.gh-code-property {
+  color: #79c0ff;
+}
+.gh-code-comment {
+  color: #8b949e;
+  font-style: italic;
+}
+.gh-code-number {
+  color: #79c0ff;
+}
+
+.gh-showcase-response {
+  padding: 20px 22px;
+  background: #0d1117;
+  display: flex;
+  flex-direction: column;
+}
+
+.gh-res-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gh-border-subtle);
+}
+
+.gh-res-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--gh-font-mono);
+}
+
+.gh-res-timing {
+  font-family: var(--gh-font-mono);
+  font-size: 12px;
+  color: #8b949e;
+  display: flex;
+  gap: 12px;
+}
+
+.gh-res-json {
+  font-family: var(--gh-font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #c9d1d9;
+  flex: 1;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* ==========================================================================
+   CUSTOMER LOGOS / SOCIAL PROOF BAR
+   ========================================================================== */
+.gh-logos-section {
+  padding: 40px 0 80px 0;
+  text-align: center;
+}
+
+.gh-logos-heading {
+  font-size: 14px;
+  font-weight: 500;
+  color: #6e7681;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 28px;
+}
+
+.gh-logos-grid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 48px;
+  flex-wrap: wrap;
+  opacity: 0.75;
+}
+
+.gh-logo-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #8b949e;
+  transition: all 0.2s ease;
+  letter-spacing: -0.5px;
+}
+
+.gh-logo-badge:hover {
+  color: #ffffff;
+  transform: translateY(-2px);
+  opacity: 1;
+}
+
+/* ==========================================================================
+   FEATURE SECTIONS & BENTO GRIDS
+   ========================================================================== */
+.gh-section {
+  padding: 80px 0 100px 0;
+  position: relative;
+}
+
+.gh-section-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+
+.gh-section-tag.purple {
+  color: #a78bfa;
+}
+.gh-section-tag.cyan {
+  color: #38bdf8;
+}
+.gh-section-tag.green {
+  color: #34d399;
+}
+.gh-section-tag.amber {
+  color: #fbbf24;
+}
+
+.gh-section-title {
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -1.2px;
+  color: #ffffff;
+  margin-bottom: 16px;
+  max-width: 780px;
+}
+
+.gh-section-desc {
+  font-size: 18px;
+  line-height: 1.55;
+  color: #8b949e;
+  max-width: 680px;
+  margin-bottom: 48px;
+}
+
+/* Bento Grid */
+.gh-bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 24px;
+}
+
+.gh-bento-card {
+  background: var(--gh-bg-card);
+  border: 1px solid var(--gh-border);
+  border-radius: 12px;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+}
+
+.gh-bento-card:hover {
+  background: var(--gh-bg-card-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-3px);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+}
+
+.gh-bento-col-8 {
+  grid-column: span 8;
+}
+.gh-bento-col-4 {
+  grid-column: span 4;
+}
+.gh-bento-col-6 {
+  grid-column: span 6;
+}
+.gh-bento-col-12 {
+  grid-column: span 12;
+}
+
+.gh-bento-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.gh-bento-icon.purple {
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+}
+.gh-bento-icon.cyan {
+  background: rgba(56, 189, 248, 0.15);
+  color: #7dd3fc;
+}
+.gh-bento-icon.green {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+}
+.gh-bento-icon.amber {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fcd34d;
+}
+
+.gh-bento-title {
+  font-size: 21px;
+  font-weight: 700;
+  color: #f0f6fc;
+  margin-bottom: 10px;
+  letter-spacing: -0.4px;
+}
+
+.gh-bento-text {
+  font-size: 14.5px;
+  color: #8b949e;
+  line-height: 1.6;
+  margin-bottom: 24px;
+  flex: 1;
+}
+
+.gh-copilot-demo {
+  flex: 1 1 360px;
+  max-width: 480px;
+  min-width: min(100%, 300px);
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 35px 20px;
+  border: 1px solid rgba(139, 92, 246, 0.24);
+  border-radius: 10px;
+  background: rgba(9, 13, 22, 0.8);
+  color: #c9d1d9;
+  font-family: var(--gh-font-mono);
+  font-size: 11px;
+}
+
+.gh-copilot-demo-prompt,
+.gh-copilot-demo-response {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.gh-copilot-demo-user,
+.gh-copilot-demo-bot {
+  flex: 0 0 auto;
+  color: #c4b5fd;
+}
+
+.gh-copilot-demo-typed {
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(0 100% 0 0);
+  animation: gh-copilot-type 4.8s steps(39, end) infinite;
+}
+
+.gh-copilot-demo-caret {
+  width: 1px;
+  height: 13px;
+  margin-left: -8px;
+  background: #c4b5fd;
+  animation: gh-copilot-caret 4.8s steps(1, end) infinite;
+}
+
+.gh-copilot-demo-enter {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: #8b949e;
+  opacity: 0;
+  animation: gh-copilot-enter 4.8s infinite;
+}
+
+.gh-copilot-demo-response {
+  margin-top: 8px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  line-height: 1.5;
+  opacity: 0;
+  transform: translateY(4px);
+  animation: gh-copilot-respond 4.8s infinite;
+}
+
+.gh-copilot-demo-bot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gh-copilot-demo-response code {
+  color: #7dd3fc;
+}
+
+@keyframes gh-copilot-type {
+  0%,
+  8% {
+    clip-path: inset(0 100% 0 0);
+  }
+  42%,
+  72% {
+    clip-path: inset(0 0 0 0);
+  }
+  82%,
+  100% {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+@keyframes gh-copilot-caret {
+  0%,
+  40% {
+    opacity: 1;
+  }
+  42%,
+  78% {
+    opacity: 0;
+  }
+  80%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes gh-copilot-enter {
+  0%,
+  42% {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  46%,
+  70% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  74%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes gh-copilot-respond {
+  0%,
+  48% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  56%,
+  76% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  84%,
+  100% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* Bento Preview Components */
+.gh-preview-box {
+  background: #090d16;
+  border: 1px solid var(--gh-border);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: var(--gh-font-mono);
+  font-size: 12px;
+  color: #c9d1d9;
+  overflow: hidden;
+}
+
+.gh-endpoint-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.gh-method-pill {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.gh-method-pill.get {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+.gh-method-pill.post {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+.gh-method-pill.put {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+.gh-method-pill.delete {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.gh-endpoint-path {
+  color: #e6edf3;
+  flex: 1;
+}
+
+.gh-endpoint-badge {
+  font-size: 11px;
+  color: #8b949e;
+}
+
+/* Diff Viewer Mockup */
+.gh-diff-box {
+  background: #090d16;
+  border: 1px solid var(--gh-border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: var(--gh-font-mono);
+  font-size: 12px;
+}
+
+.gh-diff-line {
+  padding: 5px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gh-diff-line.added {
+  background: rgba(46, 160, 67, 0.15);
+  color: #7ee787;
+  border-left: 3px solid #2ea043;
+}
+
+.gh-diff-line.removed {
+  background: rgba(248, 81, 73, 0.15);
+  color: #ffa198;
+  border-left: 3px solid #da3633;
+}
+
+.gh-diff-line.unchanged {
+  color: #8b949e;
+}
+
+/* Security Key Matrix */
+.gh-security-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gh-sec-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.gh-sec-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #4ade80;
+  font-weight: 500;
+}
+
+/* Scale Stat Cards */
+.gh-stat-card {
+  background: linear-gradient(180deg, rgba(22, 27, 34, 0.9) 0%, rgba(13, 17, 23, 0.9) 100%);
+  border: 1px solid var(--gh-border);
+  border-radius: 12px;
+  padding: 28px 24px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.gh-stat-card:hover {
+  border-color: rgba(245, 158, 11, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px -10px rgba(245, 158, 11, 0.15);
+}
+
+.gh-stat-number {
+  font-size: 42px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -1px;
+  margin-bottom: 6px;
+  background: linear-gradient(135deg, #ffffff 50%, #fcd34d 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gh-stat-label {
+  font-size: 14px;
+  color: #8b949e;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   PRICING TIERS SECTION (GitHub-Style)
+   ========================================================================== */
+.gh-pricing-section {
+  padding: 90px 0;
+  text-align: center;
+}
+
+.gh-pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-top: 50px;
+  text-align: left;
+}
+
+.gh-price-card {
+  background: var(--gh-bg-card);
+  border: 1px solid var(--gh-border);
+  border-radius: 12px;
+  padding: 36px 30px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: all 0.25s ease;
+}
+
+.gh-price-card.featured {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 35px -5px rgba(139, 92, 246, 0.3);
+  background: rgba(18, 22, 34, 0.9);
+}
+
+.gh-price-badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 12px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gh-plan-name {
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
+.gh-plan-desc {
+  font-size: 13.5px;
+  color: #8b949e;
+  margin-bottom: 24px;
+  min-height: 40px;
+}
+
+.gh-plan-price {
+  font-size: 40px;
+  font-weight: 800;
+  color: #ffffff;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.gh-price-cycle {
+  font-size: 14px;
+  font-weight: 400;
+  color: #8b949e;
+}
+
+.gh-plan-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 28px;
+  border: 1px solid var(--gh-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.gh-plan-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: #ffffff;
+}
+
+.gh-plan-btn.primary {
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.gh-plan-btn.primary:hover {
+  background: linear-gradient(135deg, #6d28d9 0%, #4f46e5 100%);
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.4);
+}
+
+.gh-plan-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13.5px;
+  color: #c9d1d9;
+}
+
+.gh-feature-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gh-feature-item svg {
+  color: #38bdf8;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   GRAND FINALE CALL TO ACTION (GitHub Cosmic Nebula Banner)
+   ========================================================================== */
+.gh-finale-section {
+  padding: 100px 0 120px 0;
+  position: relative;
+}
+
+.gh-finale-banner {
+  background: radial-gradient(
+    circle at 50% 30%,
+    rgba(139, 92, 246, 0.25) 0%,
+    rgba(13, 17, 23, 0.95) 70%
+  );
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 20px;
+  padding: 70px 40px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 30px 80px -20px rgba(139, 92, 246, 0.2);
+}
+
+.gh-finale-heading {
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #ffffff;
+  letter-spacing: -1.5px;
+  margin-bottom: 20px;
+}
+
+.gh-finale-sub {
+  font-size: 19px;
+  color: #c9d1d9;
+  max-width: 640px;
+  margin: 0 auto 36px auto;
+  line-height: 1.5;
+}
+
+.gh-finale-cta-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.gh-finale-form {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 4px 5px 4px 16px;
+  width: 100%;
+  max-width: 440px;
+}
+
+.gh-finale-form:focus-within {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+}
+
+.gh-finale-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-size: 15px;
+  font-family: var(--gh-font-sans);
+  flex: 1;
+}
+
+.gh-finale-btn {
+  background: #ffffff;
+  color: #040d21;
+  font-size: 14.5px;
+  font-weight: 700;
+  padding: 11px 22px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.gh-finale-btn:hover {
+  background: #f0f6fc;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.gh-finale-signin-link {
+  color: #a78bfa;
+  font-size: 14.5px;
+  font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  padding: 8px 12px;
+}
+
+.gh-finale-signin-link:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+/* ==========================================================================
+   FOOTER (GitHub Detailed Multi-Column Style)
+   ========================================================================== */
+.gh-footer {
+  border-top: 1px solid var(--gh-border);
+  background: #020712;
+  padding: 70px 0 40px 0;
+  font-size: 13.5px;
+  color: #8b949e;
+}
+
+.gh-footer-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.gh-footer-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 50px;
+}
+
+.gh-footer-brand-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.gh-footer-brand-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.gh-footer-col-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f0f6fc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+}
+
+.gh-footer-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gh-footer-link {
+  color: #8b949e;
+  text-decoration: none;
+  transition: color 0.15s ease;
+  cursor: pointer;
+}
+
+.gh-footer-link:hover {
+  color: #58a6ff;
+  text-decoration: underline;
+}
+
+.gh-footer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 30px;
+  border-top: 1px solid var(--gh-border-subtle);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.gh-footer-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.gh-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2ea043;
+  box-shadow: 0 0 8px #2ea043;
+}
+
+.gh-social-icons {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.gh-social-link {
+  color: #8b949e;
+  transition: color 0.15s ease;
+}
+
+.gh-social-link:hover {
+  color: #ffffff;
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN (Tablets & Mobile)
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .gh-hero-heading {
+    font-size: 52px;
+  }
+
+  .gh-bento-col-8,
+  .gh-bento-col-4,
+  .gh-bento-col-6 {
+    grid-column: span 12;
+  }
+
+  .gh-showcase-body {
+    grid-template-columns: 1fr;
+  }
+
+  .gh-showcase-code {
+    border-right: none;
+    border-bottom: 1px solid var(--gh-border);
+  }
+
+  .gh-pricing-grid {
+    grid-template-columns: 1fr;
+    max-width: 440px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .gh-footer-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .gh-nav-links,
+  .gh-nav-search-bar {
+    display: none;
+  }
+
+  .gh-mobile-toggle {
+    display: block;
+  }
+
+  .gh-content-container {
+    padding-left: 0;
+  }
+
+  .gh-vertical-spine {
+    display: none;
+  }
+
+  .gh-hero-heading {
+    font-size: 38px;
+    letter-spacing: -1px;
+  }
+
+  .gh-hero-description {
+    font-size: 16px;
+  }
+
+  .gh-hero-form {
+    flex-direction: column;
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .gh-hero-submit-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .gh-section-title {
+    font-size: 32px;
+  }
+
+  .gh-finale-heading {
+    font-size: 36px;
+  }
+
+  .gh-footer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   HERO ORBIT ANIMATION (Empty space beside "Where the world builds..." heading)
+   ========================================================================== */
+.klyra-hero-orb-animation {
+  position: absolute;
+  top: 60px;
+  right: -30px;
+  width: 480px;
+  height: 480px;
+  pointer-events: none;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 1000px;
+  will-change: transform;
+  transition: transform 0.15s ease-out;
+}
+
+@media (min-width: 1400px) {
+  .klyra-hero-orb-animation {
+    right: 25px;
+    top: 25px;
+  }
+}
+
+@media (max-width: 1200px) and (min-width: 1024px) {
+  .klyra-hero-orb-animation {
+    right: -40px;
+    transform: scale(0.86);
+    transform-origin: center right;
+  }
+}
+
+@media (max-width: 1023px) {
+  .klyra-hero-orb-animation {
+    display: none;
+  }
+}
+
+.klyra-orb-ambient-glow {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(139, 92, 246, 0.22) 0%,
+    rgba(56, 189, 248, 0.12) 40%,
+    transparent 75%
+  );
+  filter: blur(32px);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.klyra-orb-svg-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+.klyra-orbit-track-inner {
+  animation: orbitRotateTrackInner 22s linear infinite;
+}
+.klyra-orbit-track-mid {
+  animation: orbitRotateTrackMid 32s linear infinite reverse;
+}
+.klyra-orbit-track-outer {
+  animation: orbitRotateTrackOuter 46s linear infinite;
+}
+
+@keyframes orbitRotateTrackInner {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -80;
+  }
+}
+@keyframes orbitRotateTrackMid {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 100;
+  }
+}
+@keyframes orbitRotateTrackOuter {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -120;
+  }
+}
+
+.klyra-central-orb-wrapper {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 160px;
+  height: 160px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.klyra-central-orb-canvas {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 320px;
+  height: 320px;
+  pointer-events: none;
+}
+
+.klyra-orb-core-emblem {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.klyra-orb-emblem-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(56, 189, 248, 0.6);
+  animation: emblemSpin 10s linear infinite;
+}
+
+@keyframes emblemSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.klyra-orb-emblem-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow:
+    0 0 12px #38bdf8,
+    0 0 20px #8b5cf6;
+}
+
+.klyra-orbiting-icons-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.klyra-orbiting-icon-disc {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(13, 17, 23, 0.92);
+  border: 1px solid;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.klyra-orbiting-icon-disc:hover {
+  transform: scale(1.2) !important;
+}

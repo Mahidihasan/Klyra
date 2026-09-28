@@ -149,28 +149,7 @@ export const Topbar: React.FC<TopbarProps> = ({
 
       {/* Right: Authentication or User Profile */}
       <div className="topbar-right">
-        {!isAuthenticated ? (
-          <div className="topbar-auth-group">
-            <button
-              type="button"
-              className="topbar-auth-btn login-btn"
-              onClick={onOpenLogin}
-              id="nav-login-btn"
-            >
-              <span className="btn-border-accent" />
-              <span className="btn-content">Login</span>
-            </button>
-            <button
-              type="button"
-              className="topbar-auth-btn signup-btn"
-              onClick={onOpenRegister}
-              id="nav-signup-btn"
-            >
-              <span className="btn-border-accent" />
-              <span className="btn-content">Sign Up</span>
-            </button>
-          </div>
-        ) : (
+        {isAuthenticated && (
           <>
 
             {/* Notifications Popover Container */}

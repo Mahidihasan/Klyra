@@ -24,6 +24,7 @@ import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ProfilePage } from './pages/Profile';
 import { ApiKeysPage } from './pages/ApiKeys';
 import { MyApisPage } from './pages/MyApis';
+import { LandingPage } from './pages/Landing';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -55,6 +56,11 @@ import {
   FlaskConical,
   X,
 } from 'lucide-react';
+
+const includeDemoApis = (demoApis: ApiItem[], catalogApis: ApiItem[]): ApiItem[] => {
+  const catalogIds = new Set(catalogApis.map((api) => api.id));
+  return [...catalogApis, ...demoApis.filter((api) => !catalogIds.has(api.id))];
+};
 
 function AppContent() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -352,14 +358,16 @@ function AppContent() {
       .then((data) => {
         if (mounted && data) {
           setCuratedRails({
-            trending: data.trending?.length ? data.trending.map(toApiItem) : MOCK_TRENDING_APIS,
-            popular: data.popular?.length ? data.popular.map(toApiItem) : MOCK_POPULAR_APIS,
-            newlyLaunched: data.newlyLaunched?.length
-              ? data.newlyLaunched.map(toApiItem)
-              : MOCK_NEWLY_LAUNCHED_APIS,
-            recommended: data.recommended?.length
-              ? data.recommended.map(toApiItem)
-              : MOCK_RECOMMENDED_APIS,
+            trending: includeDemoApis(MOCK_TRENDING_APIS, (data.trending || []).map(toApiItem)),
+            popular: includeDemoApis(MOCK_POPULAR_APIS, (data.popular || []).map(toApiItem)),
+            newlyLaunched: includeDemoApis(
+              MOCK_NEWLY_LAUNCHED_APIS,
+              (data.newlyLaunched || []).map(toApiItem),
+            ),
+            recommended: includeDemoApis(
+              MOCK_RECOMMENDED_APIS,
+              (data.recommended || []).map(toApiItem),
+            ),
           });
         }
       })
@@ -446,6 +454,55 @@ function AppContent() {
         }}
       >
         <RefreshCw className="spin-icon" size={32} color="#8b5cf6" />
+      </div>
+    );
+  }
+
+  // 3. Unauthenticated Root Page: Klyra Public Landing Page (GitHub-Inspired)
+  // Flow: Project Start → Landing Page → Login/Sign Up → existing Home Page
+  if (!isAuthenticated) {
+    return (
+      <div className="landing-root-wrapper">
+        <LandingPage
+          onOpenLogin={() => {
+            setAuthModalMode('login');
+            setShowAuthModal(true);
+          }}
+          onOpenRegister={(email?: string) => {
+            setAuthModalMode('register');
+            setShowAuthModal(true);
+          }}
+        />
+
+        {/* Global Auth Modal for Login / Register / 2FA / Password Reset */}
+        {showAuthModal && (
+          <AuthPage
+            isModal={true}
+            initialMode={authModalMode}
+            initialToken={authModalToken}
+            onClose={() => {
+              setShowAuthModal(false);
+              if (typeof window !== 'undefined' && window.location.search.includes('auth')) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+              }
+            }}
+            onLoginSuccess={(loggedInUser?: any) => {
+              setShowAuthModal(false);
+              if (typeof window !== 'undefined' && window.location.search.includes('auth')) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+              }
+              setTimeout(() => {
+                const currentUser = loggedInUser || user;
+                const userRole = currentUser?.role?.toUpperCase();
+                if (userRole === "SUPER_ADMIN" || userRole === "ADMIN") {
+                  setActiveTab('admin-overview');
+                } else {
+                  setActiveTab('home');
+                }
+              }, 50);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -665,9 +722,7 @@ function AppContent() {
 
                       <div className="api-cards-row">
                         {filteredTrendingApis.length > 0 ? (
-                          filteredTrendingApis
-                            .slice(0, 8)
-                            .map((api) => (
+                          filteredTrendingApis.map((api) => (
                               <TrendingApiCard
                                 key={api.id}
                                 api={api}
@@ -705,9 +760,7 @@ function AppContent() {
 
                       <div className="api-cards-row">
                         {filteredNewlyLaunchedApis.length > 0 ? (
-                          filteredNewlyLaunchedApis
-                            .slice(0, 8)
-                            .map((api) => (
+                          filteredNewlyLaunchedApis.map((api) => (
                               <TrendingApiCard
                                 key={api.id}
                                 api={api}
@@ -745,9 +798,7 @@ function AppContent() {
 
                       <div className="api-cards-row">
                         {filteredPopularApis.length > 0 ? (
-                          filteredPopularApis
-                            .slice(0, 8)
-                            .map((api) => (
+                          filteredPopularApis.map((api) => (
                               <TrendingApiCard
                                 key={api.id}
                                 api={api}
@@ -787,9 +838,7 @@ function AppContent() {
 
                       <div className="api-cards-row">
                         {filteredRecommendedApis.length > 0 ? (
-                          filteredRecommendedApis
-                            .slice(0, 8)
-                            .map((api) => (
+                          filteredRecommendedApis.map((api) => (
                               <TrendingApiCard
                                 key={api.id}
                                 api={api}
@@ -848,6 +897,9 @@ function AppContent() {
                     onNavigateTab={(tab, detail) => {
                       if (tab === 'api-build' && detail?.apiBuildView) {
                         setApiBuildInitialView(detail.apiBuildView);
+                      }
+                      if (tab === 'api-build' && detail?.projectId) {
+                        setApiBuildProjectId(detail.projectId);
                       }
                       setActiveTab(tab as NavigationTab);
                       try {

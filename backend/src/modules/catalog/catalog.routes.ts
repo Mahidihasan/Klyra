@@ -69,6 +69,54 @@ router.get('/apis', authOptional, async (req: Request, res: Response) => {
   }
 });
 
+router.get('/apis/mine', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const apis = await catalogService.listOwnedApis(req.user!.sub);
+    res.json({ success: true, data: apis });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { message: err.message || 'Failed to load your APIs' } });
+  }
+});
+
+router.patch('/apis/:id/visibility', requireAuth, async (req: Request, res: Response) => {
+  try {
+    if (typeof req.body?.isPublic !== 'boolean') {
+      return res.status(400).json({ success: false, error: { message: 'isPublic must be a boolean' } });
+    }
+    const updated = await catalogService.setOwnedApiVisibility(req.user!.sub, req.params.id, req.body.isPublic);
+    if (!updated) return res.status(404).json({ success: false, error: { message: 'API not found' } });
+    res.json({ success: true, data: { isPublic: req.body.isPublic } });
+  } catch (err: any) {
+    const status = err.message?.includes('Only published') ? 409 : 500;
+    res.status(status).json({ success: false, error: { message: err.message || 'Failed to update API visibility' } });
+  }
+});
+
+router.post('/apis/:id/remove-from-marketplace', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const updated = await catalogService.removeOwnedApiFromMarketplace(req.user!.sub, req.params.id);
+    if (!updated) return res.status(404).json({ success: false, error: { message: 'API not found' } });
+    res.json({ success: true, data: { removed: true } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { message: err.message || 'Failed to remove API from Marketplace' } });
+  }
+});
+
+router.delete('/apis/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const deleted = await catalogService.deleteOwnedApi(
+      req.user!.sub,
+      req.params.id,
+      req.query.deleteStudioProject === 'true',
+      typeof req.query.studioProjectId === 'string' ? req.query.studioProjectId : undefined,
+    );
+    if (!deleted) return res.status(404).json({ success: false, error: { message: 'API not found' } });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { message: err.message || 'Failed to delete API' } });
+  }
+});
+
 /**
  * GET /categories
  * List active marketplace categories with dynamic API counts.
@@ -250,7 +298,7 @@ router.post('/apis', requireAuth, async (req: Request, res: Response) => {
       });
     }
 
-    const createdApi = await catalogService.publishApi(req.user!.sub, req.user!.role, {
+    const createdApi = await catalogService.publishApi(req.user!.sub, {
       name: name.trim(),
       slug: slug?.trim(),
       description: description.trim(),
@@ -274,11 +322,9 @@ router.post('/apis', requireAuth, async (req: Request, res: Response) => {
       success: true,
       data: createdApi,
       message:
-        requireApproval || createdApi.status === 'PENDING'
+        createdApi.status === 'PENDING'
           ? 'Approval request created. Your API listing will be published upon admin approval.'
-          : req.user!.role === 'ADMIN'
-          ? 'API published successfully to marketplace'
-          : 'API submitted for review and published',
+          : 'API published successfully to marketplace',
     });
   } catch (err: any) {
     res.status(500).json({

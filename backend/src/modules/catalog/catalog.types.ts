@@ -22,6 +22,7 @@ export interface CatalogPricingPlan {
 
 export interface CatalogApi {
   id: string;
+  studioProjectId?: string;
   name: string;
   slug: string;
   description: string;

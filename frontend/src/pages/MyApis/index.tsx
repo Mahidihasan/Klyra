@@ -70,9 +70,10 @@ interface UnifiedApiItem {
   category: string;
   tags: string[];
   environment: string;
-  status: 'published' | 'ready' | 'pending' | 'dev' | 'draft';
+  status: 'published' | 'pending' | 'rejected' | 'archived' | 'deploying' | 'degraded' | 'failed' | 'paused' | 'dev' | 'draft';
   isPublished: boolean;
   isStudio: boolean;
+  isMarketplace: boolean;
   subscribers: number;
   requests: number;
   rating: number;
@@ -84,6 +85,20 @@ interface UnifiedApiItem {
   originalProject?: ProviderProject;
   originalCatalogApi?: CatalogApi;
 }
+
+const isPublicApi = (api: UnifiedApiItem) => {
+  if (api.originalCatalogApi) {
+    return api.originalCatalogApi.status === 'PUBLISHED' && api.originalCatalogApi.isPublic;
+  }
+  return api.originalProject?.visibility === 'public';
+};
+
+const isPrivateApi = (api: UnifiedApiItem) => {
+  if (api.originalCatalogApi?.status === 'PUBLISHED') {
+    return !api.originalCatalogApi.isPublic;
+  }
+  return api.originalProject?.visibility === 'private';
+};
 
 export const MyApisPage: React.FC<MyApisPageProps> = ({
   onSelectApi,
@@ -118,6 +133,7 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
   // Status-aware modal states:
   // 1. Published API Marketplace Management overlay
   const [selectedPublishedApi, setSelectedPublishedApi] = useState<UnifiedApiItem | null>(null);
+  const [selectedManagementApi, setSelectedManagementApi] = useState<UnifiedApiItem | null>(null);
   // 2. Pending API Review Submission overlay
   const [selectedPendingApi, setSelectedPendingApi] = useState<UnifiedApiItem | null>(null);
   // 3. Pro Tip Publishing & Growth Playbook overlay
@@ -130,19 +146,23 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [projectsData, browseData, categoriesData] = await Promise.all([
-        apiBuildService.hydrate(),
-        catalogApi.browseApis({ limit: 100 }).catch(() => ({
-          apis: [],
-          meta: { page: 1, limit: 100, total: 0, totalPages: 1 },
-        })),
-        catalogApi.getCategories().catch(() => []),
-      ]);
-
+      const projectsData = await apiBuildService.hydrate();
       setStudioProjects(projectsData || []);
 
+      let allCatalogApis: CatalogApi[] = [];
+      try {
+        allCatalogApis = await catalogApi.fetchOwnedApis();
+      } catch (err) {
+        console.error('Failed to load Marketplace APIs for My APIs:', err);
+      }
+      try {
+        const categoriesData = await catalogApi.getCategories();
+        setCategories(categoriesData || []);
+      } catch (err) {
+        console.error('Failed to load My APIs categories:', err);
+      }
+
       // Filter catalog APIs strictly for those owned by the current user or linked to user's projects
-      const allCatalogApis = browseData.apis || [];
       const userProjectsSlugs = new Set((projectsData || []).map((p) => (p.slug || p.id).toLowerCase()));
       const userProjectsIds = new Set((projectsData || []).map((p) => p.id));
 
@@ -159,7 +179,6 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
       });
 
       setUserMarketplaceApis(ownedCatalogApis);
-      setCategories(categoriesData || []);
     } catch (err) {
       console.error('Failed to load My APIs data:', err);
     } finally {
@@ -168,7 +187,19 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
   };
 
   useEffect(() => {
-    loadData();
+    void loadData();
+    const refreshData = () => void loadData();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshData();
+    };
+    const refreshInterval = window.setInterval(refreshData, 15_000);
+    window.addEventListener('focus', refreshData);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(refreshInterval);
+      window.removeEventListener('focus', refreshData);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [user]);
 
   // Close dropdown on click outside
@@ -207,18 +238,6 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
 
     // 1. Process Studio Projects
     for (const proj of studioProjects) {
-      const isPub = Boolean(proj.published || proj.status === 'published');
-      let status: UnifiedApiItem['status'] = 'draft';
-      if (isPub) {
-        status = 'published';
-      } else if (proj.status === 'deploying' || proj.status === 'degraded' || (proj as any).status === 'pending') {
-        status = 'pending';
-      } else if ((proj.endpointCount && proj.endpointCount > 0) || (proj.plans && proj.plans.length > 0)) {
-        status = 'ready';
-      } else {
-        status = proj.status === 'draft' ? 'draft' : 'dev';
-      }
-
       // Parse tags
       let parsedTags: string[] = [];
       if (proj.tags) {
@@ -233,8 +252,19 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
 
       // Check if catalog has additional metadata for this published project
       const catalogMatch = userMarketplaceApis.find(
-        (c) => c.slug === proj.slug || c.id === proj.id || (c as any).studioProjectId === proj.id
+        (c) => c.slug === proj.slug || c.id === proj.id || c.studioProjectId === proj.id
       );
+      const catalogStatus = catalogMatch?.status?.toUpperCase();
+      const isPub = catalogStatus === 'PUBLISHED' || (!catalogMatch && Boolean(proj.published || proj.status === 'published'));
+      const isPending = catalogStatus === 'PENDING';
+      const isMarketplace = isPub && Boolean(catalogMatch?.isPublic);
+      let status: UnifiedApiItem['status'] = 'draft';
+      if (isPub) status = 'published';
+      else if (isPending) status = 'pending';
+      else if (catalogStatus === 'REJECTED') status = 'rejected';
+      else if (catalogStatus === 'ARCHIVED') status = 'archived';
+      else if (proj.status === 'deploying' || proj.status === 'degraded' || proj.status === 'failed' || proj.status === 'paused') status = proj.status;
+      else if (proj.status === 'healthy' || proj.status === 'published') status = 'dev';
 
       list.push({
         id: proj.id,
@@ -248,6 +278,7 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
         status,
         isPublished: isPub,
         isStudio: true,
+        isMarketplace,
         subscribers: proj.consumers || proj.plans?.reduce((acc, p) => acc + (p.subscribers || 0), 0) || catalogMatch?.totalSubscribers || 0,
         requests: proj.requests || catalogMatch?.totalRequests || 0,
         rating: catalogMatch?.rating || 5.0,
@@ -274,9 +305,10 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
           category: mp.categoryName,
           tags: mp.tags?.slice(0, 3) || [mp.categoryName],
           environment: 'production',
-          status: 'published',
-          isPublished: true,
+          status: mp.status === 'PUBLISHED' ? 'published' : mp.status === 'PENDING' ? 'pending' : mp.status === 'REJECTED' ? 'rejected' : mp.status === 'ARCHIVED' ? 'archived' : 'draft',
+          isPublished: mp.status === 'PUBLISHED',
           isStudio: false,
+          isMarketplace: mp.status === 'PUBLISHED' && mp.isPublic,
           subscribers: mp.totalSubscribers || 0,
           requests: mp.totalRequests || 0,
           rating: mp.rating || 5.0,
@@ -321,10 +353,13 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
     const activeCount = studioProjects.filter(
       (p) => p.status === 'healthy' || p.status === 'published'
     ).length;
-    const privateCount = studioProjects.filter((p) => p.visibility === 'private').length;
+    const privateCount = unifiedApis.filter(isPrivateApi).length;
+    const publicCount = unifiedApis.filter(isPublicApi).length;
 
     // Marketplace breakdown
-    const marketplaceCount = publishedCount;
+    const marketplaceCount = userMarketplaceApis.filter(
+      (api) => api.status === 'PUBLISHED' && api.isPublic,
+    ).length;
 
     return {
       totalCount,
@@ -338,9 +373,25 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
       pendingCount,
       activeCount,
       privateCount,
+      publicCount,
       marketplaceCount,
     };
-  }, [unifiedApis, studioProjects]);
+  }, [unifiedApis, studioProjects, userMarketplaceApis]);
+
+  const availableEnvironments = useMemo(
+    () => Array.from(new Set(unifiedApis.map((api) => api.environment).filter(Boolean))),
+    [unifiedApis]
+  );
+
+  const availableCategories = useMemo(
+    () => Array.from(new Set(unifiedApis.map((api) => api.category).filter(Boolean))),
+    [unifiedApis]
+  );
+
+  const availablePricingModels = useMemo(
+    () => Array.from(new Set(unifiedApis.map((api) => api.pricingModel).filter(Boolean) as string[])),
+    [unifiedApis]
+  );
 
   // Dynamic tags extracted from user's APIs
   const availableTags = useMemo(() => {
@@ -387,19 +438,19 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
         return api.isStudio;
       }
       if (activePill === 'marketplace') {
-        return api.isPublished;
+        return api.isMarketplace;
       }
       if (activePill === 'published') {
         return api.status === 'published';
       }
       if (activePill === 'draft') {
-        return api.status === 'draft';
+        return isPublicApi(api);
       }
       if (activePill === 'pending') {
         return api.status === 'pending';
       }
       if (activePill === 'private') {
-        return api.originalProject?.visibility === 'private';
+        return isPrivateApi(api);
       }
       if (activePill === 'needs-attention') {
         return api.status === 'pending' || api.status === 'draft';
@@ -459,19 +510,7 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
 
   // Status-Aware Card Primary Action Click Handler
   const handleCardPrimaryAction = (api: UnifiedApiItem) => {
-    if (api.status === 'published') {
-      // Published -> Open relevant Marketplace Management Overlay
-      setSelectedPublishedApi(api);
-    } else if (api.status === 'pending') {
-      // Pending -> View Submission & Review Details
-      setSelectedPendingApi(api);
-    } else if (api.status === 'ready') {
-      // Ready to Publish -> Open Publish Modal
-      setShowPublishModal(true);
-    } else {
-      // Draft / Dev -> Edit in Studio
-      handleOpenStudioProject(api.id);
-    }
+    setSelectedManagementApi(api);
   };
 
   // Copy gateway or base URL
@@ -483,14 +522,46 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
     setActiveCardMenuId(null);
   };
 
-  // Delete project
-  const handleDeleteApi = async (api: UnifiedApiItem) => {
-    if (confirm(`Are you sure you want to delete "${api.name}"? This action cannot be undone.`)) {
-      if (api.isStudio) {
-        await apiBuildService.remove(api.id);
+  const handleChangeVisibility = async (api: UnifiedApiItem, isPublic: boolean) => {
+    const catalogApiId = api.originalCatalogApi?.id;
+    if (!catalogApiId) return;
+    try {
+      await catalogApi.setApiVisibility(catalogApiId, isPublic);
+      setSelectedManagementApi(null);
+      await loadData();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update API visibility.');
+    }
+  };
+
+  const handleRemoveFromMarketplace = async (api: UnifiedApiItem) => {
+    const catalogApiId = api.originalCatalogApi?.id;
+    if (!catalogApiId || !window.confirm(`Remove "${api.name}" from the Marketplace? It will remain in Studio.`)) return;
+    try {
+      await catalogApi.removeFromMarketplace(catalogApiId);
+      setSelectedManagementApi(null);
+      await loadData();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to remove API from Marketplace.');
+    }
+  };
+
+  const handleDeleteFromStudio = async (api: UnifiedApiItem) => {
+    if (!api.isStudio) return;
+    const warning = api.isPublished
+      ? `"${api.name}" is published. Deleting it from Studio will also remove it from the Marketplace. Continue?`
+      : `Delete "${api.name}" from Studio? This cannot be undone.`;
+    if (!window.confirm(warning)) return;
+    try {
+      if (api.isPublished && api.originalCatalogApi) {
+        await catalogApi.deleteOwnedApi(api.originalCatalogApi.id, true, api.id);
+      } else if (!(await apiBuildService.remove(api.id))) {
+        throw new Error('Failed to delete API from Studio.');
       }
-      setActiveCardMenuId(null);
-      loadData();
+      setSelectedManagementApi(null);
+      await loadData();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to delete API from Studio.');
     }
   };
 
@@ -919,8 +990,8 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
               <span className="metric-num">{metrics.draftCount}</span>
             </div>
             <div className="studio-metric-box highlight">
-              <span className="metric-title">Ready to Publish</span>
-              <span className="metric-num">{metrics.readyCount}</span>
+              <span className="metric-title">Public</span>
+              <span className="metric-num">{metrics.publicCount}</span>
             </div>
             <div className="studio-metric-box">
               <span className="metric-title amber">Pending Review</span>
@@ -1035,9 +1106,11 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
             onChange={(e) => setSelectedEnv(e.target.value)}
           >
             <option value="All Environments">All Environments</option>
-            <option value="production">Production</option>
-            <option value="staging">Staging</option>
-            <option value="development">Development</option>
+            {availableEnvironments.map((environment) => (
+              <option key={environment} value={environment}>
+                {environment.charAt(0).toUpperCase() + environment.slice(1)}
+              </option>
+            ))}
           </select>
 
           {/* Categories Dropdown */}
@@ -1047,9 +1120,9 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
             onChange={(e) => setSelectedCategory(e.target.value)}
           >
             <option value="All Categories">All Categories</option>
-            {categories.map((c) => (
-              <option key={c.id || c.slug} value={c.name}>
-                {c.name}
+            {availableCategories.map((category) => (
+              <option key={category} value={category}>
+                {category}
               </option>
             ))}
           </select>
@@ -1131,14 +1204,14 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
           <div className="drawer-group">
             <span className="drawer-label">Pricing tier</span>
             <div className="drawer-chips">
-              {['all', 'FREE', 'FREEMIUM', 'PAID', 'ENTERPRISE'].map((tier) => (
+              {['all', ...availablePricingModels].map((tier) => (
                 <button
                   key={tier}
                   className={`drawer-chip ${selectedPricingModel === tier ? 'active' : ''}`}
                   onClick={() => setSelectedPricingModel(tier)}
                   aria-pressed={selectedPricingModel === tier}
                 >
-                  {tier === 'all' ? 'All tiers' : tier === 'FREE' ? 'Free' : tier === 'FREEMIUM' ? 'Freemium' : tier === 'PAID' ? 'Paid' : 'Enterprise'}
+                  {tier === 'all' ? 'All tiers' : tier.charAt(0) + tier.slice(1).toLowerCase()}
                 </button>
               ))}
             </div>
@@ -1164,7 +1237,7 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
         >
           <Layers size={13} />
           <span>Studio</span>
-          <span className="pill-count">{metrics.totalCount}</span>
+          <span className="pill-count">{studioProjects.length}</span>
         </button>
 
         <button
@@ -1190,8 +1263,8 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
           onClick={() => setActivePill('draft')}
         >
           <FileEdit size={13} />
-          <span>Draft</span>
-          <span className="pill-count">{metrics.draftCount}</span>
+          <span>Public</span>
+          <span className="pill-count">{metrics.publicCount}</span>
         </button>
 
         <button
@@ -1238,7 +1311,15 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
         ) : filteredApis.length > 0 ? (
           <div className={`api-cards-grid ${viewLayout === 'list' ? 'list-view' : ''}`}>
             {filteredApis.map((api) => (
-              <div key={api.id} className="api-card">
+              <div
+                key={api.id}
+                className="api-card"
+                onClick={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest('button, a, input, .api-external-link, .card-more-menu')) return;
+                  handleCardPrimaryAction(api);
+                }}
+              >
                 {/* Card Header: Icon, Name, External Link, Status Badge, Version */}
                 <div>
                   <div className="api-card-header">
@@ -1278,17 +1359,23 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
                             <span style={{ fontSize: 8 }}>●</span> Published
                           </span>
                         )}
-                        {api.status === 'ready' && (
-                          <span className="status-badge ready">Ready to Publish</span>
+                        {api.status === 'published' && (
+                          <span className="status-badge dev">{api.isMarketplace ? 'Public' : 'Private'}</span>
                         )}
+                        {api.status === 'deploying' && <span className="status-badge ready">Deploying</span>}
+                        {api.status === 'degraded' && <span className="status-badge pending">Degraded</span>}
+                        {api.status === 'failed' && <span className="status-badge pending">Failed</span>}
+                        {api.status === 'paused' && <span className="status-badge dev">Paused</span>}
                         {api.status === 'pending' && (
                           <span className="status-badge pending">Pending Review</span>
                         )}
                         {(api.status === 'dev' || api.status === 'draft') && (
                           <span className="status-badge dev">
-                            {api.status === 'draft' ? 'Draft' : 'Development'}
+                            Not Published
                           </span>
                         )}
+                        {api.status === 'rejected' && <span className="status-badge pending">Rejected</span>}
+                        {api.status === 'archived' && <span className="status-badge dev">Archived</span>}
                         <span className="api-version-tag">{api.version}</span>
                       </div>
                     </div>
@@ -1343,13 +1430,7 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
                       className="card-primary-btn"
                       onClick={() => handleCardPrimaryAction(api)}
                     >
-                      {api.status === 'published'
-                        ? 'Manage'
-                        : api.status === 'ready'
-                        ? 'Continue Setup'
-                        : api.status === 'pending'
-                        ? 'View Submission'
-                        : 'Edit in Studio'}
+                      {api.status === 'pending' ? 'View Submission' : 'Manage'}
                     </button>
 
                     <button
@@ -1438,15 +1519,6 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
                           )}
                         </button>
 
-                        {api.isStudio && (
-                          <button
-                            className="menu-item danger"
-                            onClick={() => handleDeleteApi(api)}
-                          >
-                            <Trash2 size={13} />
-                            <span>Delete Project</span>
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>
@@ -1523,6 +1595,72 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
           <ChevronRight size={14} />
         </button>
       </footer>
+
+      {selectedManagementApi && (
+        createPortal(
+        <div className="status-modal-backdrop management-modal-backdrop" onClick={() => setSelectedManagementApi(null)}>
+          <div className="status-modal-card management-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="status-modal-close" onClick={() => setSelectedManagementApi(null)}>
+              <X size={16} />
+            </button>
+            <div className="modal-header-section">
+              <div className="modal-header-top">
+                <span className={`status-badge ${selectedManagementApi.isPublished ? 'published' : selectedManagementApi.status === 'pending' ? 'pending' : 'dev'}`}>
+                  {selectedManagementApi.isPublished
+                    ? `Published · ${selectedManagementApi.isMarketplace ? 'Public' : 'Private'}`
+                    : selectedManagementApi.status === 'pending'
+                    ? 'Pending Review'
+                    : selectedManagementApi.status === 'rejected'
+                    ? 'Rejected'
+                    : selectedManagementApi.status === 'archived'
+                    ? 'Archived'
+                    : 'Not Published'}
+                </span>
+                <span className="api-version-tag">{selectedManagementApi.version}</span>
+              </div>
+              <h2 className="modal-title">{selectedManagementApi.name}</h2>
+              <p className="modal-subtitle">{selectedManagementApi.description}</p>
+            </div>
+            <div className="modal-info-row">
+              <span className="modal-info-label">API endpoint</span>
+              <span className="modal-info-code">{selectedManagementApi.gatewayUrl || selectedManagementApi.baseUrl || 'Not configured'}</span>
+            </div>
+            <div className="modal-actions-row" style={{ flexWrap: 'wrap' }}>
+              {selectedManagementApi.originalCatalogApi?.status === 'PUBLISHED' && (
+                <>
+                  <button className="toolbar-btn" onClick={() => void handleChangeVisibility(selectedManagementApi, !selectedManagementApi.originalCatalogApi?.isPublic)}>
+                    <Globe size={13} />
+                    <span>Make {selectedManagementApi.originalCatalogApi.isPublic ? 'Private' : 'Public'}</span>
+                  </button>
+                  <button className="toolbar-btn" onClick={() => void handleRemoveFromMarketplace(selectedManagementApi)}>
+                    <X size={13} />
+                    <span>Remove from Marketplace only</span>
+                  </button>
+                </>
+              )}
+              {selectedManagementApi.isStudio && (
+                <button className="toolbar-btn" onClick={() => void handleDeleteFromStudio(selectedManagementApi)}>
+                  <Trash2 size={13} />
+                  <span>Delete from Studio</span>
+                </button>
+              )}
+              {selectedManagementApi.isStudio && (
+                <button className="toolbar-btn" onClick={() => {
+                  const id = selectedManagementApi.id;
+                  setSelectedManagementApi(null);
+                  handleOpenStudioProject(id);
+                }}>
+                  <Server size={13} />
+                  <span>Open in Studio</span>
+                </button>
+              )}
+              <button className="new-api-btn" onClick={() => setSelectedManagementApi(null)}>Done</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+        )
+      )}
 
       {/* ------------------------------------------------------------------
          8. Status-Aware Overlay: Published Marketplace Management
@@ -1820,7 +1958,6 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
         <PublishApiModal
           onClose={() => setShowPublishModal(false)}
           onPublished={() => {
-            setShowPublishModal(false);
             loadData();
           }}
           categories={categories}

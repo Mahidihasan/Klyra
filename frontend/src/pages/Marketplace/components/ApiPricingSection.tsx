@@ -47,6 +47,29 @@ interface NormalizedTier {
   type: 'free' | 'starter' | 'pro' | 'paygo' | 'enterprise';
 }
 
+const scaleAndTeamTier: NormalizedTier = {
+  id: 'tier-pro',
+  name: 'Scale & Team',
+  badge: 'Recommended for AI Apps',
+  kicker: 'Maximum Value',
+  monthlyPrice: 99,
+  annualPrice: 79,
+  description: 'High concurrency, sub-millisecond edge caching, and priority routing.',
+  features: [
+    '2,000,000 production requests / mo',
+    'Rate limit: 1,200 requests / min',
+    'P99 latency guarantee at edge',
+    '99.9% Uptime SLA commitment',
+    'Priority email & Slack support',
+    'Idempotency & batch processing',
+  ],
+  rateLimit: 1200,
+  requestsQuota: '2,000,000 req/mo',
+  isPopular: true,
+  ctaText: 'Subscribe Scale',
+  type: 'pro',
+};
+
 export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
   api,
   onSubscribe,
@@ -111,7 +134,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
     const rawPlans = api.pricingPlans || [];
 
     if (rawPlans.length >= 2) {
-      return rawPlans.map((plan, idx) => {
+      const normalizedPlans = rawPlans.map((plan, idx) => {
         const isFree = plan.price === 0;
         const isPopular = idx === 1 || plan.name.toLowerCase().includes('pro');
         return {
@@ -137,6 +160,10 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           type: isFree ? 'free' : isPopular ? 'pro' : 'starter',
         };
       });
+
+      return normalizedPlans.some((plan) => plan.name.toLowerCase() === 'scale & team')
+        ? normalizedPlans
+        : [...normalizedPlans, scaleAndTeamTier];
     }
 
     // Default premium interactive tiers matching Klyra standards
@@ -179,28 +206,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
         ctaText: 'Subscribe Starter',
         type: 'starter',
       },
-      {
-        id: 'tier-pro',
-        name: 'Scale & Team',
-        badge: 'Recommended for AI Apps',
-        kicker: 'Maximum Value',
-        monthlyPrice: 99,
-        annualPrice: 79,
-        description: 'High concurrency, sub-millisecond edge caching, and priority routing.',
-        features: [
-          '2,000,000 production requests / mo',
-          'Rate limit: 1,200 requests / min',
-          'P99 latency guarantee at edge',
-          '99.9% Uptime SLA commitment',
-          'Priority email & Slack support',
-          'Idempotency & batch processing',
-        ],
-        rateLimit: 1200,
-        requestsQuota: '2,000,000 req/mo',
-        isPopular: true,
-        ctaText: 'Subscribe Scale',
-        type: 'pro',
-      },
+      scaleAndTeamTier,
     ];
   };
 

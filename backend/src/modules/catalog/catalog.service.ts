@@ -74,6 +74,7 @@ function mapApiRow(row: any): CatalogApi {
       : undefined,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+    studioProjectId: row.api_spec?.studioProjectId || undefined,
   };
 }
 
@@ -92,6 +93,143 @@ const SELECT_API_FIELDS = `
 const SELECT_API_BROWSE_FIELDS = SELECT_API_FIELDS.replace('a.api_spec, ', '');
 
 export class CatalogService {
+  async listOwnedApis(userId: string): Promise<CatalogApi[]> {
+    const result = await db.query(
+      `SELECT ${SELECT_API_FIELDS}
+       FROM apis a
+       LEFT JOIN categories c ON c.id = a.category_id
+       LEFT JOIN users u ON u.id = a.owner_id
+       WHERE a.owner_id = $1 AND a.deleted_at IS NULL
+       ORDER BY a.updated_at DESC`,
+      [userId],
+    );
+    return result.rows.map(mapApiRow);
+  }
+
+  async setOwnedApiVisibility(userId: string, apiId: string, isPublic: boolean): Promise<boolean> {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `SELECT api_spec, status FROM apis WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [apiId, userId],
+      );
+      if (!result.rowCount) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      if (result.rows[0].status !== 'PUBLISHED') {
+        await client.query('ROLLBACK');
+        throw new Error('Only published APIs can change Marketplace visibility.');
+      }
+      await client.query(
+        'UPDATE apis SET is_public = $1, updated_at = NOW() WHERE id = $2 AND owner_id = $3',
+        [isPublic, apiId, userId],
+      );
+      const studioProjectId = result.rows[0].api_spec?.studioProjectId;
+      if (studioProjectId) {
+        await client.query(
+          `UPDATE api_build_projects
+           SET project = jsonb_set(jsonb_set(project, '{published}', 'true'::jsonb, true), '{visibility}', to_jsonb($2::text), true), updated_at = NOW()
+           WHERE id = $1`,
+          [studioProjectId, isPublic ? 'public' : 'private'],
+        );
+      }
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async removeOwnedApiFromMarketplace(userId: string, apiId: string): Promise<boolean> {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `SELECT api_spec FROM apis WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [apiId, userId],
+      );
+      if (!result.rowCount) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      await client.query(
+        `UPDATE apis SET status = 'DRAFT', is_public = false, updated_at = NOW() WHERE id = $1 AND owner_id = $2`,
+        [apiId, userId],
+      );
+      const studioProjectId = result.rows[0].api_spec?.studioProjectId;
+      if (studioProjectId) {
+        await client.query(
+          `UPDATE api_build_projects
+           SET project = jsonb_set(jsonb_set(project, '{published}', 'false'::jsonb, true), '{visibility}', '"private"'::jsonb, true), updated_at = NOW()
+           WHERE id = $1`,
+          [studioProjectId],
+        );
+      }
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteOwnedApi(
+    userId: string,
+    apiId: string,
+    deleteStudioProject: boolean,
+    requestedStudioProjectId?: string,
+  ): Promise<boolean> {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `SELECT api_spec, slug FROM apis WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [apiId, userId],
+      );
+      if (!result.rowCount) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      let studioProjectId = result.rows[0].api_spec?.studioProjectId;
+      if (!studioProjectId && deleteStudioProject && requestedStudioProjectId) {
+        const linkedProject = await client.query(
+          `SELECT id FROM api_build_projects WHERE id = $1 AND project->>'slug' = $2 FOR UPDATE`,
+          [requestedStudioProjectId, result.rows[0].slug],
+        );
+        studioProjectId = linkedProject.rows[0]?.id;
+      }
+      await client.query(
+        `UPDATE apis SET deleted_at = NOW(), status = 'DRAFT', is_public = false, updated_at = NOW()
+         WHERE id = $1 AND owner_id = $2`,
+        [apiId, userId],
+      );
+      if (deleteStudioProject && studioProjectId) {
+        await client.query('DELETE FROM api_build_projects WHERE id = $1', [studioProjectId]);
+      } else if (studioProjectId) {
+        await client.query(
+          `UPDATE api_build_projects
+           SET project = jsonb_set(jsonb_set(project, '{published}', 'false'::jsonb, true), '{visibility}', '"private"'::jsonb, true), updated_at = NOW()
+           WHERE id = $1`,
+          [studioProjectId],
+        );
+      }
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   /**
    * Fetches curated rails for the homepage: Trending, Popular, Newly Launched,
    * Recommended, and Featured APIs.
@@ -497,7 +635,6 @@ export class CatalogService {
    */
   async publishApi(
     userId: string,
-    userRole: string,
     payload: PublishApiPayload,
   ): Promise<CatalogApi> {
     const slug =
@@ -508,14 +645,33 @@ export class CatalogService {
         .replace(/(^-|-$)/g, '') ||
       `api-${Date.now()}`;
 
-    // When requireApproval is set, always set to PENDING to create an admin approval request
-    const initialStatus = payload.requireApproval ? 'PENDING' : userRole === 'ADMIN' ? 'PUBLISHED' : 'PENDING';
+    const initialStatus = payload.requireApproval ? 'PENDING' : 'PUBLISHED';
 
     const client = await db.connect();
     try {
       await client.query('BEGIN');
 
-      const currentVersion = payload.proposedStudioChanges?.semver || '1.0.0';
+      const existingApi = await client.query(
+        `SELECT id, slug
+         FROM apis
+         WHERE owner_id = $1
+           AND (slug = $3 OR ($2::text IS NOT NULL AND api_spec->>'studioProjectId' = $2))
+         ORDER BY COALESCE(api_spec->>'studioProjectId' = $2, false) DESC,
+                  (slug = $3) DESC,
+                  (deleted_at IS NULL) DESC,
+                  updated_at DESC
+         LIMIT 1
+         FOR UPDATE`,
+        [userId, payload.studioProjectId || null, slug],
+      );
+      const existingApiId: string | undefined = existingApi.rows[0]?.id;
+      const publishSlug = existingApi.rows[0]?.slug || slug;
+
+      const selectedVersion = payload.proposedStudioChanges?.semver || '1.0.0';
+      const currentVersion = selectedVersion.trim().replace(/^v(?=\d)/i, '');
+      if (!/^\d+\.\d+\.\d+$/.test(currentVersion)) {
+        throw new Error('API version must use the X.Y.Z format (for example, 1.2.3).');
+      }
 
       const apiSpec = {
         ...(payload.apiSpec || {
@@ -530,38 +686,52 @@ export class CatalogService {
         documentationMarkdown: payload.documentationMarkdown,
       };
 
-      const res = await client.query(
-        `INSERT INTO apis (
-           name, slug, description, current_version, base_url, docs_url, logo_url,
-           category_id, owner_id, pricing_model, status, is_public, api_spec, tags,
-           rating, total_reviews, total_subscribers, total_requests, latency_ms,
-           uptime_percentage, trending_score, popularity_score, last_published_at
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $13, 5.00, 0, 1, 0, 110, 99.99, 10.0, 50.0, ${initialStatus === 'PUBLISHED' ? 'NOW()' : 'NULL'})
-         RETURNING id`,
-        [
-          payload.name,
-          slug,
-          payload.description,
-          currentVersion,
-          payload.baseUrl,
-          payload.docsUrl || null,
-          payload.logoUrl || null,
-          payload.categoryId,
-          userId,
-          payload.pricingModel,
-          initialStatus,
-          JSON.stringify(apiSpec),
-          payload.tags || [],
-        ],
-      );
+      const apiValues = [
+        payload.name,
+        publishSlug,
+        payload.description,
+        currentVersion,
+        payload.baseUrl,
+        payload.docsUrl || null,
+        payload.logoUrl || null,
+        payload.categoryId,
+        userId,
+        payload.pricingModel,
+        initialStatus,
+        JSON.stringify(apiSpec),
+        payload.tags || [],
+      ];
+      const apiResult = existingApiId
+        ? await client.query(
+            `UPDATE apis
+             SET name = $1, slug = $2, description = $3, current_version = $4,
+                 base_url = $5, docs_url = $6, logo_url = $7, category_id = $8,
+                 pricing_model = $10, status = $11, is_public = true, api_spec = $12,
+                 tags = $13, deleted_at = NULL, updated_at = NOW(),
+                 last_published_at = ${initialStatus === 'PUBLISHED' ? 'NOW()' : 'NULL'}
+             WHERE id = $14 AND owner_id = $9
+             RETURNING id`,
+            [...apiValues, existingApiId],
+          )
+        : await client.query(
+            `INSERT INTO apis (
+               name, slug, description, current_version, base_url, docs_url, logo_url,
+               category_id, owner_id, pricing_model, status, is_public, api_spec, tags,
+               rating, total_reviews, total_subscribers, total_requests, latency_ms,
+               uptime_percentage, trending_score, popularity_score, last_published_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $13, 5.00, 0, 1, 0, 110, 99.99, 10.0, 50.0, ${initialStatus === 'PUBLISHED' ? 'NOW()' : 'NULL'})
+             RETURNING id`,
+            apiValues,
+          );
 
-      const apiId = res.rows[0].id;
+      const apiId = apiResult.rows[0].id;
 
       // Create version
       await client.query(
         `INSERT INTO api_versions (api_id, version, api_spec, is_current, released_at)
-         VALUES ($1, $2, $3, true, NOW())`,
+         VALUES ($1, $2, $3, true, NOW())
+         ${existingApiId ? 'ON CONFLICT (api_id, version) DO NOTHING' : ''}`,
         [apiId, currentVersion, JSON.stringify(apiSpec)],
       );
 
@@ -570,7 +740,8 @@ export class CatalogService {
         for (const plan of payload.plans) {
           await client.query(
             `INSERT INTO subscription_plans (api_id, name, slug, description, price, billing_interval, features, rate_limit, is_active)
-             VALUES ($1, $2, $3, $4, $5, $6::billing_interval, $7, $8, true)`,
+             VALUES ($1, $2, $3, $4, $5, $6::billing_interval, $7, $8, true)
+             ${existingApiId ? 'ON CONFLICT (api_id, slug) DO NOTHING' : ''}`,
             [
               apiId,
               plan.name,
@@ -587,8 +758,36 @@ export class CatalogService {
         // Fallback default plan
         await client.query(
           `INSERT INTO subscription_plans (api_id, name, slug, description, price, billing_interval, features, rate_limit, is_active)
-           VALUES ($1, 'Free Developer', 'free', 'Standard sandbox access', 0.00, 'MONTHLY', '["1,000 requests/mo", "Community Support"]', 60, true)`,
+           VALUES ($1, 'Free Developer', 'free', 'Standard sandbox access', 0.00, 'MONTHLY', '["1,000 requests/mo", "Community Support"]', 60, true)
+           ${existingApiId ? 'ON CONFLICT (api_id, slug) DO NOTHING' : ''}`,
           [apiId],
+        );
+      }
+
+      if (payload.studioProjectId && payload.proposedStudioChanges?.plans?.length) {
+        for (const plan of payload.proposedStudioChanges.plans) {
+          if (!plan?.name || !Number.isFinite(plan.priceMonthly)) continue;
+          await client.query(
+            `UPDATE api_build_plans
+             SET price_monthly = $1,
+                 requests_per_month = COALESCE($2, requests_per_month),
+                 rate_limit_per_min = COALESCE($3, rate_limit_per_min)
+             WHERE project_id = $4 AND (id = $5 OR name = $6)`,
+            [
+              plan.priceMonthly,
+              plan.requestsPerMonth ?? null,
+              plan.rateLimitPerMin ?? null,
+              payload.studioProjectId,
+              plan.id || '',
+              plan.name,
+            ],
+          );
+        }
+
+        await client.query(
+          `INSERT INTO api_build_activity (project_id, label, kind)
+           VALUES ($1, $2, 'ok')`,
+          [payload.studioProjectId, 'Marketplace listing published. Studio pricing synced.'],
         );
       }
 
@@ -596,7 +795,7 @@ export class CatalogService {
       await client.query(
         `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, new_values)
          VALUES ($1, 'CREATE', 'api', $2, $3)`,
-        [userId, apiId, JSON.stringify({ name: payload.name, slug, status: initialStatus })],
+        [userId, apiId, JSON.stringify({ name: payload.name, slug: publishSlug, status: initialStatus })],
       );
 
       await client.query('COMMIT');

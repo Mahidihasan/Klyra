@@ -59,7 +59,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const workspaceNav = [
     { id: 'playground', label: 'Playground', icon: Terminal },
     { id: 'my-apis', label: 'My APIs', icon: Layers },
-    { id: 'publish-api', label: 'Publish API', icon: Zap },
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
 
     
