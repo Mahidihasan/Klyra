@@ -87,17 +87,11 @@ interface UnifiedApiItem {
 }
 
 const isPublicApi = (api: UnifiedApiItem) => {
-  if (api.originalCatalogApi) {
-    return api.originalCatalogApi.status === 'PUBLISHED' && api.originalCatalogApi.isPublic;
-  }
-  return api.originalProject?.visibility === 'public';
+  return api.originalCatalogApi?.status === 'PUBLISHED' && api.originalCatalogApi.isPublic;
 };
 
 const isPrivateApi = (api: UnifiedApiItem) => {
-  if (api.originalCatalogApi?.status === 'PUBLISHED') {
-    return !api.originalCatalogApi.isPublic;
-  }
-  return api.originalProject?.visibility === 'private';
+  return api.originalCatalogApi?.status === 'PUBLISHED' && !api.originalCatalogApi.isPublic;
 };
 
 export const MyApisPage: React.FC<MyApisPageProps> = ({
@@ -255,7 +249,7 @@ export const MyApisPage: React.FC<MyApisPageProps> = ({
         (c) => c.slug === proj.slug || c.id === proj.id || c.studioProjectId === proj.id
       );
       const catalogStatus = catalogMatch?.status?.toUpperCase();
-      const isPub = catalogStatus === 'PUBLISHED' || (!catalogMatch && Boolean(proj.published || proj.status === 'published'));
+      const isPub = catalogStatus === 'PUBLISHED';
       const isPending = catalogStatus === 'PENDING';
       const isMarketplace = isPub && Boolean(catalogMatch?.isPublic);
       let status: UnifiedApiItem['status'] = 'draft';
