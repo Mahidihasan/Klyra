@@ -1,6 +1,6 @@
 import { AdminDataSource } from './admin';
 
-export type ApiStatusValue = 'DRAFT' | 'PENDING' | 'PUBLISHED' | 'REJECTED' | 'ARCHIVED';
+export type ApiStatusValue = 'DRAFT' | 'PENDING' | 'PUBLISHED' | 'UNPUBLISHED' | 'REJECTED' | 'DEPRECATED' | 'ARCHIVED';
 export type ApiSortField = 'created' | 'name' | 'rating' | 'totalRequests' | 'status';
 export type SortDirection = 'asc' | 'desc';
 
@@ -50,7 +50,7 @@ export interface AdminApiList {
   degradedReason?: string;
 }
 
-export type ModerateAction = 'APPROVED' | 'REJECTED' | 'DEPRECATED';
+export type ModerateAction = 'APPROVED' | 'REJECTED' | 'DEPRECATED' | 'CHANGES_REQUESTED' | 'WARN' | 'QUARANTINE' | 'SUSPEND' | 'DISMISS';
 
 export interface AdminApiMutationResult {
   api: AdminApiRow;
@@ -67,3 +67,32 @@ export interface AdminApiMutationResult {
   };
 }
 
+<<<<<<< HEAD
+=======
+export type ApiLifecycleStatus = 'PUBLISHED' | 'UNPUBLISHED' | 'DEPRECATED' | 'ARCHIVED';
+
+export interface ApiLifecyclePayload {
+  status: ApiLifecycleStatus;
+  sunsetDate?: string;
+  migrationApiId?: string;
+  reason?: string;
+}
+
+export type SeverityLevel = 'Low' | 'Medium' | 'Critical';
+export type ReportStatus = 'Open' | 'Investigating' | 'Resolved' | 'Dismissed';
+
+export interface ApiAbuseReport {
+  id: string;
+  apiId: string;
+  apiName: string;
+  apiLogoUrl: string | null;
+  reporterId: string;
+  reporterName: string;
+  reasonTag: string; // e.g. Malicious Payload, Terms Violation
+  description: string;
+  reportCount: number;
+  status: ReportStatus;
+  severity: SeverityLevel;
+  createdAt: string;
+}
+>>>>>>> 0d09d5db48cb408e683d1303b01855674df8f97a

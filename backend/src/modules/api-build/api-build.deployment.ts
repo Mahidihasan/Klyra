@@ -199,6 +199,29 @@ export function sanitizeProjectForClient<T extends Record<string, unknown>>(proj
 }
 
 /** Docker-safe naming (container/image rules: [a-z0-9][a-z0-9_.-]*). */
+/**
+ * The deployment `source` column is constrained by the database
+ * (api_build_deployments_source_check): only these exact values are legal.
+ * Everything that writes a deployment row must pass its value through
+ * normalizeDeploymentSource, or Postgres rejects the row with
+ *   new row for relation "api_build_deployments" violates check constraint
+ *   "api_build_deployments_source_check"
+ */
+export const DEPLOYMENT_SOURCES = ['External API', 'GitHub', 'Docker', 'Klyra Hosted'] as const;
+
+export type DeploymentSource = (typeof DEPLOYMENT_SOURCES)[number];
+
+/** Maps any value onto the constraint's allowed set, falling back when unknown. */
+export function normalizeDeploymentSource(
+  value: unknown,
+  fallback: DeploymentSource = 'Klyra Hosted',
+): DeploymentSource {
+  const candidate = String(value ?? '').trim();
+  return (DEPLOYMENT_SOURCES as readonly string[]).includes(candidate)
+    ? (candidate as DeploymentSource)
+    : fallback;
+}
+
 export function sanitizeContainerToken(value: string): string {
   const token = value.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[^a-z0-9]+/, '').replace(/[^a-z0-9]$/, '');
   return token || 'api';

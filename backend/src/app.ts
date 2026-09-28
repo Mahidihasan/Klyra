@@ -12,8 +12,12 @@ import { authOptional } from './modules/repos/auth.service';
 import { gitHttpHandler } from './modules/repos/git.http';
 import reposRouter from './modules/repos/repos.routes';
 import apiBuildRouter from './modules/api-build/api-build.routes';
+import providerApisRouter from './modules/provider/apis.routes';
 import apiBuildGateway from './modules/api-build/api-build.gateway';
 import apiKeysRouter from './modules/api-keys/api-keys.routes';
+import walletRouter from './modules/wallet/wallet.routes';
+import walletWebhookRouter from './modules/wallet/wallet.webhook';
+import usageRouter from './modules/usage/usage.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
 
 const app = express();
@@ -43,15 +47,23 @@ app.use(
   },
 );
 
+// Stripe webhook — Stripe signs the unparsed payload, so this must sit above
+// express.json(), like the Git Smart HTTP route does.
+app.use('/api/wallet/webhook', express.raw({ type: 'application/json' }), walletWebhookRouter);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 import authRouter from './modules/auth/auth.routes';
+import { checkMaintenanceMode } from './middleware/maintenance.middleware';
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'api-marketplace-backend' });
 });
+
+// Apply Maintenance Gatekeeper globally for all /api routes
+app.use('/api', checkMaintenanceMode);
 
 // Authentication and Demo Email routes
 app.use('/api/auth', authRouter);
@@ -62,6 +74,11 @@ app.use('/api/playground', playgroundRouter);
 
 // Billing routes
 app.use('/api/billing', billingRouter);
+app.use('/api/wallet', walletRouter);
+// requireAuth is applied per route inside the router, as the wallet module
+// does. authOptional would let an unauthenticated request through, and the
+// router used to fall back to a ?userId= query parameter when it did.
+app.use('/api/usage', usageRouter);
 
 // API Build module (projects, endpoints, versions, …) and its dev gateway.
 // The gateway answers /api/gateway/{slug}/* — the same path the project's
@@ -75,6 +92,7 @@ app.use('/api/v1/catalog', catalogRouter);
 // Admin dashboard (platform overview). Registered before the `/api` catch-all
 // below so the repos router can't shadow it.
 app.use('/api/v1/admin', authOptionalJwt, adminRouter);
+app.use('/api/v1/apis', authOptionalJwt, providerApisRouter);
 
 // API Repository system (repos, branches, PRs, issues, releases, CI, marketplace)
 app.use('/api', authOptional, reposRouter);

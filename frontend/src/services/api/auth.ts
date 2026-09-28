@@ -3,6 +3,7 @@ export interface UserProfile {
   email: string;
   name: string;
   role: string;
+  permissions?: string[];
   email_verified_at: string | null;
   status: string;
   is_active: boolean;
@@ -341,7 +342,10 @@ export const authApi = {
   refreshToken: (refreshToken?: string) => refreshAccessToken(refreshToken),
 
   // Current user
-  me: () => authenticatedRequest<{ user: UserProfile }>('/me'),
+  me: () => authenticatedRequest<{ user: UserProfile; permissions: string[] }>('/me'),
+
+  // Permissions
+  getPermissions: () => authenticatedRequest<{ permissions: string[] }>('/permissions'),
 
   // Login history
   loginHistory: () => authenticatedRequest<{ history: LoginHistoryItem[] }>('/login-history'),

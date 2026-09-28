@@ -62,7 +62,7 @@ export interface AdminApiList {
   degradedReason?: string;
 }
 
-export type ModerateAction = 'APPROVED' | 'REJECTED' | 'DEPRECATED';
+export type ModerateAction = 'APPROVED' | 'REJECTED' | 'DEPRECATED' | 'CHANGES_REQUESTED' | 'WARN' | 'QUARANTINE' | 'SUSPEND' | 'DISMISS';
 
 export interface AdminApiMutationResult {
   api: AdminApiRow;
@@ -79,3 +79,14 @@ export interface AdminApiMutationResult {
   };
 }
 
+<<<<<<< HEAD
+=======
+export type ApiLifecycleStatus = 'PUBLISHED' | 'UNPUBLISHED' | 'DEPRECATED' | 'ARCHIVED';
+
+export interface ApiLifecyclePayload {
+  status: ApiLifecycleStatus;
+  sunsetDate?: string;
+  migrationApiId?: string;
+  reason?: string;
+}
+>>>>>>> 0d09d5db48cb408e683d1303b01855674df8f97a

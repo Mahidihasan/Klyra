@@ -67,6 +67,7 @@ export type NavigationTab =
   | 'settings'
   | 'api-build'
   | 'api-builder'
+  | 'publish-api'
   | 'admin-overview'
   | 'admin-users'
   | 'admin-apis'
@@ -74,7 +75,13 @@ export type NavigationTab =
   | 'admin-revenue'
   | 'admin-subscriptions'
   | 'admin-usage'
-  | 'admin-activity';
+  | 'admin-billing'
+  | 'admin-activity'
+  | 'admin-database'
+  | 'admin-engine'
+  | 'admin-devops'
+  | 'admin-forensics'
+  | 'admin-denied';
 
 export type ApiProjectCreationMethod = 'import' | 'blank' | 'template' | 'ai';
 

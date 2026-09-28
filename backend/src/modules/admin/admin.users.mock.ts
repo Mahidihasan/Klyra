@@ -71,9 +71,8 @@ const COMPANIES = ['Northwind', 'Lumen Labs', 'Arcadia', 'Kestrel', 'Vantage', '
 
 /** Weighted so the sample set looks like a real marketplace, not an even split. */
 function roleForSeed(unit: number): UserRoleValue {
-  if (unit < 0.02) return 'ADMIN';
-  if (unit < 0.06) return 'MODERATOR';
-  if (unit < 0.34) return 'PROVIDER';
+  if (unit < 0.01) return 'SUPER_ADMIN';
+  if (unit < 0.05) return 'ADMIN';
   return 'USER';
 }
 
@@ -119,7 +118,7 @@ export function buildMockUsers(now: Date = new Date()): AdminUserRow[] {
       ? null
       : new Date((hourBucket - Math.floor(u3 * 480)) * 3_600_000).toISOString();
 
-    const apisOwned = role === 'PROVIDER' ? Math.floor(u4 * 14) : Math.floor(u4 * 2);
+    const apisOwned = role === 'ADMIN' ? Math.floor(u4 * 14) : Math.floor(u4 * 2);
     const apisSubscribed = Math.floor(u2 * 11);
     const subscriptionTier: UserSubscriptionTier = apisSubscribed >= 5 ? 'ENTERPRISE' : apisSubscribed > 0 ? 'PRO' : 'FREE';
 

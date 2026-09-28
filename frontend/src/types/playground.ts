@@ -392,6 +392,31 @@ export interface TabResponseCache {
   };
 }
 
+/** A single endpoint carried in a PlaygroundOpenPayload folder import. */
+export interface PlaygroundOpenEndpoint {
+  method: string;
+  path: string;
+  /** Display label (usually the endpoint summary). */
+  name?: string;
+  /** Longer human-readable description. */
+  description?: string;
+  /** Optional sample request body (JSON string) used to prefill the body editor. */
+  sampleBody?: string;
+  /**
+   * Parameters the API declares (path/query/header). The Playground uses them to
+   * ask the user for the values an endpoint needs instead of sending a request
+   * that cannot succeed.
+   */
+  parameters?: {
+    name: string;
+    in: string;
+    type?: string;
+    required?: boolean;
+    description?: string;
+    example?: string;
+  }[];
+}
+
 /**
  * Payload carried when another screen (API management / ApiBuild workspace,
  * repositories bridge) opens the Playground. Lets the request editor start
@@ -403,11 +428,25 @@ export interface PlaygroundOpenPayload {
   apiId?: string;
   /** Human-readable API name used for the request name prefill. */
   apiName?: string;
+  /** Name of the workspace folder created for the imported endpoint catalog (defaults to apiName). */
+  folderName?: string;
   /** Base URL to put in the URL field (gateway URL, falling back to the upstream origin). */
   baseUrl?: string;
+  /**
+   * Path prefix the API serves its operations under (OpenAPI `servers[0].url`,
+   * e.g. `/api/v3`). Inserted between the base URL and every endpoint path —
+   * without it the deployed API answers 404 for every discovered endpoint.
+   */
+  basePath?: string;
   /** Optional endpoint to append to the base URL. */
   endpoint?: {
     method: string;
     path: string;
   };
+  /**
+   * Complete endpoint catalog of the originating project. When present, the
+   * Playground imports all of them as request items under one folder named
+   * after the project (folderName || apiName) so every endpoint can be tested.
+   */
+  endpoints?: PlaygroundOpenEndpoint[];
 }

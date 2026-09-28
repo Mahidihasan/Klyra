@@ -19,11 +19,13 @@ import { adminMarketplaceRouter } from './admin.marketplace.routes';
 import { adminRevenueRouter } from './admin.revenue.routes';
 import { adminSubscriptionsRouter } from './admin.subscriptions.routes';
 import { adminUsageRouter } from './admin.usage.routes';
+import { PlatformController } from './controllers/PlatformController';
+import { QueueController } from './controllers/QueueController';
 
 const router = Router();
 
 /** Roles permitted to read platform-wide admin data. */
-const ADMIN_ROLES = new Set(['ADMIN', 'MODERATOR']);
+const ADMIN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN']);
 
 function fail(res: Response, status: number, code: string, message: string) {
   return res.status(status).json({ success: false, error: { code, message } });
@@ -97,7 +99,44 @@ router.use('/subscriptions', adminSubscriptionsRouter);
 router.use('/usage', adminUsageRouter);
 router.use('/activity', adminActivityRouter);
 
+import { adminSettingsRouter } from './admin.settings.routes';
+import { adminExplorerRouter } from './admin.explorer.routes';
+router.use('/settings', adminSettingsRouter);
+router.use('/explorer', adminExplorerRouter);
+
+import { AdminSecurityRoutes } from './admin.security.routes';
+router.use('/security', AdminSecurityRoutes);
+
+import { AdminLogsRoutes } from './admin.logs.routes';
+router.use('/logs', AdminLogsRoutes);
+
+import { AdminRbacRoutes } from './admin.rbac.routes';
+router.use('/rbac', AdminRbacRoutes);
+
+import { adminFinancesRouter } from './admin.finances.routes';
+router.use('/finances', adminFinancesRouter);
+
+import { adminReportsRouter } from './admin.reports.routes';
+router.use('/reports', adminReportsRouter);
+
+import { adminModerationRouter } from './admin.moderation.routes';
+router.use('/moderation', adminModerationRouter);
+
+import { adminEngineRouter } from './admin.engine.routes';
+router.use('/engine', adminEngineRouter);
+
+import { adminDevopsRouter } from './admin.devops.routes';
+router.use('/devops', adminDevopsRouter);
+
 // ============ Platform Overview (everything the screen needs) ============
+router.post('/platform/acknowledge-alerts', PlatformController.acknowledgeAlerts);
+router.get('/platform/export-metrics', PlatformController.exportMetrics);
+router.post('/platform/toggle-maintenance', PlatformController.toggleMaintenance);
+router.get('/platform/top-apis', PlatformController.getTopApis);
+
+// ============ Job Queue (/api/v1/admin/queue/...) ============
+router.get('/queue/active-tasks', QueueController.getActiveTasks);
+
 // GET /api/v1/admin/overview/stats?range=24h
 router.get('/overview/stats', async (req: Request, res: Response) => {
   try {

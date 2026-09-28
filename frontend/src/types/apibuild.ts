@@ -38,6 +38,11 @@ export interface DetectionResult {
   baseUrl: string;
   endpoints: DetectedEndpoint[];
   found: boolean;
+  /**
+   * Path prefix the API serves its operations under (OpenAPI `servers[0].url`,
+   * e.g. `/api/v3`). Requests must be sent to baseUrl + basePath + endpoint path.
+   */
+  basePath?: string;
   /** true when the upstream base URL answered (live connectivity check). */
   reachable?: boolean;
   latencyMs?: number | null;
@@ -50,7 +55,8 @@ export interface DetectionResult {
 }
 
 export interface DeploymentInfo {
-  kind: 'external' | 'klyra';
+  /** 'docker' is the canonical backend kind; 'klyra' is the legacy wizard kind. */
+  kind: 'external' | 'klyra' | 'docker';
   status: DeployPhase | 'healthy-external' | 'paused';
   providerUrl: string;
   source?: string;
@@ -59,6 +65,9 @@ export interface DeploymentInfo {
   version: string;
   lastHealthCheck: string;
   log: string[];
+  /** Safe container facts — Docker-internal URLs/ports are stripped server-side. */
+  containerName?: string;
+  image?: string;
 }
 
 export interface PricingPlan {
@@ -150,6 +159,16 @@ export interface ProviderProject {
   authHeaderName?: string;
   ipAllowlist?: string;
   tags?: string;
+  dockerSourceMode?: 'image' | 'folder';
+  dockerImage?: string;
+  dockerUploadId?: string;
+  dockerfilePath?: string;
+  buildContext?: string;
+  dockerPort?: number;
+  readinessMode?: 'auto' | 'http' | 'tcp';
+  readinessPath?: string;
+  /** GitHub source reference, persisted after a successful clone/inspect. */
+  repository?: string;
 }
 
 export interface CreateProjectInput {
@@ -165,8 +184,15 @@ export interface SourceConfig {
   upstreamAuth?: string;
   repository?: string;
   branch?: string;
+  dockerSourceMode?: 'image' | 'folder';
   dockerImage?: string;
+  dockerUploadId?: string;
+  dockerfilePath?: string;
+  buildContext?: string;
   dockerPort?: number;
+  readinessMode?: 'auto' | 'http' | 'tcp';
+  readinessPath?: string;
+  projectName?: string;
   envVars?: { key: string; value: string }[];
 }
 

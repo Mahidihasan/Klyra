@@ -94,6 +94,11 @@ CREATE TABLE IF NOT EXISTS api_build_plans (
   trial_days        INTEGER      NOT NULL DEFAULT 0,
   subscribers       INTEGER      NOT NULL DEFAULT 0,
   created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (project_id, id),
+  UNIQUE (project_id, name)
+);
+CREATE INDEX IF NOT EXISTS api_build_plans_project_idx ON api_build_plans (project_id);
+
 -- ---------------------------------------------------------------------------
 -- Consumers — subscribers/teams using the API under a plan.
 -- ---------------------------------------------------------------------------
@@ -125,6 +130,10 @@ CREATE TABLE IF NOT EXISTS api_build_api_keys (
   created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   last_used         TIMESTAMPTZ,
   revoked           BOOLEAN      NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (project_id, id)
+);
+CREATE INDEX IF NOT EXISTS api_build_api_keys_project_idx ON api_build_api_keys (project_id);
+
 -- ---------------------------------------------------------------------------
 -- Activity — immutable audit feed of real user/system events.
 -- ---------------------------------------------------------------------------
@@ -213,10 +222,3 @@ CREATE TABLE IF NOT EXISTS api_build_usage (
 );
 CREATE INDEX IF NOT EXISTS api_build_usage_project_idx ON api_build_usage (project_id, bucket ASC);
 CREATE INDEX IF NOT EXISTS api_build_logs_project_idx ON api_build_logs (project_id, created_at DESC);
-  PRIMARY KEY (project_id, id)
-);
-CREATE INDEX IF NOT EXISTS api_build_api_keys_project_idx ON api_build_api_keys (project_id);
-  PRIMARY KEY (project_id, id),
-  UNIQUE (project_id, name)
-);
-CREATE INDEX IF NOT EXISTS api_build_plans_project_idx ON api_build_plans (project_id);

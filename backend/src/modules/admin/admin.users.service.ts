@@ -618,7 +618,7 @@ export async function updateUserRole(
 
     await writeAuditRow(client, {
       actorId: actor.id,
-      action: 'USER_ROLE_CHANGED',
+      action: 'UPDATE',
       entityId: targetId,
       oldValues: { role: target.role },
       newValues: { role: nextRole },
@@ -634,7 +634,7 @@ async function countActiveAdmins(pool: QueryablePool): Promise<number> {
   const { rows } = await withTimeout(
     pool.query<Record<string, unknown>>(
       `SELECT COUNT(*) AS n FROM users
-       WHERE role = 'ADMIN' AND status = 'ACTIVE' AND deleted_at IS NULL`,
+       WHERE role IN ('SUPER_ADMIN', 'ADMIN') AND status = 'ACTIVE' AND deleted_at IS NULL`,
     ),
     QUERY_TIMEOUT_MS,
     'active admin count',
@@ -708,7 +708,7 @@ export async function updateUserDetails(
 
   const target = await fetchUserRow(pool, targetId);
 
-  const refusal = canEditUser(actor);
+  const refusal = canEditUser(actor, target as any);
   if (refusal) throw new GuardrailError(refusal);
 
   // Re-fetch current metadata to avoid dropping other fields

@@ -12,16 +12,12 @@ import { TabViews } from './components/TabViews';
 import { PlaygroundPage } from './pages/Playground/index';
 import { ApiBuilder } from './pages/ApiBuilder/index';
 import { ApiBuildPage } from './pages/ApiBuild';
+import { PublishApiPage } from './pages/PublishApi/index';
 import { BillingPage } from './pages/Billing/index';
+import { WalletPage } from './pages/Wallet/index';
+import { UsagePage } from './pages/Usage/index';
 import { RepositoriesPage } from './pages/Repositories/index';
-import { AdminOverviewPage } from './pages/AdminOverview/index';
-import { AdminUsersPage } from './pages/AdminUsers/index';
-import { AdminApisPage } from './pages/AdminApis/index';
-import { AdminMarketplacePage } from './pages/AdminMarketplace/index';
-import { AdminRevenuePage } from './pages/AdminRevenue/index';
-import { AdminSubscriptionsPage } from './pages/AdminSubscriptions/index';
-import { AdminUsagePage } from './pages/AdminUsage/index';
-import { AdminActivityPage } from './pages/AdminActivity/index';
+import { AdminLayout } from './layouts/AdminLayout/AdminLayout';
 import { MarketplacePage } from './pages/Marketplace/index';
 import { catalogApi, toApiItem } from './services/api/catalog';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
@@ -31,10 +27,12 @@ import { MyApisPage } from './pages/MyApis';
 import './pages/Playground/styles.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { PermissionsProvider, usePermissions } from './context/PermissionsContext';
 import { CartProvider } from './context/CartContext';
 import { CartDrawer } from './pages/Marketplace/components/CartDrawer';
 import { AuthPage, AuthMode } from './pages/Auth/AuthPage';
 import { DemoInboxPage } from './pages/Auth/DemoInboxPage';
+import { Toaster } from 'react-hot-toast';
 
 import {
   MOCK_TRENDING_APIS,
@@ -60,6 +58,7 @@ import {
 
 function AppContent() {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const { hasPermission, isLoading: permissionsLoading } = usePermissions();
   // Persist active tab in localStorage to survive refresh
   const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
     if (typeof window !== 'undefined') {
@@ -281,8 +280,9 @@ function AppContent() {
   // rather than leaving them on a screen the API will only answer with a 403.
   // Impersonating counts as not being an admin: the token in play belongs to
   // the target user, so every admin request would be refused anyway.
-  const isAdmin = hasAdminAccess(user?.role) && !getImpersonationSession();
+  const isAdmin = (user?.role?.toUpperCase() === "SUPER_ADMIN" || user?.role?.toUpperCase() === "ADMIN") && !getImpersonationSession();
   useEffect(() => {
+    // Check if the current tab is an admin tab
     const isAdminTab =
       activeTab === 'admin-overview' ||
       activeTab === 'admin-users' ||
@@ -290,12 +290,47 @@ function AppContent() {
       activeTab === 'admin-marketplace' ||
       activeTab === 'admin-revenue' ||
       activeTab === 'admin-subscriptions' ||
+      activeTab === 'admin-billing' ||
       activeTab === 'admin-usage' ||
-      activeTab === 'admin-activity';
-    if (!isLoading && isAdminTab && !isAdmin) {
-      setActiveTab('home');
+      activeTab === 'admin-activity' ||
+      activeTab === 'admin-database' ||
+      activeTab === 'admin-engine' ||
+      activeTab === 'admin-devops' ||
+      activeTab === 'admin-forensics' ||
+      activeTab === 'admin-denied';
+      
+    if (isAdminTab) {
+      if (!user || isLoading || permissionsLoading) return; // Wait for user object and permissions to fully hydrate
+
+      console.log("Current Permissions in Guard:", user?.permissions);
+
+      if (!isAdmin) {
+        setActiveTab('home');
+        return;
+      }
+      
+      // Specific RBAC Route Guards
+      if (activeTab === 'admin-users' && !hasPermission('VIEW_USERS')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-apis' && !hasPermission('VIEW_APIS')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-marketplace' && !hasPermission('CURATE_MARKETPLACE_FEATURED')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-revenue' && !hasPermission('VIEW_TRANSACTIONS')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-subscriptions' && !hasPermission('VIEW_SUBSCRIPTIONS')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-overview' && !hasPermission('VIEW_ANALYTICS_DASHBOARD')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-database' && !hasPermission('VIEW_DATABASE_METRICS')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-engine' && !hasPermission('ACCESS_ENGINE_ROOM')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-devops' && !hasPermission('VIEW_SERVER_HEALTH')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-forensics' && !hasPermission('VIEW_TACTICAL_BOARD') && !hasPermission('VIEW_INVOICE_FORENSICS')) setActiveTab('admin-denied');
+      else if (activeTab === 'admin-activity' && 
+               !hasPermission('VIEW_MODERATION_INBOX') && 
+               !hasPermission('VIEW_SYSTEM_LOGS') && 
+               !hasPermission('VIEW_AI_THREAT_DETECTION') && 
+               !hasPermission('ACCESS_RBAC_MATRIX') && 
+               !hasPermission('VIEW_SECURITY_CENTER') && 
+               !hasPermission('MANAGE_CORE_SETTINGS')) {
+        setActiveTab('admin-denied');
+      }
     }
-  }, [isLoading, activeTab, isAdmin]);
+  }, [isLoading, permissionsLoading, activeTab, isAdmin, hasPermission, user]);
 
   // Curated rails state fetched from catalog API with mock fallback
   const [curatedRails, setCuratedRails] = useState<{
@@ -519,6 +554,16 @@ function AppContent() {
             }}
           />
         </div>
+      ) : activeTab === 'publish-api' ? (
+        <div style={{ position: 'relative', minHeight: '100vh', background: 'var(--bg-primary, #0b0c12)' }}>
+          <PublishApiPage 
+            onBack={() => setActiveTab('home')}
+            onSuccess={(id) => {
+              // Usually we'd navigate to the API detail or success page, for now just go home
+              setActiveTab('home');
+            }}
+          />
+        </div>
       ) : activeTab === 'api-builder' && activeApiProject ? (
         <ApiBuilder
           project={activeApiProject}
@@ -534,6 +579,10 @@ function AppContent() {
             );
           }}
         />
+      ) : activeTab.startsWith('admin-') ? (
+        /* STRICT ADMIN ISOLATION: 
+           Completely bypasses standard Topbar, Sidebar, and AppBody */
+        <AdminLayout activeTab={activeTab} setActiveTab={setActiveTab} />
       ) : (
         <>
           {/* Top Header Bar - Full Width */}
@@ -768,41 +817,17 @@ function AppContent() {
                 <main className="content-page-wrapper">
                   <BillingPage />
                 </main>
+              ) : activeTab === 'wallet' ? (
+                <main className="content-page-wrapper">
+                  <WalletPage />
+                </main>
+              ) : activeTab === 'usage' ? (
+                <main className="content-page-wrapper">
+                  <UsagePage />
+                </main>
               ) : activeTab === 'repositories' ? (
                 <main>
                   <RepositoriesPage onBackToKlyra={() => goBack()} />
-                </main>
-              ) : activeTab === 'admin-overview' ? (
-                <main className="content-page-wrapper">
-                  <AdminOverviewPage />
-                </main>
-              ) : activeTab === 'admin-users' ? (
-                <main className="content-page-wrapper">
-                  <AdminUsersPage />
-                </main>
-              ) : activeTab === 'admin-apis' ? (
-                <main className="content-page-wrapper">
-                  <AdminApisPage />
-                </main>
-              ) : activeTab === 'admin-marketplace' ? (
-                <main className="content-page-wrapper">
-                  <AdminMarketplacePage />
-                </main>
-              ) : activeTab === 'admin-revenue' ? (
-                <main className="content-page-wrapper">
-                  <AdminRevenuePage />
-                </main>
-              ) : activeTab === 'admin-subscriptions' ? (
-                <main className="content-page-wrapper">
-                  <AdminSubscriptionsPage />
-                </main>
-              ) : activeTab === 'admin-usage' ? (
-                <main className="content-page-wrapper">
-                  <AdminUsagePage />
-                </main>
-              ) : activeTab === 'admin-activity' ? (
-                <main className="content-page-wrapper">
-                  <AdminActivityPage />
                 </main>
               ) : activeTab === 'apis' ? (
                 <main className="content-page-wrapper mp-content-wrapper">
@@ -922,12 +947,20 @@ function AppContent() {
             if (typeof window !== 'undefined' && window.location.search.includes('auth')) {
               window.history.replaceState({}, document.title, window.location.pathname);
             }
-            const currentUserRole = loggedInUser?.role || user?.role;
-            if (hasAdminAccess(currentUserRole)) {
-              setActiveTab('admin-overview');
-            } else {
-              setActiveTab('home');
-            }
+            
+            // Wait for Global State (Auth Context) and localStorage to resolve completely
+            setTimeout(() => {
+              const currentUser = loggedInUser || user;
+              console.log("Login Response:", currentUser);
+              
+              const userRole = currentUser?.role?.toUpperCase();
+              
+              if (userRole === "SUPER_ADMIN" || userRole === "ADMIN") {
+                setActiveTab('admin-overview');
+              } else {
+                setActiveTab('home');
+              }
+            }, 50); // 50ms delay to ensure all state is flushed
           }}
         />
       )}
@@ -1091,9 +1124,17 @@ function AppContent() {
 export function App() {
   return (
     <AuthProvider>
-      <CartProvider>
-        <AppContent />
-      </CartProvider>
+      <PermissionsProvider>
+        <CartProvider>
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              style: { background: '#333', color: '#fff' },
+            }}
+          />
+          <AppContent />
+        </CartProvider>
+      </PermissionsProvider>
     </AuthProvider>
   );
 }

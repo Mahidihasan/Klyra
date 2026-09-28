@@ -15,6 +15,12 @@
  *   queued|running → cancelled
  *   failed → (retry) → queued
  *
+ * A deployment enters `running` exactly once. Steps, warnings and streamed
+ * pipeline output are progress reports on that running row (planProgressTransition /
+ * reportOperationProgress), never new state transitions — re-asserting
+ * `running` on every report produced the production failure
+ * "Invalid operation transition: running → running".
+ *
  * Executor: operations run through an in-process worker (execute). State
  * transitions are persisted FIRST, so a crash mid-run leaves a truthful row.
  * The executor boundary is isolated in runOperation() — moving to a durable
@@ -32,12 +38,12 @@ import { randomUUID } from 'node:crypto';
 import { pool } from '../../services/database.service';
 import {
   addActivity,
-  addDeployment,
   getProject,
   saveProject,
   updateEndpoint,
 } from './api-build.service';
 import { recordAuditEvent } from './api-build.draft';
+import { deployProject } from './api-build.deploy';
 
 /* ==========================================================================
  * Types — mirror frontend/src/types/operations.ts
@@ -84,8 +90,8 @@ export interface OperationRow {
   finishedAt: string | null;
 }
 
-const TERMINAL: ReadonlySet<OperationState> = new Set(['succeeded', 'failed', 'cancelled']);
-const CANCELLABLE: ReadonlySet<OperationState> = new Set(['queued', 'validating', 'running']);
+const TERMINAL: ReadonlySet<OperationState> = new Set<OperationState>(['succeeded', 'failed', 'cancelled']);
+const CANCELLABLE: ReadonlySet<OperationState> = new Set<OperationState>(['queued', 'validating', 'running']);
 
 const nowIso = () => new Date().toISOString();
 
@@ -256,9 +262,15 @@ export async function transitionOperation(
   if (!current) return null;
 
   const nextState = patch.state ?? current.state;
-  if (patch.state && !canTransition(current.state, nextState)) {
+  if (patch.state && patch.state !== current.state && !canTransition(current.state, nextState)) {
     throw new Error(`Invalid operation transition: ${current.state} → ${nextState}`);
   }
+  
+  // If the explicit patch.state exactly matches the current state, we drop the
+  // state column from the write (meaning it's just a progress/log update).
+  // This happens when two concurrent progress streams both fetch a 'validating'
+  // row, both plan a 'running' transition, and one races the other.
+  const writeState = patch.state === current.state ? current.state : nextState;
 
   const logs = patch.appendLog
     ? [...current.logs, `${new Date().toISOString().slice(11, 19)} ${patch.appendLog}`]
@@ -284,7 +296,7 @@ export async function transitionOperation(
     [
       projectId,
       id,
-      nextState,
+      writeState,
       patch.progress === undefined ? null : Math.max(0, Math.min(100, Math.round(patch.progress))),
       JSON.stringify(logs),
       JSON.stringify(warnings),
@@ -340,12 +352,74 @@ export async function retryOperation(
 }
 
 /* ==========================================================================
+ * Progress reporting — steps, warnings and streamed log lines are NOT state
+ * transitions.
+ * ======================================================================== */
+
+/**
+ * Builds the write for a progress report against the CURRENT state:
+ *
+ *   - `queued` | `validating` → the single legal promotion into `running`
+ *     (progress and logs travel with that one transition),
+ *   - `running` → progress/logs only, the state is left untouched, so a
+ *     deployment that reports many steps and log lines never attempts the
+ *     illegal `running → running` transition again,
+ *   - terminal (`succeeded` | `failed` | `cancelled`) → `null`; output that
+ *     arrives after the row finished (a late Docker log flush) is dropped
+ *     instead of crashing the worker or resurrecting the row.
+ *
+ * The state machine is untouched: `transitionOperation` still validates every
+ * real state change through canTransition() — a direct `running → running`
+ * request still throws.
+ */
+export function planProgressTransition(
+  current: OperationState,
+  patch: { progress?: number; appendLog?: string; appendWarning?: string },
+): { state?: OperationState; progress?: number; appendLog?: string; appendWarning?: string } | null {
+  if (current === 'running') return { ...patch };
+  if (canTransition(current, 'running')) return { ...patch, state: 'running' };
+  return null;
+}
+
+/** Durable progress report used by the executor (steps, warnings, raw logs). */
+export async function reportOperationProgress(
+  projectId: string,
+  operationId: string,
+  patch: { progress?: number; appendLog?: string; appendWarning?: string },
+): Promise<OperationRow | null> {
+  const current = await getOperation(projectId, operationId);
+  if (!current) return null;
+  const plan = planProgressTransition(current.state, patch);
+  if (!plan) return null;
+  return transitionOperation(projectId, operationId, plan);
+}
+
+/**
+ * Terminal-state write guarded by the state machine. Returns null when the row
+ * can no longer reach `state` (for example a cancellation that raced the
+ * failure, or a duplicate invocation that already finished the row) instead of
+ * throwing from inside the executor's error handler.
+ */
+async function guardedTransition(
+  projectId: string,
+  operationId: string,
+  state: Extract<OperationState, 'succeeded' | 'failed'>,
+  patch: TransitionInput,
+): Promise<OperationRow | null> {
+  const current = await getOperation(projectId, operationId);
+  if (!current || !canTransition(current.state, state)) return null;
+  return transitionOperation(projectId, operationId, { ...patch, state });
+}
+
+/* ==========================================================================
  * Executor — the only place that performs real work per operation type.
  * ======================================================================== */
 
 interface ExecuteContext {
   step: (label: string, progress: number) => Promise<void>;
   warn: (message: string) => Promise<void>;
+  /** Appends a raw execution-log line (Docker/git output) to the operation. */
+  log: (line: string) => Promise<void>;
   payload: Record<string, unknown>;
   projectId: string;
   actor: string;
@@ -385,62 +459,86 @@ async function executeDeploy(ctx: ExecuteContext): Promise<Record<string, unknow
   const environment = String(payload.environment || project.environment || 'development');
   const strategy = String(payload.strategy || 'rolling');
 
-  await step('Queued for deployment', 5);
-  await step(
-    `Building ${version} from ${
-      project.sourceKind === 'existing' ? 'connected upstream' : project.sourceKind
-    }`,
-    20,
-  );
-  await step('Build completed', 45);
+  // Raw pipeline output (git clone, docker build/pull, readiness checks) is
+  // streamed into the operation's log. Lines are batched (≤ every 700 ms or
+  // 25 lines) so a chatty `docker build` does not issue one UPDATE per line,
+  // and the batch order is preserved by a serialized chain.
+  let logChain: Promise<void> = Promise.resolve();
+  let pendingLogs: string[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushLogs = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    const batch = pendingLogs;
+    pendingLogs = [];
+    if (!batch.length) {
+      return;
+    }
+    logChain = logChain.then(() => ctx.log(batch.join('\n'))).catch(() => undefined);
+  };
+  const streamLog = (line: string) => {
+    if (!line || !line.trim()) {
+      return;
+    }
+    pendingLogs.push(line.trim());
+    if (pendingLogs.length >= 25) {
+      flushLogs();
+      return;
+    }
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushLogs, 700);
+    }
+  };
 
-  const dep = (project.deployment as Record<string, unknown> | undefined) || {};
-  const deployment = await addDeployment(projectId, {
+  const result = await deployProject(projectId, {
+    actor,
     version,
     environment,
-    source: dep.source ? String(dep.source) : 'Klyra Hosted',
-    branch: dep.branch ? String(dep.branch) : undefined,
-    region: 'auto',
-    status: 'healthy',
-    url: dep.providerUrl ? String(dep.providerUrl) : String(project.gatewayUrl),
-    durationSec: 0,
-    author: actor,
-    logs: [`Deploy ${version} → ${environment} (${strategy})`, 'Health checks passed'],
-    envVars: [],
-  });
-  await step('Deployment registered', 70);
-
-  await saveProject({
-    ...project,
-    version,
-    environment,
-    status: 'healthy',
-    updatedAt: nowIso(),
-    deployment: {
-      ...dep,
-      status: 'healthy',
-      environment,
-      version,
-      lastHealthCheck: 'just now',
+    strategy,
+    sourceKind: typeof payload.sourceKind === 'string' ? payload.sourceKind : undefined,
+    repository: typeof payload.repository === 'string' ? payload.repository : undefined,
+    branch: typeof payload.branch === 'string' ? payload.branch : undefined,
+    dockerSourceMode: typeof payload.dockerSourceMode === 'string' ? (payload.dockerSourceMode as 'image' | 'folder') : undefined,
+    dockerImage: typeof payload.dockerImage === 'string' ? payload.dockerImage : undefined,
+    dockerUploadId: typeof payload.dockerUploadId === 'string' ? payload.dockerUploadId : undefined,
+    dockerfilePath: typeof payload.dockerfilePath === 'string' ? payload.dockerfilePath : undefined,
+    buildContext: typeof payload.buildContext === 'string' ? payload.buildContext : undefined,
+    dockerPort: typeof payload.dockerPort === 'number' ? payload.dockerPort : undefined,
+    openApiUrl: typeof payload.openApiUrl === 'string' ? payload.openApiUrl : undefined,
+    readinessMode: typeof payload.readinessMode === 'string' ? (payload.readinessMode as 'auto' | 'http' | 'tcp') : undefined,
+    readinessPath: typeof payload.readinessPath === 'string' ? payload.readinessPath : undefined,
+    onLog: streamLog,
+    onStep: async (label, progress) => {
+      await step(label, progress);
     },
   });
-  await step(`Healthy in ${environment}`, 100);
+  flushLogs();
+  await logChain;
+
+  if (!result.ok) {
+    throw new Error(result.error || 'Deployment failed');
+  }
 
   await recordAuditEvent({
     projectId,
     actorId: actor,
     resourceType: 'deployment',
-    resourceId: deployment?.id || '',
+    resourceId: result.deploymentId,
     operation: 'deploy',
     before: { version: project.version, environment: project.environment, status: project.status },
     after: { version, environment, status: 'healthy' },
     changeSummary: `Deployed ${version} to ${environment}`,
   });
+
   return {
     version,
     environment,
     strategy,
-    deploymentId: deployment?.id || '',
+    deploymentId: result.deploymentId,
+    containerName: result.containerName,
+    gatewayUrl: result.gatewayUrl,
   };
 }
 
@@ -597,43 +695,50 @@ export async function execute(operationId: string): Promise<void> {
   if (inflight.has(operationId)) return;
   inflight.add(operationId);
   try {
-    const initial = await pool.query(
-      'SELECT project_id, type, state, actor, environment, payload FROM api_build_operations WHERE id = $1',
+    // Atomic single-use claim: only the invocation that moves the row OFF
+    // `queued` runs the operation. A duplicate (queue worker racing the
+    // operation worker, a double-fired retry, a replayed request) gets zero
+    // rows back and returns without doing any work — idempotent by
+    // construction instead of crashing or double-running a deployment.
+    const claimed = await pool.query(
+      `UPDATE api_build_operations
+       SET state = 'validating', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
+       WHERE id = $1 AND state = 'queued'
+       RETURNING ${SELECT_COLUMNS}`,
       [operationId],
     );
-    const row = initial.rows[0];
-    if (!row || row.state !== 'queued') return;
+    const row = claimed.rows[0];
+    if (!row) return;
 
     const projectId = String(row.project_id);
     const type = String(row.type) as OperationType;
     const payload = (row.payload as Record<string, unknown>) || {};
 
+    // A deployment enters `running` exactly once. Steps, warnings and streamed
+    // Docker output are progress reports on that one running row — re-asserting
+    // the state on every report is what produced `running → running`.
     const step = async (label: string, progress: number) => {
-      await transitionOperation(projectId, operationId, {
-        state: 'running',
-        appendLog: label,
-        progress,
-      });
+      await reportOperationProgress(projectId, operationId, { progress, appendLog: label });
     };
     const warn = async (message: string) => {
-      await transitionOperation(projectId, operationId, { appendWarning: message });
+      await reportOperationProgress(projectId, operationId, { appendWarning: message });
+    };
+    const log = async (line: string) => {
+      await reportOperationProgress(projectId, operationId, { appendLog: line });
     };
 
     try {
-      await transitionOperation(projectId, operationId, {
-        state: 'validating',
-        appendLog: 'Operation started',
-      });
+      await transitionOperation(projectId, operationId, { appendLog: 'Operation started' });
       const result = await runOperation(type, {
         step,
         warn,
+        log,
         payload,
         projectId,
         actor: String(row.actor || 'system'),
         environment: row.environment ? String(row.environment) : null,
       });
-      await transitionOperation(projectId, operationId, {
-        state: 'succeeded',
+      await guardedTransition(projectId, operationId, 'succeeded', {
         progress: 100,
         result,
         appendLog: 'Operation completed',
@@ -641,8 +746,7 @@ export async function execute(operationId: string): Promise<void> {
       await addActivity(projectId, `Operation ${type} succeeded (${operationId})`, 'ok');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await transitionOperation(projectId, operationId, {
-        state: 'failed',
+      await guardedTransition(projectId, operationId, 'failed', {
         appendError: message,
         appendLog: `Operation failed: ${message}`,
       });
