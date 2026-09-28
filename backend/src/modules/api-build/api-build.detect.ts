@@ -26,7 +26,7 @@ const SPEC_PATHS = [
   '/api/openapi.json',
   '/api/swagger.json',
 ];
-const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE']);
 /** `3.0.4`, `2.0`, or a quoted variant — the OpenAPI/Swagger version marker. */
 const VERSION_MARKER = /^v?\d+(\.\d+)*$/i;
 
@@ -73,25 +73,32 @@ const blank = (baseUrl: string, extra: Partial<DetectionPayload> = {}): Detectio
  *   - an absolute server URL contributes its path only when it addresses the
  *     same origin that was probed (a production host we are not talking to
  *     contributes nothing);
- *   - server variables (`{version}`) are ignored.
+ *   - server variables are substituted from their declared defaults.
  * Returns '' when the API is served at the origin root (today's behaviour).
  */
-export function resolveBasePath(servers: string[], probedBaseUrl = ''): string {
+export function resolveBasePath(servers: string[], probedBaseUrl = '', serverObjects: unknown[] = []): string {
   let probed: URL | null = null;
   try { probed = new URL(probedBaseUrl); } catch { probed = null; }
   for (const raw of servers) {
     const value = String(raw || '').trim();
-    if (!value || value === '/' || value.includes('{')) continue;
-    if (/^https?:\/\//i.test(value)) {
+    if (!value || value === '/') continue;
+    const serverObject = serverObjects.find((item) => item && typeof item === 'object' && String((item as Record<string, unknown>).url || '') === value) as Record<string, unknown> | undefined;
+    const variables = serverObject?.variables && typeof serverObject.variables === 'object' ? serverObject.variables as Record<string, unknown> : {};
+    const resolved = value.replace(/\{([^}]+)\}/g, (match, name: string) => {
+      const variable = variables[name] && typeof variables[name] === 'object' ? variables[name] as Record<string, unknown> : {};
+      return variable.default !== undefined ? String(variable.default) : match;
+    });
+    if (resolved.includes('{')) continue;
+    if (/^https?:\/\//i.test(resolved)) {
       let parsed: URL | null = null;
-      try { parsed = new URL(value); } catch { continue; }
+      try { parsed = new URL(resolved); } catch { continue; }
       if (!probed || parsed.host !== probed.host) continue;
       const sharedPath = parsed.pathname.replace(/\/+$/, '');
       if (sharedPath) return sharedPath;
       continue;
     }
-    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) continue; // other schemes
-    const path = `/${value.replace(/^\/+/, '')}`.replace(/\/+$/, '');
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(resolved)) continue; // other schemes
+    const path = `/${resolved.replace(/^\/+/, '')}`.replace(/\/+$/, '');
     if (path && path !== '/') return path;
   }
   return '';
@@ -170,7 +177,8 @@ function inspect(doc: Record<string, unknown>, baseUrl: string): DetectionPayloa
     for (const [key, operation] of Object.entries(operationMap as Record<string, unknown>)) {
       const method = key.toUpperCase(); if (!METHODS.has(method)) continue;
       const details = operation && typeof operation === 'object' ? operation as Record<string, unknown> : {};
-      const shape = operationDetails(details);
+      const pathParameters = Array.isArray((operationMap as Record<string, unknown>).parameters) ? (operationMap as Record<string, unknown>).parameters as unknown[] : [];
+      const shape = operationDetails(details, doc, pathParameters);
       endpoints.push({
         id: `ep-${endpoints.length + 1}`,
         method,
@@ -190,7 +198,9 @@ function inspect(doc: Record<string, unknown>, baseUrl: string): DetectionPayloa
   const schemes = Object.entries(security).map(([name, item]) => item && typeof item === 'object' ? String((item as Record<string, unknown>).type || name) : name);
   const info = doc.info && typeof doc.info === 'object' ? doc.info as Record<string, unknown> : {};
   const servers = Array.isArray(doc.servers) ? doc.servers.map((server) => server && typeof server === 'object' ? String((server as Record<string, unknown>).url || '') : '').filter(Boolean) : [];
-  const basePath = resolveBasePath(servers, baseUrl);
+  const basePath = doc.swagger === '2.0'
+    ? String(doc.basePath || '').replace(/\/+$/, '')
+    : resolveBasePath(servers, baseUrl, Array.isArray(doc.servers) ? doc.servers : []);
   // Every operation is served under the same base path, so it rides along with
   // each detected endpoint (see DetectedEndpoint.basePath).
   if (basePath) for (const endpoint of endpoints) endpoint.basePath = basePath;
@@ -262,7 +272,7 @@ export function extractSpecUrlsFromHtml(html: string, limit = 5): string[] {
  * -------------------------------------------------------------------------- */
 export interface ImportableEndpoint {
   id: string;
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | 'TRACE';
   path: string;
   /**
    * Path prefix the deployed API serves this operation under
@@ -276,7 +286,7 @@ export interface ImportableEndpoint {
   authRequired: boolean;
   rateLimitPerMin: number;
   status: 'active' | 'beta' | 'deprecated';
-  parameters: { name: string; in: string; type: string; required: boolean; description: string; example?: string }[];
+  parameters: { name: string; in: string; type: string; required: boolean; description: string; example?: string; format?: string; enum?: unknown[]; default?: unknown; style?: string; explode?: boolean; collectionFormat?: string }[];
   requestBody: { contentType: string; schema: string; sampleBody: string } | null;
   responses: { statusCode: number; description: string; schema: string; sampleBody: string }[];
   specUrl?: string;
@@ -335,7 +345,7 @@ function mergeParameters(
 
 export function extractOperations(specUrl: string, detected: DetectedEndpoint[]): ImportableEndpoint[] {
   const methodOf = (m: string): ImportableEndpoint['method'] =>
-    (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(m) ? m as ImportableEndpoint['method'] : 'GET');
+    (['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE'].includes(m.toUpperCase()) ? m.toUpperCase() as ImportableEndpoint['method'] : 'GET');
   return detected.map((ep) => ({
     id: endpointRowId(ep.method, ep.path),
     method: methodOf(ep.method),
@@ -369,6 +379,16 @@ export function extractOperations(specUrl: string, detected: DetectedEndpoint[])
 }
 const SAMPLE_VALUES: Record<string, unknown> = { string: 'example', integer: 1, number: 1, boolean: true };
 
+function resolveRef(value: unknown, doc?: Record<string, unknown>, seen = new Set<string>()): unknown {
+  if (!value || typeof value !== 'object' || !doc) return value;
+  const record = value as Record<string, unknown>;
+  if (typeof record.$ref !== 'string' || !record.$ref.startsWith('#/') || seen.has(record.$ref)) return value;
+  const ref = record.$ref;
+  seen.add(ref);
+  const target = ref.slice(2).split('/').map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~')).reduce<unknown>((node, key) => node && typeof node === 'object' ? (node as Record<string, unknown>)[key] : undefined, doc);
+  return target && typeof target === 'object' ? { ...(target as Record<string, unknown>), ...Object.fromEntries(Object.entries(record).filter(([key]) => key !== '$ref')) } : value;
+}
+
 function schemaType(node: Record<string, unknown>): string {
   const t = node.type;
   if (typeof t === 'string') return t;
@@ -401,17 +421,23 @@ function sampleFromSchema(node: unknown, depth = 0): string {
  * Shared by detection (so a detected endpoint carries what it needs) and by the
  * spec-aware extractor, so both describe an operation identically.
  */
-function operationDetails(operation: Record<string, unknown>): {
+function operationDetails(operation: Record<string, unknown>, doc?: Record<string, unknown>, inheritedParameters: unknown[] = []): {
   parameters: ImportableEndpoint['parameters'];
   requestBody: ImportableEndpoint['requestBody'];
   responses: ImportableEndpoint['responses'];
 } {
   const parameters: ImportableEndpoint['parameters'] = [];
-  if (Array.isArray(operation.parameters)) {
-    for (const p of operation.parameters) {
+  const allParameters = [...inheritedParameters, ...(Array.isArray(operation.parameters) ? operation.parameters : [])];
+  if (allParameters.length) {
+    for (const unresolved of allParameters) {
+      const p = resolveRef(unresolved, doc);
       if (!p || typeof p !== 'object') continue;
       const param = p as Record<string, unknown>;
-      const schema = param.schema && typeof param.schema === 'object' ? param.schema as Record<string, unknown> : {};
+      const rawSchema = param.schema && typeof param.schema === 'object' ? resolveRef(param.schema, doc) : {};
+      const schema = rawSchema && typeof rawSchema === 'object' ? rawSchema as Record<string, unknown> : {};
+      const items = schema.items && typeof schema.items === 'object' ? schema.items as Record<string, unknown> : param.items && typeof param.items === 'object' ? param.items as Record<string, unknown> : {};
+      const enumValues = Array.isArray(schema.enum) ? schema.enum : Array.isArray(items.enum) ? items.enum : undefined;
+      const example = schema.example ?? param.example ?? schema.default ?? param.default ?? items.default ?? enumValues?.[0];
       const real: ImportableEndpoint['parameters'][number] = {
         name: String(param.name ?? 'param'),
         in: String(param.in ?? 'query'),
@@ -421,7 +447,13 @@ function operationDetails(operation: Record<string, unknown>): {
         // Omitted entirely when the document has no example: a key present with
         // `undefined` disappears on the jsonb round-trip and would then look
         // like a change on the next import.
-        ...(schema.example !== undefined && schema.example !== null ? { example: String(schema.example) } : {}),
+        ...(example !== undefined && example !== null ? { example: Array.isArray(example) ? example.map(String).join(',') : String(example) } : {}),
+        ...(typeof schema.format === 'string' ? { format: schema.format } : typeof param.format === 'string' ? { format: param.format } : {}),
+        ...(enumValues ? { enum: enumValues } : {}),
+        ...(schema.default !== undefined ? { default: schema.default } : param.default !== undefined ? { default: param.default } : items.default !== undefined ? { default: items.default } : {}),
+        ...(typeof param.style === 'string' ? { style: param.style } : {}),
+        ...(typeof param.explode === 'boolean' ? { explode: param.explode } : {}),
+        ...(typeof param.collectionFormat === 'string' ? { collectionFormat: param.collectionFormat } : {}),
       };
       const existingIndex = parameters.findIndex((existing) => existing.name === real.name && existing.in === real.in);
       if (existingIndex >= 0) parameters[existingIndex] = real;
@@ -459,8 +491,8 @@ function operationDetails(operation: Record<string, unknown>): {
 
 /** Merges a document's operation shape into an endpoint row — real values win
  *  over the inferred path-template placeholders. */
-function describeOperation(operation: Record<string, unknown>, row: ImportableEndpoint): ImportableEndpoint {
-  const details = operationDetails(operation);
+function describeOperation(operation: Record<string, unknown>, row: ImportableEndpoint, doc?: Record<string, unknown>, inheritedParameters: unknown[] = []): ImportableEndpoint {
+  const details = operationDetails(operation, doc, inheritedParameters);
   row.parameters = mergeParameters(row.parameters, details.parameters);
   if (row.requestBody && details.requestBody) {
     row.requestBody = {
@@ -487,10 +519,11 @@ export async function extractOperationsFromSpec(specUrl: string, detected: Detec
   return rows.map((row) => {
     const opMap = paths[row.path];
     if (!opMap || typeof opMap !== 'object') return row;
-    const operation = (opMap as Record<string, unknown>)[row.method.toLowerCase()];
+    const pathItem = opMap as Record<string, unknown>;
+    const operation = pathItem[row.method.toLowerCase()];
     if (!operation || typeof operation !== 'object') return row;
     const op = operation as Record<string, unknown>;
 
-    return describeOperation(op, row);
+    return describeOperation(op, row, doc, Array.isArray(pathItem.parameters) ? pathItem.parameters : []);
   });
 }

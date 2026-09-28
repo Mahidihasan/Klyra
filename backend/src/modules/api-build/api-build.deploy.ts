@@ -33,6 +33,8 @@ import {
   buildGatewayUrl,
   DEFAULT_INTERNAL_PORT,
   resolveDeploymentKind,
+  sandboxNetworkName,
+  usesHostDockerRuntime,
   type DeploymentKind,
 } from './api-build.deployment';
 import { detectUpstream, extractOperations } from './api-build.detect';
@@ -41,11 +43,15 @@ import {
   DockerUnavailableError,
   ReadinessError,
   ensureNetwork,
+  connectContainerToNetwork,
+  backendContainerForDockerNetwork,
   buildImage,
   pullImage,
   runContainer,
   removeContainer,
   inspectContainer,
+  inspectContainerNetworkIp,
+  getContainerLogs,
   inspectImageExposedPorts,
   waitForReadiness,
   type DeployLog,
@@ -134,6 +140,41 @@ export function validateImageReference(imageRef: string): void {
  * the deployment level, not a swallowed state error.
  */
 const inFlightDeployments = new Map<string, Promise<DeployExecutionResult>>();
+
+type RuntimeListener = { port: number; mode: 'http' | 'tcp'; protocol: string };
+
+function detectRuntimeListener(logs: string): RuntimeListener | null {
+  const grpc = /\bgrpc\b.{0,48}?\blistening\b.{0,24}?(?:(?:localhost|0\.0\.0\.0|\[[^\]]+\]|[\w.-]+):)?(\d{2,5})/i.exec(logs);
+  if (grpc) return { port: Number(grpc[1]), mode: 'tcp', protocol: 'gRPC/TCP' };
+
+  const http = /\blistening on\s+(https?):\/\/(?:\[[^\]]+\]|[^:/\s]+):(\d{2,5})/i.exec(logs);
+  if (http) return { port: Number(http[2]), mode: 'http', protocol: http[1].toUpperCase() };
+
+  const tcp = /\b(?:tcp|server)\b.{0,48}?\blistening\b.{0,24}?(?:(?:localhost|0\.0\.0\.0|\[[^\]]+\]|[\w.-]+):)?(\d{2,5})/i.exec(logs);
+  if (tcp) return { port: Number(tcp[1]), mode: 'tcp', protocol: 'TCP' };
+  return null;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function detectContainerListenerFromLogs(
+  containerName: string,
+  log: DeployLog,
+): Promise<RuntimeListener | null> {
+  // Some runtimes only announce their listener after initialization. Keep this
+  // short and bounded; the full API readiness grace period starts afterward.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const listener = detectRuntimeListener(await getContainerLogs(containerName, 40).catch(() => ''));
+    if (listener && listener.port > 0 && listener.port <= 65535) {
+      log(`[docker] detected runtime listener from container logs: ${listener.protocol} port ${listener.port}`);
+      return listener;
+    }
+    const state = await inspectContainer(containerName).catch(() => null);
+    if (!state?.running) return null;
+    if (attempt < 5) await sleep(1_000);
+  }
+  return null;
+}
 
 /**
  * Orchestrates a complete deployment for an API project.
@@ -242,6 +283,17 @@ async function runDeployPipeline(
       },
     });
 
+    await step('Running post-deployment health check', 98);
+    const health = await probeProjectHealth(projectId);
+    log(
+      `[health] ${health.ok ? 'passed' : 'failed'}: ${health.target || 'no target'} -> HTTP ${health.statusCode || 'no response'} in ${health.latencyMs}ms`,
+    );
+    if (!health.ok) {
+      throw new ReadinessError(
+        `Post-deployment health check failed for ${health.target || 'the deployed API'}: ${health.reason || 'upstream did not return a healthy response.'}`,
+      );
+    }
+
     await addActivity(
       projectId,
       healthy
@@ -268,7 +320,8 @@ async function runDeployPipeline(
   // --------------------------------------------------------------------------
   // DOCKER DEPLOYMENT (COMMON PIPELINE)
   // --------------------------------------------------------------------------
-  const containerName = containerNameFor(slug, version);
+  let containerName = containerNameFor(slug, version);
+  const supersededContainers: string[] = [];
   const projectDep = (project.deployment as Record<string, unknown> | undefined) || {};
   const prevRuntime = (projectDep.runtime as Record<string, unknown> | undefined) || {};
 
@@ -308,8 +361,9 @@ async function runDeployPipeline(
     }
     log(`[docker] Docker daemon available (${diagnostic.dockerBin})`);
 
-    // 3. Ensure network exists
-    const network = await ensureNetwork(log);
+    // Resolve the per-deployment network name now; create it after the image is
+    // ready so failed builds do not leave unused sandbox networks behind.
+    const network = sandboxNetworkName(containerName);
 
     // 4. Resolve / build image — the common pipeline accepts three sources:
     //    uploaded project folder, GitHub repository, and a prebuilt OCI image.
@@ -318,7 +372,7 @@ async function runDeployPipeline(
     const branch = String(opts.branch || project.branch || '').trim();
     const explicitImage = String(opts.dockerImage || project.dockerImage || '').trim();
     /** Facts discovered while obtaining a GitHub source (persisted on success). */
-    let discovered: { dockerfilePath: string; buildContext: string; dockerPort: number } | null =
+    let discovered: { dockerfilePath: string; buildContext: string; dockerPort?: number } | null =
       null;
 
     if (dockerSourceMode === 'folder') {
@@ -360,7 +414,7 @@ async function runDeployPipeline(
       await step('Preparing project build artifacts', 20);
       await prepareDockerBuildContext(contextDir, log);
       const tag = imageNameFor(slug, version);
-      await step(`Building Docker image ${tag}`, 25);
+      await step(`Build: Building Docker image ${tag}`, 25);
       await buildImage(contextDir, tag, log);
       imageToRun = tag;
       if (clonedUploadId) {
@@ -388,7 +442,7 @@ async function runDeployPipeline(
       await step('Preparing project build artifacts', 22);
       await prepareDockerBuildContext(githubContextDir, log);
       const tag = imageNameFor(slug, version);
-      await step(`Building Docker image ${tag}`, 30);
+      await step(`Build: Building Docker image ${tag}`, 30);
       await buildImage(githubContextDir, tag, log);
       imageToRun = tag;
       // The clone has served its purpose once the image exists.
@@ -405,7 +459,7 @@ async function runDeployPipeline(
       validateImageReference(String(rawImage));
       imageToRun = String(rawImage).trim();
 
-      await step(`Pulling container image ${imageToRun}`, 25);
+      await step(`Build: Preparing container image ${imageToRun}`, 25);
       await pullImage(imageToRun, log);
     }
 
@@ -426,31 +480,75 @@ async function runDeployPipeline(
     // 6. Replace previous container for the same project + version
     await step(`Preparing container ${containerName}`, 50);
 
+    // Create an isolated network for this API. A containerized backend joins
+    // only this deployment network; a host backend uses a loopback-published
+    // port and stays outside the sandbox.
+    await step(`Start: creating isolated sandbox network ${network}`, 55);
+    await ensureNetwork(log, network);
+    const backendContainer = backendContainerForDockerNetwork();
+    if (backendContainer) {
+      await connectContainerToNetwork(backendContainer, network, log);
+    }
+
     // 7. Start new container
-    await step(`Starting container on network ${network}`, 60);
-    const runResult = await runContainer({
+    await step(`Start: launching isolated API container on ${network}`, 60);
+    let runResult = await runContainer({
       name: containerName,
       image: imageToRun,
       network,
       internalPort,
       log,
     });
+    containerName = runResult.containerName;
 
-    const preferHost =
-      String(process.env.KLYRA_DOCKER_RUNTIME || 'docker').toLowerCase() === 'host';
+    const runtimeListener = await detectContainerListenerFromLogs(containerName, log);
+    let effectiveReadinessMode = readinessMode;
+    if (runtimeListener) {
+      effectiveReadinessMode = runtimeListener.mode;
+      if (runtimeListener.port !== internalPort && usesHostDockerRuntime()) {
+        // A host backend can only reach the published host port. Start a second
+        // sandbox instance with the listener's real container port mapped, and
+        // keep the first running until the corrected instance passes readiness.
+        const previousContainer = containerName;
+        await step(`Start: correcting published port to ${runtimeListener.port}`, 62);
+        runResult = await runContainer({
+          name: `${containerName}-port-${runtimeListener.port}`,
+          image: imageToRun,
+          network,
+          internalPort: runtimeListener.port,
+          log,
+        });
+        supersededContainers.push(previousContainer);
+        containerName = runResult.containerName;
+        internalPort = runtimeListener.port;
+      } else if (runtimeListener.port !== internalPort) {
+        internalPort = runtimeListener.port;
+      }
+    }
+
+    const containerNetworkIp = await inspectContainerNetworkIp(containerName, network);
+    log(
+      containerNetworkIp
+        ? `[docker] container ${containerName} is attached to ${network} at ${containerNetworkIp}`
+        : `[docker] unable to read ${containerName}'s address on ${network}`,
+    );
+
+    const preferHost = usesHostDockerRuntime();
     const internalUrl = `http://${containerName}:${internalPort}`;
     const hostUrl = runResult.hostPort ? `http://127.0.0.1:${runResult.hostPort}` : undefined;
     const probeTargetUrl = preferHost && hostUrl ? hostUrl : hostUrl || internalUrl;
 
     // 8. Wait for readiness
-    await step(`Waiting for container readiness (${readinessMode} mode)`, 75);
+    await step(`Health Check: waiting for API response (${effectiveReadinessMode} mode)`, 75);
     await waitForReadiness(probeTargetUrl, log, {
-      mode: readinessMode,
+      mode: effectiveReadinessMode,
       path: readinessPath,
+      hostname: preferHost && runResult.hostPort ? '127.0.0.1' : containerName,
+      fallbackHostname: !preferHost ? containerNetworkIp || undefined : undefined,
       port: runResult.hostPort || internalPort,
       openApiUrl,
-      attempts: 40,
-      delayMs: 500,
+      startupGraceMs: 180_000,
+      delayMs: 1_000,
     });
 
     // 9. Inspect container
@@ -459,9 +557,14 @@ async function runDeployPipeline(
       throw new Error(`Container ${containerName} exited unexpectedly.`);
     }
     log(`[docker] Container verified running (status: ${state.status})`);
+    for (const oldContainer of supersededContainers) {
+      await removeContainer(oldContainer)
+        .then(() => log(`[docker] removed initial container ${oldContainer} after corrected listener passed readiness`))
+        .catch((error) => log(`[docker] corrected listener is ready; initial container ${oldContainer} remains: ${error instanceof Error ? error.message : String(error)}`));
+    }
 
     // 10. Independent OpenAPI Discovery (never prevents deployment success)
-    await step('Discovering API specification', 85);
+    await step('Discovering API specification', 88);
     try {
       const detected = await detectUpstream(probeTargetUrl, openApiUrl);
       if (detected && detected.found && detected.endpoints.length > 0) {
@@ -553,6 +656,8 @@ async function runDeployPipeline(
       'ok',
     );
 
+    await step('Ready: sandbox API returned a valid HTTP response', 99);
+
     // Optional: cleanup temporary upload directory on success if folder mode
     if (dockerSourceMode === 'folder' && (opts.dockerUploadId || project.dockerUploadId)) {
       void cleanupUpload(opts.dockerUploadId || (project.dockerUploadId as string));
@@ -575,8 +680,27 @@ async function runDeployPipeline(
     const readinessRan = error instanceof ReadinessError;
     log(`[docker] Deployment failed: ${errorMsg}`);
 
-    // Cleanup failed container to avoid orphans
-    await removeContainer(containerName).catch(() => undefined);
+    // A failed probe can be caused by the probe target/network rather than by
+    // the API. Preserve a live container and capture its state/logs so that a
+    // bad readiness target does not destroy a successful process.
+    const failedContainerState = await inspectContainer(containerName).catch(() => null);
+    if (failedContainerState?.running) {
+      log(`[docker] Container remains running after readiness/deploy failure (status: ${failedContainerState.status})`);
+      const containerLogs = await getContainerLogs(containerName, 40).catch(() => '');
+      if (containerLogs) log(`[docker] container logs:\n${containerLogs}`);
+    } else if (failedContainerState?.exists) {
+      await removeContainer(containerName).catch(() => undefined);
+    } else {
+      log(`[docker] container ${containerName} was not found during failure cleanup; leaving Docker state untouched`);
+    }
+    for (const preservedName of supersededContainers) {
+      const state = await inspectContainer(preservedName).catch(() => null);
+      if (state?.running) {
+        log(`[docker] preserved initial sandbox container ${preservedName} for diagnosis (status: ${state.status})`);
+        const containerLogs = await getContainerLogs(preservedName, 40).catch(() => '');
+        if (containerLogs) log(`[docker] initial container logs:\n${containerLogs}`);
+      }
+    }
     // Cleanup a GitHub clone sandbox that never produced a running container
     if (clonedUploadId) {
       await cleanupUpload(clonedUploadId).catch(() => undefined);

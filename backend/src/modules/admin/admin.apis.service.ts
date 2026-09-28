@@ -348,9 +348,6 @@ export async function moderateApi(
       [targetId]
     );
 
-<<<<<<< HEAD
-    return { api: mapApiRow(updatedRows[0]), auditLogged: true, notification };
-=======
     if (['WARN', 'QUARANTINE', 'SUSPEND', 'DISMISS'].includes(action)) {
       resolveMockReportByApiId(targetId);
       if (action === 'QUARANTINE' || action === 'SUSPEND') {
@@ -359,7 +356,6 @@ export async function moderateApi(
       }
     }
 
-    return { api: mapApiRow(updatedRows[0]), auditLogged: true };
->>>>>>> 0d09d5db48cb408e683d1303b01855674df8f97a
+    return { api: mapApiRow(updatedRows[0]), auditLogged: true, notification };
   });
 }

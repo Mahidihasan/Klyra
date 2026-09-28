@@ -4,9 +4,6 @@ import { apiBuildService } from '../../services/apiBuild';
 
 export type BuildView = 'dash' | 'new' | 'source' | 'detect' | 'configure' | 'deploy' | 'product' | 'pricing' | 'publish' | 'success' | 'workspace';
 
-<<<<<<< HEAD
-export function useApiBuild(onPlayground: () => void, initialView?: BuildView, initialProjectId?: string) {
-=======
 /**
  * Live view of the durable deploy operation backing the wizard's Deploy step.
  * `progress` and `logs` come straight from the backend operation row, so the
@@ -20,8 +17,7 @@ export interface DeployOperationView {
   error: string | null;
 }
 
-export function useApiBuild(onPlayground: () => void, initialView?: BuildView) {
->>>>>>> 0d09d5db48cb408e683d1303b01855674df8f97a
+export function useApiBuild(onPlayground: () => void, initialView?: BuildView, initialProjectId?: string) {
   // The backend is the single source of truth — start empty and hydrate.
   const [projects, setProjects] = useState<ProviderProject[]>([]);
   const [view, setView] = useState<BuildView>(initialView || 'dash');

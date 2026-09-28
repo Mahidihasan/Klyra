@@ -458,6 +458,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         else if (onLoginSuccess) onLoginSuccess();
       }
     } catch (err: any) {
+      if (err.code === 'INVALID_2FA_SESSION' || err.code === 'TWO_FACTOR_EXPIRED') {
+        setOtpDigits(['', '', '', '', '', '']);
+        setTwoFactorTempToken('');
+        setLoginChallengeType(null);
+        setMode('login');
+        setError(err.message || 'This sign-in verification expired. Please sign in again.');
+        return;
+      }
       setError(err.message || 'Verification failed. Please check the code.');
     } finally {
       setIsLoading(false);

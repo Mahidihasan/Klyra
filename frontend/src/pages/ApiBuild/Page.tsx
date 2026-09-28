@@ -157,7 +157,7 @@ export const ApiBuildPage: React.FC<{
           const live = await apiBuildService.getOperation(active.id, op.id);
           if (!live) return;
           // Percentage + phase come from the backend operation's progress.
-          s.setPhase(live.progress < 25 ? 0 : live.progress < 55 ? 1 : live.progress < 85 ? 2 : 3);
+          s.setPhase(live.progress < 25 ? 0 : live.progress < 55 ? 1 : live.progress < 99 ? 2 : 3);
           s.setDeployOp({
             id: live.id,
             state: live.state,
@@ -352,7 +352,45 @@ function ApiBuildRouter({ s, onBack }: { s: ApiBuildState; onBack?: () => void }
     } as Partial<ProviderProject>);
     s.refresh(); s.setView('deploy'); s.setPhase(0);
   }} />;
-  if (view === 'deploy') return <StepDeploy project={active} phase={s.phase} progress={s.deployOp?.progress ?? 0} logs={s.deployOp?.logs} error={s.deployOp?.error ?? null} failed={s.deployOp?.state === 'failed' || s.deployOp?.state === 'cancelled'} onRetry={() => { s.setPhase(0); s.setDeployOp({ id: '', state: 'queued', progress: 0, logs: [`Retrying deployment of ${active.version}…`], error: null }); s.setDeployAttempt((n) => n + 1); }} onTest={() => { apiBuildService.update(active.id, { deployment: { ...active.deployment, lastHealthCheck: 'just now' } } as Partial<ProviderProject>); s.refresh(); }} onBack={() => s.setView('configure')} onNext={() => s.setView('product')} />;
+  if (view === 'deploy') return <StepDeploy
+    project={active}
+    phase={s.phase}
+    progress={s.deployOp?.progress ?? 0}
+    logs={s.deployOp?.logs}
+    error={s.deployOp?.error ?? null}
+    failed={s.deployOp?.state === 'failed' || s.deployOp?.state === 'cancelled'}
+    ready={active.deployment.kind === 'external' || (s.deployOp?.state === 'succeeded' && s.deployOp.progress >= 100)}
+    onRetry={() => {
+      s.setPhase(0);
+      s.setDeployOp({ id: '', state: 'queued', progress: 0, logs: [`Retrying deployment of ${active.version}…`], error: null });
+      s.setDeployAttempt((n) => n + 1);
+    }}
+    onRenameProject={async (name) => {
+      const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'api';
+      const taken = new Set(projects.filter((project) => project.id !== active.id).map((project) => project.slug));
+      let slug = baseSlug;
+      let suffix = 2;
+      while (taken.has(slug)) slug = `${baseSlug}-${suffix++}`;
+      const updated = await apiBuildService.update(active.id, { name, slug } as Partial<ProviderProject>);
+      if (!updated) throw new Error('Project rename could not be saved.');
+      await s.refresh();
+      s.setPhase(0);
+      s.setDeployOp({ id: '', state: 'queued', progress: 0, logs: [`Renamed project to ${name}; retrying deployment…`], error: null });
+      s.setDeployAttempt((n) => n + 1);
+    }}
+    onDeleteConflict={async () => {
+      await apiBuildService.removeDeploymentContainer(active.id);
+      await s.refresh();
+      s.setActiveId(null);
+      s.setView('dash');
+    }}
+    onTest={() => {
+      apiBuildService.update(active.id, { deployment: { ...active.deployment, lastHealthCheck: 'just now' } } as Partial<ProviderProject>);
+      s.refresh();
+    }}
+    onBack={() => s.setView('configure')}
+    onNext={() => s.setView('product')}
+  />;
   if (view === 'product') return <StepProduct project={active} onBack={() => s.setView('deploy')} onPlayground={s.onPlayground} onNext={() => s.setView('pricing')} />;
   if (view === 'pricing') return <StepPricing plans={active.plans} onBack={() => s.setView('product')} onNext={(plans) => { apiBuildService.update(active.id, { plans } as Partial<ProviderProject>); s.refresh(); s.setView('publish'); }} />;
   if (view === 'publish') return <StepPublish project={active} busy={s.busy} onBack={() => s.setView('pricing')} onPublish={(vis, l) => {
@@ -373,8 +411,10 @@ function ApiBuildRouter({ s, onBack }: { s: ApiBuildState; onBack?: () => void }
             clearInterval(timer);
             await s.refresh();
             s.setBusy(false);
-            if (live.state === 'succeeded') s.setView('success');
-            else s.setView('publish');
+            if (live.state === 'succeeded') {
+              s.setTab('overview');
+              s.setView('workspace');
+            } else s.setView('publish');
           }
         } catch { /* keep waiting — identical retry semantics as deployment */ }
       }, 800);

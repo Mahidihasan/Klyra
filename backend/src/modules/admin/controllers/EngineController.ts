@@ -58,7 +58,7 @@ export class EngineController {
       } else if (targetPrefix && typeof targetPrefix === 'string') {
         // Safely flush specific prefix keys (e.g. "api_cache:*")
         // Using scan for safety on large datasets rather than keys *
-        let cursor = 0;
+        let cursor = '0';
         do {
           const result = await redisClient.scan(cursor, {
             MATCH: `${targetPrefix}*`,
@@ -68,7 +68,7 @@ export class EngineController {
           if (result.keys.length > 0) {
             await redisClient.del(result.keys);
           }
-        } while (cursor !== 0);
+        } while (cursor !== '0');
         
       } else {
         return res.status(400).json({ error: 'Must specify flushAll: true or a targetPrefix' });
@@ -80,11 +80,12 @@ export class EngineController {
 
       await prisma.auditLog.create({
         data: {
-          adminId,
-          actionType: 'GLOBAL_CACHE_PURGE',
-          targetResource: flushAll ? 'ALL' : targetPrefix,
-          ipAddress,
-          details: { flushAll, targetPrefix }
+          user_id: adminId === 'unknown-admin' ? null : adminId,
+          action: 'UPDATE',
+          entity_type: 'CACHE',
+          entity_id: null,
+          ip_address: ipAddress,
+          new_values: { action: 'GLOBAL_CACHE_PURGE', target: flushAll ? 'ALL' : targetPrefix, flushAll, targetPrefix }
         }
       });
 

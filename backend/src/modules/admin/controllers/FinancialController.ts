@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient, TransactionType } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -10,8 +10,7 @@ export class FinancialController {
    */
   static async getDisputes(req: Request, res: Response) {
     try {
-      const disputes = await prisma.financialTransaction.findMany({
-        where: { type: TransactionType.DISPUTE },
+      const disputes = await prisma.dispute.findMany({
         orderBy: { createdAt: 'desc' },
       });
       return res.status(200).json({ data: disputes });
@@ -33,22 +32,23 @@ export class FinancialController {
         return res.status(400).json({ error: 'Missing disputeId or resolutionStatus in request body' });
       }
 
-      const updatedDispute = await prisma.financialTransaction.update({
+      const updatedDispute = await prisma.dispute.update({
         where: { id: disputeId },
         data: { status: resolutionStatus },
       });
 
       // Maintain a strict audit log of the admin's action
-      const adminId = (req as any).user?.userId || 'unknown-admin';
+      const adminId = (req as any).user?.userId || null;
       const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
 
       await prisma.auditLog.create({
         data: {
-          adminId,
-          actionType: 'RESOLVE_DISPUTE',
-          targetResource: disputeId,
-          ipAddress,
-          details: { resolutionStatus }
+          user_id: adminId,
+          action: 'UPDATE',
+          entity_type: 'DISPUTE',
+          entity_id: disputeId,
+          ip_address: ipAddress,
+          new_values: { action: 'RESOLVE_DISPUTE', resolutionStatus }
         }
       });
 

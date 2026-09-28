@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AccountDeactivationError, AuthService, PasswordChangeError } from './auth.service';
+import { AccountDeactivationError, AuthService, LoginChallengeError, LoginError, PasswordChangeError } from './auth.service';
 import { EmailService } from './email.service';
 import { OtpError } from './otp.service';
 import { EmailDeliveryError } from './email.service';
@@ -104,25 +104,43 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     const result = await AuthService.login(email, password, !!rememberMe, ip, userAgent);
     res.json(result);
   } catch (err: any) {
-    const status = err.code === 'EMAIL_NOT_VERIFIED' || err.code === 'ACCOUNT_INACTIVE' || err.code === 'MAINTENANCE_LOCKDOWN' || err.code === 'DEFCON_LOCKDOWN' ? 403 : err.message?.includes('locked') ? 423 : 401;
-    res.status(status).json({
-      error: err.message || 'Login failed.',
-      code: err.code || 'LOGIN_ERROR',
+    // Only intended rejections carry a contract status/code (LoginError).
+    // Anything else — a missing table, a dead connection, a bug on the success
+    // path — is a server fault and must answer 500: mapping those to 401 made a
+    // broken backend indistinguishable from "wrong password" for every client.
+    if (err instanceof LoginError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
+    console.error('[auth] Unexpected login failure:', err);
+    return res.status(500).json({
+      error: 'We could not sign you in right now. Please try again.',
+      code: 'LOGIN_FAILED',
     });
   }
 });
 
 // 5. VERIFY 2FA
 router.post('/verify-2fa', authLimiter, async (req: Request, res: Response) => {
+  const { tempToken, code } = req.body || {};
+  if (typeof tempToken !== 'string' || !tempToken.trim()) {
+    return res.status(400).json({ error: 'Your sign-in verification session is missing. Please sign in again.', code: 'INVALID_2FA_SESSION' });
+  }
+  if (typeof code !== 'string' || !/^\d{6}$/.test(code.trim())) {
+    return res.status(400).json({ error: 'Enter the 6-digit security code.', code: 'INVALID_2FA_CODE' });
+  }
+
   try {
-    const { tempToken, code } = req.body || {};
     const ip = getClientIp(req);
     const userAgent = getUserAgent(req);
 
-    const result = await AuthService.verify2FA(tempToken, code, ip, userAgent);
+    const result = await AuthService.verify2FA(tempToken.trim(), code.trim(), ip, userAgent);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || '2FA verification failed.' });
+    if (err instanceof LoginChallengeError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
+    console.error('Unexpected new-device 2FA verification error:', err);
+    return res.status(500).json({ error: 'We could not verify your security code right now. Please try again.', code: '2FA_VERIFICATION_FAILED' });
   }
 });
 

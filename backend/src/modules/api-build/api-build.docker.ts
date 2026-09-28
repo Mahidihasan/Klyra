@@ -22,6 +22,8 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import {
   accessSync,
   constants as fsConstants,
@@ -30,8 +32,11 @@ import {
   readFileSync,
   readdirSync,
 } from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import path from 'node:path';
+import { usesHostDockerRuntime } from './api-build.deployment';
 
 export class DockerUnavailableError extends Error {
   constructor(
@@ -60,8 +65,7 @@ export type DeployLog = (line: string) => void;
 const networkName = (): string => process.env.KLYRA_DOCKER_NETWORK || 'klyra-api-network';
 const portBase = (): number => Number(process.env.KLYRA_API_PORT_BASE || 41000);
 /** True when the backend runs on the host (dev): publish container ports on 127.0.0.1. */
-const publishOnLoopback = (): boolean =>
-  String(process.env.KLYRA_DOCKER_RUNTIME || 'docker').toLowerCase() === 'host';
+const publishOnLoopback = (): boolean => usesHostDockerRuntime();
 
 interface DockerResult {
   code: number;
@@ -235,8 +239,8 @@ export async function isDockerAvailable(): Promise<boolean> {
 }
 
 /** Creates the shared Klyra API network when missing (idempotent). */
-export async function ensureNetwork(log: DeployLog): Promise<string> {
-  const name = networkName();
+export async function ensureNetwork(log: DeployLog, requestedName = networkName()): Promise<string> {
+  const name = requestedName;
   const result = await runDocker(['network', 'create', name]);
   if (result.code === 0) {
     log(`[docker] created network ${name}`);
@@ -244,6 +248,30 @@ export async function ensureNetwork(log: DeployLog): Promise<string> {
     throw new Error(`Unable to ensure Docker network "${name}": ${result.stderr.trim()}`);
   }
   return name;
+}
+
+/** Connects an in-container backend to one deployment's isolated network. */
+export async function connectContainerToNetwork(
+  containerName: string,
+  network: string,
+  log: DeployLog,
+): Promise<void> {
+  const result = await runDocker(['network', 'connect', network, containerName], { timeoutMs: 30_000 });
+  if (result.code === 0) {
+    log(`[docker] backend container ${containerName} connected to isolated network ${network}`);
+    return;
+  }
+  if (/already exists|already connected/i.test(result.stderr)) {
+    log(`[docker] backend container ${containerName} already attached to isolated network ${network}`);
+    return;
+  }
+  throw new Error(`Unable to attach backend container ${containerName} to ${network}: ${result.stderr.trim()}`);
+}
+
+/** Docker reports the current container ID as HOSTNAME in the backend container. */
+export function backendContainerForDockerNetwork(): string | null {
+  if (usesHostDockerRuntime()) return null;
+  return String(process.env.KLYRA_BACKEND_CONTAINER || process.env.HOSTNAME || '').trim() || null;
 }
 
 export async function buildImage(contextDir: string, tag: string, log: DeployLog): Promise<void> {
@@ -314,13 +342,36 @@ export interface RunOptions {
   log: DeployLog;
 }
 
+function isContainerNameConflict(message: string): boolean {
+  return /conflict.*container name|container name .*already in use/i.test(message);
+}
+
+function conflictFallbackName(name: string): string {
+  const suffix = `-r${randomBytes(4).toString('hex')}`;
+  return `${name.slice(0, 63 - suffix.length).replace(/-+$/, '')}${suffix}`;
+}
+
+async function reportContainerNameConflict(name: string, message: string, log: DeployLog): Promise<void> {
+  const reportedId = /container\s+["']([^"']+)["']/i.exec(message)?.[1];
+  const [contextResult, nameResult, idResult] = await Promise.all([
+    runDocker(['context', 'show'], { timeoutMs: 5_000 }),
+    runDocker(['inspect', '--format', '{{.Id}} {{.Name}} {{.State.Status}}', name], { timeoutMs: 5_000 }),
+    reportedId
+      ? runDocker(['inspect', '--format', '{{.Id}} {{.Name}} {{.State.Status}}', reportedId], { timeoutMs: 5_000 })
+      : Promise.resolve(null),
+  ]);
+  log(
+    `[docker] container name conflict diagnostic: dockerContext=${contextResult.code === 0 ? contextResult.stdout.trim() : 'unavailable'}, name=${name}, daemonReportedId=${reportedId || 'unknown'}, nameLookup=${nameResult.code === 0 ? nameResult.stdout.trim() : nameResult.stderr.trim() || 'not found'}, idLookup=${idResult ? (idResult.code === 0 ? idResult.stdout.trim() : idResult.stderr.trim() || 'not found') : 'not supplied'}`,
+  );
+}
+
 /**
  * Runs the deployment container. Replaces only the container of the exact same
  * name (same project + same version) — containers of other versions are left
  * untouched so multiple versions can coexist. When the backend runs on the
  * host, the port is published on 127.0.0.1 with automatic retry on conflicts.
  */
-export async function runContainer(opts: RunOptions): Promise<{ hostPort?: number }> {
+export async function runContainer(opts: RunOptions): Promise<{ hostPort?: number; containerName: string }> {
   const remove = await runDocker(['rm', '-f', opts.name]);
   if (remove.code !== 0 && !/no such container/i.test(remove.stderr)) {
     opts.log(
@@ -328,34 +379,35 @@ export async function runContainer(opts: RunOptions): Promise<{ hostPort?: numbe
     );
   }
 
-  const baseArgs = [
-    'run',
-    '-d',
-    '--name',
-    opts.name,
-    '--network',
-    opts.network,
-    '--restart',
-    'unless-stopped',
+  const runArgs = (name: string) => [
+    'run', '-d', '--name', name, '--network', opts.network, '--restart', 'unless-stopped',
   ];
 
   if (publishOnLoopback()) {
     let hostPort = portBase();
     let lastError = '';
+    let containerName = opts.name;
     for (let attempt = 0; attempt < 10; attempt += 1, hostPort += 1) {
       const result = await runDocker([
-        ...baseArgs,
+        ...runArgs(containerName),
         '-p',
         `127.0.0.1:${hostPort}:${opts.internalPort}`,
         opts.image,
       ]);
       if (result.code === 0) {
         opts.log(
-          `[docker] container ${opts.name} started (127.0.0.1:${hostPort} -> ${opts.internalPort})`,
+          `[docker] container ${containerName} started (127.0.0.1:${hostPort} -> ${opts.internalPort})`,
         );
-        return { hostPort };
+        return { hostPort, containerName };
       }
       lastError = result.stderr;
+      if (isContainerNameConflict(result.stderr)) {
+        await reportContainerNameConflict(containerName, result.stderr, opts.log);
+        const previous = containerName;
+        containerName = conflictFallbackName(opts.name);
+        opts.log(`[docker] retrying with unique container name ${containerName} (instead of ${previous})`);
+        continue;
+      }
       if (
         !/address already in use|port is already allocated|bind for .* failed/i.test(result.stderr)
       ) {
@@ -370,22 +422,33 @@ export async function runContainer(opts: RunOptions): Promise<{ hostPort?: numbe
 
   // Production: the backend itself is containerized — no host port at all. The
   // API container is reachable only through the internal Docker network.
-  const result = await runDocker([...baseArgs, opts.image]);
-  if (result.code !== 0) {
-    throw new Error(
-      `docker run failed: ${
-        result.stderr.trim().split('\n').slice(-3).join(' ') || 'unknown error'
-      }`,
-    );
+  let containerName = opts.name;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await runDocker([...runArgs(containerName), opts.image]);
+    if (result.code === 0) {
+      opts.log(
+        `[docker] container ${containerName} started on network ${opts.network} (no host port published)`,
+      );
+      return { containerName };
+    }
+    if (!isContainerNameConflict(result.stderr) || attempt === 2) {
+      throw new Error(
+        `docker run failed: ${result.stderr.trim().split('\n').slice(-3).join(' ') || 'unknown error'}`,
+      );
+    }
+    await reportContainerNameConflict(containerName, result.stderr, opts.log);
+    const previous = containerName;
+    containerName = conflictFallbackName(opts.name);
+    opts.log(`[docker] retrying with unique container name ${containerName} (instead of ${previous})`);
   }
-  opts.log(
-    `[docker] container ${opts.name} started on network ${opts.network} (no host port published)`,
-  );
-  return {};
+  throw new Error(`docker run failed: could not allocate a unique container name for ${opts.name}`);
 }
 
 export async function removeContainer(name: string): Promise<void> {
-  await runDocker(['rm', '-f', name], { timeoutMs: 30_000 });
+  const result = await runDocker(['rm', '-f', name], { timeoutMs: 30_000 });
+  if (result.code !== 0 && !/no such container|no such object/i.test(result.stderr)) {
+    throw new Error(`docker rm failed for ${name}: ${result.stderr.trim()}`);
+  }
 }
 
 export async function startContainer(name: string): Promise<void> {
@@ -415,6 +478,20 @@ export async function inspectContainer(name: string): Promise<ContainerState | n
   return { exists: true, running: running === 'true', status: status || 'unknown' };
 }
 
+/** Reads a container's address on the deployment network for DNS startup fallback. */
+export async function inspectContainerNetworkIp(name: string, network: string): Promise<string | null> {
+  const result = await runDocker(['inspect', '--format', '{{json .NetworkSettings.Networks}}', name], {
+    timeoutMs: 15_000,
+  });
+  if (result.code !== 0) return null;
+  try {
+    const networks = JSON.parse(result.stdout.trim()) as Record<string, { IPAddress?: string }>;
+    return networks[network]?.IPAddress || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getContainerLogs(name: string, tail = 30): Promise<string> {
   const result = await runDocker(['logs', '--tail', String(tail), name], { timeoutMs: 15_000 });
   return (result.stdout + result.stderr).trim();
@@ -423,9 +500,15 @@ export async function getContainerLogs(name: string, tail = 30): Promise<string>
 export interface ReadinessOptions {
   mode?: 'auto' | 'http' | 'tcp';
   path?: string;
+  /** Explicit Docker DNS name. Avoid URL parsing for container names with dotted version suffixes. */
+  hostname?: string;
+  /** Docker inspect address used only when DNS has not resolved the container name yet. */
+  fallbackHostname?: string;
   port?: number;
   openApiUrl?: string;
   attempts?: number;
+  /** Wall-clock startup window; when supplied it takes precedence over attempts. */
+  startupGraceMs?: number;
   delayMs?: number;
 }
 
@@ -487,86 +570,134 @@ export async function waitForReadiness(
   opts: ReadinessOptions = {},
 ): Promise<void> {
   const attempts = opts.attempts ?? 40;
+  // The configured budget can end just before a cold JVM/.NET host finishes
+  // starting. Keep a short final grace window and probe the same live endpoint
+  // before classifying a still-starting container as failed.
+  const graceAttempts = 6;
+  const startupDeadline = opts.startupGraceMs ? Date.now() + opts.startupGraceMs : null;
+  const totalAttempts = startupDeadline ? Number.POSITIVE_INFINITY : attempts + graceAttempts;
   const delayMs = opts.delayMs ?? 500;
   const mode = opts.mode || 'auto';
 
-  // Parse host and port from baseUrl
-  let parsedUrl: URL | null = null;
-  try {
-    parsedUrl = new URL(baseUrl);
-  } catch {
-    // fallback
+  // URL rejects valid Docker names whose final dotted version component looks
+  // numeric (for example `klyra-api-demo-v1.0.0`). Parse authority ourselves
+  // and pass the hostname directly to Node's socket/HTTP clients.
+  const scheme = /^https:/i.test(baseUrl) ? 'https:' : 'http:';
+  const authority = /^(?:https?:\/\/)?([^/?#]+)/i.exec(baseUrl)?.[1] || '';
+  const parsedAuthority = /^(?:[^@]+@)?(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(authority);
+  const authorityHost = parsedAuthority?.[1]?.replace(/^\[|\]$/g, '') || '';
+  const host = opts.hostname || authorityHost || '127.0.0.1';
+  const port = opts.port || Number(parsedAuthority?.[2]) || (scheme === 'https:' ? 443 : 80);
+  const authorityIndex = baseUrl.indexOf(authority);
+  const rawBasePath = authorityIndex >= 0 ? baseUrl.slice(authorityIndex + authority.length) : '';
+  const basePath = rawBasePath.split(/[?#]/, 1)[0].replace(/\/+$/, '');
+
+  const reportDns = async (): Promise<boolean> => {
+    try {
+      const addresses = await lookup(host, { all: true });
+      log(`[docker] DNS resolved ${host} -> ${addresses.map((entry) => `${entry.address} (IPv${entry.family})`).join(', ')}`);
+      return true;
+    } catch (error) {
+      log(`[docker] DNS resolution failed for ${host}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  };
+  const dnsResolved = await reportDns();
+  const probeHost = !dnsResolved && opts.fallbackHostname ? opts.fallbackHostname : host;
+  if (probeHost !== host) {
+    log(`[docker] probing inspected container address ${probeHost} while Docker DNS for ${host} is unavailable`);
   }
 
-  const host = parsedUrl?.hostname || '127.0.0.1';
-  const port = opts.port || Number(parsedUrl?.port) || 8080;
-
   if (mode === 'tcp') {
-    log(`[docker] waiting for TCP socket on ${host}:${port}...`);
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      const connected = await checkTcpPort(host, port, 1500);
+    log(`[docker] waiting for TCP socket on ${probeHost}:${port}...`);
+    for (let attempt = 1; attempt <= totalAttempts && (!startupDeadline || Date.now() < startupDeadline); attempt += 1) {
+      if (attempt === attempts + 1 && !startupDeadline) log(`[docker] readiness budget reached; checking startup grace (${graceAttempts} additional attempts)`);
+      const tcpTimeout = startupDeadline ? Math.max(100, Math.min(1500, startupDeadline - Date.now())) : 1500;
+      const connected = await checkTcpPort(probeHost, port, tcpTimeout);
       if (connected) {
-        log(`[docker] TCP readiness check passed on ${host}:${port}`);
+        log(`[docker] TCP readiness check passed on ${probeHost}:${port}`);
         return;
       }
       if (attempt % 5 === 0) {
-        log(`[docker] waiting for ${host}:${port} TCP (attempt ${attempt}/${attempts})`);
+        log(`[docker] waiting for ${probeHost}:${port} TCP (attempt ${attempt}/${totalAttempts})`);
       }
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     throw new ReadinessError(
-      `Container did not become ready: TCP port ${port} on ${host} did not open in time.`,
+      `Container did not become ready: TCP port ${port} on ${probeHost} did not open in time.`,
     );
   }
 
-  // Determine candidate HTTP paths
-  const base = baseUrl.replace(/\/+$/, '');
+  // Try the configured endpoint first, then a root-page fallback. A missing
+  // `/health` is not a deployment failure when the API root answers.
   const candidatePaths: string[] = [];
+  const addCandidate = (candidate: string): void => {
+    const normalized = `/${candidate.replace(/^\/+/, '')}`;
+    if (!candidatePaths.includes(normalized)) candidatePaths.push(normalized);
+  };
 
   if (mode === 'http') {
-    candidatePaths.push(opts.path ? `/${opts.path.replace(/^\/+/, '')}` : '/health');
+    addCandidate(opts.path || '/health');
   } else {
-    // Auto mode: check configured path first, then openApiUrl path if relative or root, then /
-    if (opts.path && opts.path.trim() && opts.path.trim() !== '/health') {
-      candidatePaths.push(`/${opts.path.replace(/^\/+/, '')}`);
-    }
+    if (opts.path?.trim()) addCandidate(opts.path.trim());
     if (opts.openApiUrl && opts.openApiUrl.startsWith('/')) {
-      candidatePaths.push(opts.openApiUrl);
+      addCandidate(opts.openApiUrl);
     }
-    candidatePaths.push('/');
-    candidatePaths.push('/health');
+    addCandidate('/health');
   }
+  addCandidate('/');
 
   log(
-    `[docker] checking readiness (${mode} mode) against candidates: ${candidatePaths.join(', ')}`,
+    `[docker] checking readiness (${mode} mode) at http${scheme === 'https:' ? 's' : ''}://${probeHost}:${port} (container ${host}); candidates: ${candidatePaths.join(', ')}`,
   );
 
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    for (const path of candidatePaths) {
-      const target = `${base}${path}`;
-      try {
-        const response = await fetch(target, {
-          signal: AbortSignal.timeout(2000),
+  for (let attempt = 1; attempt <= totalAttempts && (!startupDeadline || Date.now() < startupDeadline); attempt += 1) {
+    if (attempt === attempts + 1 && !startupDeadline) log(`[docker] readiness budget reached; checking startup grace (${graceAttempts} additional attempts)`);
+    for (const endpoint of candidatePaths) {
+      const requestPath = `${basePath}${endpoint}` || '/';
+      const client = scheme === 'https:' ? https : http;
+      const statusCode = await new Promise<number | null>((resolve) => {
+        const request = client.request({
+          hostname: probeHost,
+          port,
+          path: requestPath,
+          method: 'GET',
           headers: { 'User-Agent': 'KlyraDockerDeploy/1.0', Accept: '*/*' },
+          timeout: startupDeadline ? Math.max(100, Math.min(2500, startupDeadline - Date.now())) : 2500,
+        }, (response) => {
+          const status = response.statusCode || 0;
+          response.resume();
+          resolve(status);
         });
-        // 2xx/3xx, or 401/403 (service is up and enforcing auth), or 404/405 from the application server
-        if (response.status >= 200 && response.status < 500) {
-          log(`[docker] readiness check passed (HTTP ${response.status} on ${path})`);
-          return;
-        }
-      } catch {
-        // unreachable or connection refused
+        request.once('timeout', () => request.destroy(new Error('request timed out')));
+        request.once('error', (error) => {
+          if (attempt === 1 || attempt % 5 === 0) {
+            log(`[docker] connection failed for ${probeHost}:${port}${requestPath}: ${error.message}`);
+          }
+          resolve(null);
+        });
+        request.end();
+      });
+
+      if (statusCode === null) continue;
+      log(`[docker] HTTP ${statusCode} from ${probeHost}:${port}${requestPath}`);
+      // Only successful/redirect responses establish HTTP readiness. A missing
+      // health path falls through to the root candidate.
+      if (statusCode >= 200 && statusCode < 400) {
+        log(`[docker] readiness passed using ${endpoint} at ${probeHost}:${port} (HTTP ${statusCode})`);
+        return;
       }
     }
 
     if (attempt % 5 === 0) {
-      log(`[docker] waiting for container HTTP readiness (attempt ${attempt}/${attempts})`);
+      log(`[docker] waiting for container HTTP readiness (attempt ${attempt}/${totalAttempts})`);
+      await reportDns();
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
   throw new ReadinessError(
-    `Container did not become ready: no candidate HTTP endpoints answered on ${base} in time.`,
+    `Container did not become ready: no candidate HTTP endpoints answered on ${scheme}//${probeHost}:${port} in time.`,
   );
 }
 

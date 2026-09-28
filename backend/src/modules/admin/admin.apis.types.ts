@@ -79,8 +79,6 @@ export interface AdminApiMutationResult {
   };
 }
 
-<<<<<<< HEAD
-=======
 export type ApiLifecycleStatus = 'PUBLISHED' | 'UNPUBLISHED' | 'DEPRECATED' | 'ARCHIVED';
 
 export interface ApiLifecyclePayload {
@@ -89,4 +87,4 @@ export interface ApiLifecyclePayload {
   migrationApiId?: string;
   reason?: string;
 }
->>>>>>> 0d09d5db48cb408e683d1303b01855674df8f97a
+

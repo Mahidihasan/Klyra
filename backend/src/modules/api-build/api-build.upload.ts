@@ -27,7 +27,7 @@ export interface UploadedProjectDescriptor {
   projectName: string;
   dockerfilePath: string;
   buildContext: string;
-  detectedPort: number;
+  detectedPort?: number;
   fileCount: number;
   totalSizeBytes: number;
 }
@@ -72,6 +72,31 @@ export function parseExposePorts(dockerfileContent: string): number[] {
     }
   }
   return ports;
+}
+
+/** Detects common application-level listener configuration when Dockerfile has no EXPOSE. */
+async function detectConfiguredPort(projectDir: string, dockerfileContent: string): Promise<number | null> {
+  const candidates = [
+    dockerfileContent,
+    ...await Promise.all(
+      ['Program.cs', 'appsettings.json', 'appsettings.Development.json', 'Properties/launchSettings.json']
+        .map((relative) => readFile(path.join(projectDir, relative), 'utf8').catch(() => '')),
+    ),
+  ];
+  const patterns = [
+    /ListenAnyIP\s*\(\s*(\d{2,5})/i,
+    /Listen\s*\([^)]*?:(\d{2,5})/i,
+    /(?:ASPNETCORE_URLS|ASPNETCORE_HTTP_PORTS)\s*[=:]\s*["']?[^\s"']*:(\d{2,5})/i,
+    /(?:UseUrls|applicationUrl)\s*["'(\s:=,]+[^\s"']*:(\d{2,5})/i,
+    /"(?:port|httpPort)"\s*:\s*(\d{2,5})/i,
+  ];
+  for (const content of candidates) {
+    for (const pattern of patterns) {
+      const port = Number(pattern.exec(content)?.[1]);
+      if (port > 0 && port <= 65535) return port;
+    }
+  }
+  return null;
 }
 
 /**
@@ -156,7 +181,7 @@ export async function processProjectZip(
     projectName,
     dockerfilePath,
     buildContext,
-    detectedPort: exposedPort || 8080,
+    ...(exposedPort ? { detectedPort: exposedPort } : {}),
     fileCount,
     totalSizeBytes: totalSize,
   };
@@ -212,7 +237,7 @@ async function inspectProjectFolder(
   return {
     dockerfilePath: `./${relDockerfilePath}`,
     buildContext,
-    exposedPort: ports.length > 0 ? ports[0] : null,
+    exposedPort: ports[0] || await detectConfiguredPort(dockerfileDir, dockerfileContent),
     fileCount,
   };
 }
@@ -264,7 +289,7 @@ export async function inspectUploadedProject(uploadId: string): Promise<Uploaded
     projectName: uploadId,
     dockerfilePath,
     buildContext,
-    detectedPort: exposedPort || 8080,
+    ...(exposedPort ? { detectedPort: exposedPort } : {}),
     fileCount,
     totalSizeBytes: 0,
   };
@@ -480,7 +505,7 @@ export async function prepareGitHubSource(
     projectName: repoName || 'github-project',
     dockerfilePath: inspected.dockerfilePath,
     buildContext: inspected.buildContext,
-    detectedPort: inspected.exposedPort || 8080,
+    ...(inspected.exposedPort ? { detectedPort: inspected.exposedPort } : {}),
     fileCount: inspected.fileCount,
     totalSizeBytes: 0,
     repository: url,

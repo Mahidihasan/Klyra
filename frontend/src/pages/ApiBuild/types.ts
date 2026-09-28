@@ -2,11 +2,17 @@ import { ProviderProject, ProjectTab } from '../../types/apibuild';
 
 export interface EndpointParam {
   name: string;
-  in: 'query' | 'path' | 'header';
+  in: string;
   type: string;
   required: boolean;
   description: string;
   example?: string;
+  format?: string;
+  enum?: unknown[];
+  default?: unknown;
+  style?: string;
+  explode?: boolean;
+  collectionFormat?: string;
 }
 
 export interface EndpointResponse {
@@ -18,8 +24,9 @@ export interface EndpointResponse {
 
 export interface DetailedEndpoint {
   id: string;
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | 'TRACE';
   path: string;
+  basePath?: string;
   summary: string;
   description: string;
   category: string;

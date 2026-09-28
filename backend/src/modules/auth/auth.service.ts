@@ -51,6 +51,46 @@ export class AccountDeactivationError extends Error {
   }
 }
 
+/**
+ * An intended, user-visible login rejection.
+ *
+ * POST /auth/login maps `code` to an HTTP status. Anything that is NOT a
+ * LoginError is a server fault and is answered with 500 — previously any
+ * unexpected failure on the login success path (a missing table, a dead
+ * connection) was reported as 401 Unauthorized, so a backend that could not
+ * complete a valid sign-in looked exactly like a wrong password.
+ */
+export class LoginError extends Error {
+  constructor(
+    message: string,
+    public readonly code: LoginErrorCode,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'LoginError';
+  }
+}
+
+export type LoginErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'ACCOUNT_LOCKED'
+  | 'ACCOUNT_INACTIVE'
+  | 'ACCOUNT_SUSPENDED'
+  | 'EMAIL_NOT_VERIFIED'
+  | 'MAINTENANCE_LOCKDOWN'
+  | 'DEFCON_LOCKDOWN';
+
+export class LoginChallengeError extends Error {
+  constructor(
+    message: string,
+    public readonly code: 'INVALID_2FA_SESSION' | 'TWO_FACTOR_EXPIRED' | 'INVALID_2FA_CODE' | 'ACCOUNT_INACTIVE',
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'LoginChallengeError';
+  }
+}
+
 function sanitizeUser(user: any): UserPublicProfile {
   const metadata: UserMetadata = user.metadata || {};
   const storedPreferences: Partial<UserPreferences> = metadata.preferences || {};
@@ -576,13 +616,17 @@ export class AuthService {
          VALUES ('LOGIN', 'users', $1, $2::inet, $3)`,
         [JSON.stringify({ success: false, reason: 'user_not_found', email: cleanEmail }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
       );
-      throw new Error('Invalid email or password.');
+      throw new LoginError('Invalid email or password.', 'INVALID_CREDENTIALS', 401);
     }
 
     if (user.status !== 'ACTIVE' || !user.is_active) {
-      const err = new Error('Account is inactive or suspended.') as any;
-      if (user.status === 'INACTIVE' && !user.is_active) err.code = 'ACCOUNT_INACTIVE';
-      throw err;
+      // INACTIVE + is_active=false is the self-service reactivation path. Every
+      // other inactive state (suspended/banned) must not invite a reactivation,
+      // so it gets its own code — the client shows the message verbatim.
+      if (user.status === 'INACTIVE' && !user.is_active) {
+        throw new LoginError('Account is inactive or suspended.', 'ACCOUNT_INACTIVE', 403);
+      }
+      throw new LoginError('Account is inactive or suspended.', 'ACCOUNT_SUSPENDED', 403);
     }
 
     // Check System Lockdown (Maintenance Mode & DEFCON)
@@ -605,7 +649,7 @@ export class AuthService {
           : 'System is currently under maintenance or lockdown. Only administrators can log in at this time.'
       ) as any;
       err.code = isDefcon ? 'DEFCON_LOCKDOWN' : 'MAINTENANCE_LOCKDOWN';
-      throw err;
+      throw new LoginError(err.message, err.code, 403);
     }
 
     const metadata: UserMetadata = user.metadata || {};
@@ -617,8 +661,10 @@ export class AuthService {
       if (lockedUntilDate > now) {
         const remainingMs = lockedUntilDate.getTime() - now.getTime();
         const mins = Math.ceil(remainingMs / 60000);
-        throw new Error(
-          `Account is locked due to 3 failed attempts. Please try again in ${mins} minute${mins === 1 ? '' : 's'}.`
+        throw new LoginError(
+          `Account is locked due to 3 failed attempts. Please try again in ${mins} minute${mins === 1 ? '' : 's'}.`,
+          'ACCOUNT_LOCKED',
+          423,
         );
       } else {
         // Lockout expired, reset counters
@@ -646,9 +692,7 @@ export class AuthService {
         }
       }
 
-      const err = new Error(verificationNote) as any;
-      err.code = 'EMAIL_NOT_VERIFIED';
-      throw err;
+      throw new LoginError(verificationNote, 'EMAIL_NOT_VERIFIED', 403);
     }
 
     // 3. Verify password with bcrypt
@@ -670,7 +714,11 @@ export class AuthService {
           [user.id, JSON.stringify({ success: false, reason: 'locked_3_attempts' }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
         );
 
-        throw new Error('Account locked for 20 minutes due to 3 failed login attempts.');
+        throw new LoginError(
+          'Account locked for 20 minutes due to 3 failed login attempts.',
+          'ACCOUNT_LOCKED',
+          423,
+        );
       } else {
         const remaining = 3 - failedAttempts;
         await pool.query('UPDATE users SET metadata = $1 WHERE id = $2', [JSON.stringify(metadata), user.id]);
@@ -680,7 +728,11 @@ export class AuthService {
           [user.id, JSON.stringify({ success: false, reason: 'invalid_password', failedAttempts }), ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', userAgent]
         );
 
-        throw new Error(`Invalid email or password. You have ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before a 20-minute account lockout.`);
+        throw new LoginError(
+          `Invalid email or password. You have ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before a 20-minute account lockout.`,
+          'INVALID_CREDENTIALS',
+          401,
+        );
       }
     }
 
@@ -747,7 +799,7 @@ export class AuthService {
     userAgent = 'Unknown Device'
   ): Promise<LoginResult> {
     if (!tempToken || !code) {
-      throw new Error('Security code and session token are required.');
+      throw new LoginChallengeError('Security code and session token are required.', 'INVALID_2FA_SESSION', 400);
     }
 
     // Query user by tempToken in metadata
@@ -758,29 +810,29 @@ export class AuthService {
 
     const user: UserRecord = userRes.rows[0];
     if (!user) {
-      throw new Error('Invalid or expired 2FA session. Please log in again.');
+      throw new LoginChallengeError('This sign-in verification has expired. Please sign in again.', 'INVALID_2FA_SESSION', 401);
     }
 
     if (user.status !== 'ACTIVE' || !user.is_active) {
-      throw new Error('Account is inactive or suspended.');
+      throw new LoginChallengeError('Account is inactive or suspended.', 'ACCOUNT_INACTIVE', 403);
     }
 
     const metadata: UserMetadata = user.metadata || {};
     const pending2FA = metadata.pending_2fa;
 
     if (!pending2FA) {
-      throw new Error('No pending 2FA verification found.');
+      throw new LoginChallengeError('This sign-in verification has expired. Please sign in again.', 'INVALID_2FA_SESSION', 401);
     }
 
     if (Date.now() > pending2FA.expiresAt) {
       metadata.pending_2fa = null;
       await pool.query('UPDATE users SET metadata = $1 WHERE id = $2', [JSON.stringify(metadata), user.id]);
-      throw new Error('Security code has expired. Please request a new code.');
+      throw new LoginChallengeError('This security code has expired. Please sign in again to get a new code.', 'TWO_FACTOR_EXPIRED', 410);
     }
 
     const inputCodeHash = sha256(code.trim());
     if (!pending2FA.codeHash || inputCodeHash !== pending2FA.codeHash) {
-      throw new Error('Invalid verification code. Please check the code sent to your email.');
+      throw new LoginChallengeError('That security code is incorrect. Check the latest email and try again.', 'INVALID_2FA_CODE', 401);
     }
 
     // Code verified: mark device as known

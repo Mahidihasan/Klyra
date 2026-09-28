@@ -102,6 +102,11 @@ export const apiBuildService = {
       return false;
     }
   },
+  async removeDeploymentContainer(projectId: string): Promise<void> {
+    await api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/deployment/container`, {
+      method: 'DELETE',
+    });
+  },
   /** Live upstream detection via the backend proxy. Throws when the backend or
    *  the upstream is unreachable — the caller surfaces the real reason; there
    *  is no offline simulation anymore. */

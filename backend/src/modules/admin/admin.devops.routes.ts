@@ -9,12 +9,12 @@ const prisma = new PrismaClient();
 adminDevopsRouter.get('/jobs', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   try {
     const recentDeployments = await prisma.auditLog.findMany({
-      where: { action: { in: ['DEPLOY', 'BUILD', 'MIGRATE'] } },
+      where: { action: { in: ['CREATE', 'UPDATE'] } },
       orderBy: { created_at: 'desc' },
       take: 10
     });
 
-    const formattedJobs = recentDeployments.map(job => ({
+    const formattedJobs: Array<{ id: string; name: string; status: string; triggeredBy: string; timestamp: Date }> = recentDeployments.map(job => ({
       id: job.entity_id || job.id,
       name: job.action,
       status: 'SUCCESS',
@@ -47,7 +47,7 @@ adminDevopsRouter.post('/trigger', requireAuth, requireAdmin, async (req: Reques
     // Log the automation execution
     await prisma.auditLog.create({
       data: {
-        action: 'DEPLOY',
+        action: 'CREATE',
         entity_type: 'SYSTEM',
         entity_id: jobName || 'Master_Pipeline',
         user_id: (req as any).user?.id || null,
@@ -136,7 +136,7 @@ adminDevopsRouter.get('/webhooks', requireAuth, requireAdmin, async (req: Reques
       take: 10
     });
 
-    const formatted = logs.map(log => ({
+    const formatted: Array<{ id: string; event: string; target: string; status: number; time: string; payload: Record<string, unknown> }> = logs.map(log => ({
       id: log.id,
       event: log.event,
       target: log.url,

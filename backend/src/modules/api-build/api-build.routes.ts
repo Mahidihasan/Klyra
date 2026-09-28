@@ -73,10 +73,13 @@ import {
 } from './api-build.history';
 import {
   buildGatewayUrl,
+  containerNameFor,
   normalizeDeploymentSource,
   sanitizeProjectForClient,
   slugFromProjectId,
+  slugOfProject,
 } from './api-build.deployment';
+import { inspectContainer, removeContainer } from './api-build.docker';
 import multer from 'multer';
 import { processProjectZip, inspectUploadedProject, prepareGitHubSource } from './api-build.upload';
 
@@ -128,7 +131,7 @@ const newProjectRecord = (body: Record<string, unknown>) => {
     dockerUploadId: str(body.dockerUploadId, ''),
     dockerfilePath: str(body.dockerfilePath, 'Dockerfile'),
     buildContext: str(body.buildContext, '.'),
-    dockerPort: numField(body.dockerPort, 8080),
+    dockerPort: numField(body.dockerPort, 0) || undefined,
     readinessMode: str(body.readinessMode, 'auto'),
     readinessPath: str(body.readinessPath, ''),
     baseUrl: '',
@@ -268,6 +271,30 @@ router.put('/projects/:id', async (req, res) => {
 
 router.delete('/projects/:id', async (req, res) => {
   ok(res, { deleted: await removeProject(req.params.id) });
+});
+
+/** Remove only the container name reserved for this project's current version. */
+router.delete('/projects/:id/deployment/container', async (req, res) => {
+  const project = await getProject(req.params.id);
+  if (!project) return fail(res, 404, 'NOT_FOUND', 'Project not found.');
+  const record = project as Record<string, unknown>;
+  const deployment = record.deployment && typeof record.deployment === 'object'
+    ? record.deployment as Record<string, unknown>
+    : {};
+  const version = str(deployment.version, str(record.version, ''));
+  const slug = slugOfProject(record);
+  if (!slug || !version) return fail(res, 400, 'INVALID_DEPLOYMENT', 'Project slug and version are required.');
+
+  const name = containerNameFor(slug, version);
+  try {
+    if (await inspectContainer(name)) await removeContainer(name);
+    if (await inspectContainer(name)) {
+      return fail(res, 409, 'CONTAINER_NOT_REMOVED', `Container ${name} is still present.`);
+    }
+    ok(res, { deleted: true, containerName: name });
+  } catch (error) {
+    fail(res, 500, 'CONTAINER_DELETE_FAILED', error instanceof Error ? error.message : 'Could not remove the deployment container.');
+  }
 });
 /* Endpoints — catalog backed by the relational table; imported from specs. */
 router.get('/projects/:id/endpoints', async (req, res) => {
