@@ -202,7 +202,7 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
 // POST /api/v1/admin/explorer/request-access
 router.post('/request-access', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.sub || req.user?.id || 'Unknown';
+    const userId = req.user?.sub || 'Unknown';
     console.log(`⚠️ ALERT: User ${userId} requested Database Explorer access.`);
     
     if ((prisma as any).auditLog) {

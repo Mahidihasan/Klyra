@@ -104,7 +104,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
         apiBuildService.listAlertRules<AlertRule>(project.id).catch(() => []),
       ]);
       if (!mounted) return;
-      setEndpoints(remoteEndpoints);
+      setEndpoints(remoteEndpoints.map((endpoint) => ({ ...endpoint, basePath: endpoint.basePath || project.detection?.basePath || '' })));
       if (remoteVersions.length) setVersions(remoteVersions);
       setDeployments(remoteDeployments);
       setLogs(remoteLogs);

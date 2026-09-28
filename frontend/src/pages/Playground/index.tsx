@@ -652,7 +652,16 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       let nextOrder = getNextOrder(workspaceItems, folderId);
       for (const ep of catalog) {
         const method = (ep.method || 'GET').toUpperCase();
-        const epPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
+        let endpointPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
+        // OpenAPI path parameters are part of the URL rather than query rows.
+        // Fill documented examples so imported requests can run immediately;
+        // leave a readable placeholder when the spec provides no example.
+        for (const param of ep.parameters || []) {
+          if (String(param.in || '').toLowerCase() !== 'path') continue;
+          const value = String(param.example || '').trim() || `{{${param.name}}}`;
+          endpointPath = endpointPath.split(`{${param.name}}`).join(value);
+        }
+        const epPath = endpointPath;
         const epUrl = apiUrl ? `${apiUrl}${epPath}` : epPath;
         const key = `${method} ${epUrl.replace(/\/+$/, '')}`;
         if (knownKeys.has(key)) {
@@ -670,9 +679,9 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
         req.name = (ep.name || '').trim() || `${method} ${epPath}`;
         req.method = method as HttpMethod;
         req.url = epUrl;
-        // Ask for the inputs the endpoint needs instead of sending placeholders:
-        // declared parameters arrive as rows (with the specification's example
-        // when it has one) and stay disabled until the user provides a value.
+        // Carry declared query/header inputs into the request editor. Examples
+        // are enabled automatically; required values without examples remain
+        // visible so the user can fill them before sending.
         const declared = Array.isArray(ep.parameters) ? ep.parameters : [];
         const toRows = (location: string) =>
           declared

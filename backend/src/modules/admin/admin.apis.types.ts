@@ -79,3 +79,12 @@ export interface AdminApiMutationResult {
   };
 }
 
+export type ApiLifecycleStatus = 'PUBLISHED' | 'UNPUBLISHED' | 'DEPRECATED' | 'ARCHIVED';
+
+export interface ApiLifecyclePayload {
+  status: ApiLifecycleStatus;
+  sunsetDate?: string;
+  migrationApiId?: string;
+  reason?: string;
+}
+

@@ -7,6 +7,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm install
 COPY prisma ./prisma
+COPY scripts ./scripts
 COPY tsconfig.json ./
 COPY src ./src
 RUN npx prisma generate
@@ -21,6 +22,7 @@ ENV NODE_ENV=development
 COPY package.json package-lock.json ./
 RUN npm install
 COPY prisma ./prisma
+COPY scripts ./scripts
 COPY tsconfig.json ./
 COPY src ./src
 RUN npx prisma generate

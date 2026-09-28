@@ -25,7 +25,7 @@ export type AuthKind = 'bearer' | 'apiKey' | 'oauth2' | 'none';
 
 export interface DetectedEndpoint {
   id: string;
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | 'TRACE';
   path: string;
   description?: string;
 }

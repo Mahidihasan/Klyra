@@ -5,6 +5,19 @@ import { DUMMY_PROJECT } from './dummyApi';
 
 export type BuildView = 'dash' | 'new' | 'source' | 'detect' | 'configure' | 'deploy' | 'product' | 'pricing' | 'publish' | 'success' | 'workspace';
 
+/**
+ * Live view of the durable deploy operation backing the wizard's Deploy step.
+ * `progress` and `logs` come straight from the backend operation row, so the
+ * step can show a real percentage and the real pipeline output.
+ */
+export interface DeployOperationView {
+  id: string;
+  state: string;
+  progress: number;
+  logs: string[];
+  error: string | null;
+}
+
 export function useApiBuild(onPlayground: () => void, initialView?: BuildView, initialProjectId?: string) {
   // The backend is the single source of truth — start empty and hydrate.
   const [projects, setProjects] = useState<ProviderProject[]>([]);
@@ -31,6 +44,9 @@ export function useApiBuild(onPlayground: () => void, initialView?: BuildView, i
   const [detection, setDetection] = useState<DetectionResult | null>(null);
   const [manual, setManual] = useState(false);
   const [phase, setPhase] = useState(0);
+  const [detectProgress, setDetectProgress] = useState(0);
+  const [deployOp, setDeployOp] = useState<DeployOperationView | null>(null);
+  const [deployAttempt, setDeployAttempt] = useState(0);
   const active = projects.find((p) => p.id === activeId) || null;
 
   /** Re-fetches the project list from the backend. */
@@ -46,6 +62,6 @@ export function useApiBuild(onPlayground: () => void, initialView?: BuildView, i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { projects, view, setView, activeId, setActiveId, tab, setTab, draft, setDraft, source, setSource, busy, setBusy, detecting, setDetecting, detection, setDetection, manual, setManual, phase, setPhase, active, refresh, onPlayground };
+  return { projects, view, setView, activeId, setActiveId, tab, setTab, draft, setDraft, source, setSource, busy, setBusy, detecting, setDetecting, detection, setDetection, manual, setManual, phase, setPhase, detectProgress, setDetectProgress, deployOp, setDeployOp, deployAttempt, setDeployAttempt, active, refresh, onPlayground };
 }
 export type ApiBuildState = ReturnType<typeof useApiBuild>;

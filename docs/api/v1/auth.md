@@ -78,8 +78,14 @@ Authenticates a user and returns JWT tokens.
 ```
 
 **Error Responses:**
-- 400: VALIDATION_ERROR - Invalid input
-- 401: UNAUTHORIZED - Invalid credentials
+- 400: VALIDATION_ERROR - Email or password missing
+- 401: INVALID_CREDENTIALS - Wrong email or password (or account lockout counter reset)
+- 403: EMAIL_NOT_VERIFIED - Email not verified (a fresh code is sent)
+- 403: ACCOUNT_INACTIVE - Self-service reactivation required
+- 403: ACCOUNT_SUSPENDED - Account suspended or banned
+- 403: MAINTENANCE_LOCKDOWN / DEFCON_LOCKDOWN - Platform locked to administrators
+- 423: ACCOUNT_LOCKED - 3 failed attempts; locked for 20 minutes
+- 500: LOGIN_FAILED - Server fault while completing a valid sign-in (never a credential problem)
 
 ---
 
@@ -224,6 +230,12 @@ Verifies the user's email address using the verification token.
 | INVALID_CREDENTIALS | Wrong email or password |
 | INVALID_TOKEN | Invalid or expired token |
 | EMAIL_NOT_VERIFIED | Email not verified |
+| ACCOUNT_LOCKED | 3 failed attempts — locked for 20 minutes |
+| ACCOUNT_INACTIVE | Account inactive; verify email to reactivate |
+| ACCOUNT_SUSPENDED | Account suspended or banned |
+| MAINTENANCE_LOCKDOWN | Platform in maintenance; administrators only |
+| DEFCON_LOCKDOWN | Emergency lockdown; administrators only |
+| LOGIN_FAILED | Server-side fault completing a valid sign-in |
 
 ## Rate Limits
 

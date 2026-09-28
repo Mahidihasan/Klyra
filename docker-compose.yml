@@ -68,6 +68,7 @@ services:
         condition: service_healthy
     networks:
       - api-marketplace-network
+      - klyra-api-network
 
   frontend:
     build:
@@ -111,6 +112,9 @@ services:
 
 networks:
   api-marketplace-network:
+    driver: bridge
+  klyra-api-network:
+    name: klyra-api-network
     driver: bridge
 
 volumes:

@@ -231,7 +231,7 @@ export const TabApi: React.FC<TabApiProps> = ({
       const spec = {
         openapi: '3.1.0',
         info: { title: project.name, version: project.version || '1.0.0', description: project.description || '' },
-        servers: [{ url: project.gatewayUrl || project.baseUrl || 'https://api.klyra.dev' }],
+        servers: [{ url: `${(project.gatewayUrl || project.baseUrl || 'https://api.klyra.dev').replace(/\/$/, '')}${project.detection?.basePath || ''}` }],
         paths: Object.fromEntries(endpoints.map((ep) => [
           ep.path,
           {
@@ -239,7 +239,7 @@ export const TabApi: React.FC<TabApiProps> = ({
               summary: ep.summary || '',
               description: ep.description || '',
               security: ep.authRequired ? [{ apiKey: [] }] : [],
-              parameters: (ep.parameters || []).map((p) => ({ name: p.name, in: p.in, required: p.required, description: p.description, schema: { type: p.type } })),
+              parameters: (ep.parameters || []).map((p) => ({ name: p.name, in: p.in, required: p.required, description: p.description, ...(p.example !== undefined ? { example: p.example } : {}), ...(p.style ? { style: p.style } : {}), ...(p.explode !== undefined ? { explode: p.explode } : {}), schema: { type: p.type, ...(p.format ? { format: p.format } : {}), ...(p.enum ? { enum: p.enum } : {}), ...(p.default !== undefined ? { default: p.default } : {}) } })),
               requestBody: ep.requestBody ? { content: { [ep.requestBody.contentType]: { schema: JSON.parse(ep.requestBody.schema || '{}') } } } : undefined,
               responses: Object.fromEntries((ep.responses || []).map((r) => [
                 String(r.statusCode),

@@ -434,17 +434,18 @@ router.get('/export-csv', async (req: Request, res: Response) => {
 router.get('/forensics/metrics', async (req: Request, res: Response) => {
   try {
     const flaggedLogs = await prisma.auditLog.findMany({
-      where: { action: { in: ['FLAG_TRANSACTION', 'BLOCK_REVENUE', 'SUSPICIOUS'] } },
+      where: { action: 'UPDATE', entity_type: 'FINANCIAL_TRANSACTION' },
       take: 100
     });
 
     let totalBlocked = 0;
     flaggedLogs.forEach(log => {
       try {
-        if (log.details && typeof log.details === 'object' && 'amount' in log.details) {
-          totalBlocked += Number((log.details as any).amount);
-        } else if (typeof log.details === 'string') {
-          const parsed = JSON.parse(log.details);
+        const details = log.new_values;
+        if (details && typeof details === 'object' && 'amount' in details) {
+          totalBlocked += Number((details as any).amount);
+        } else if (typeof details === 'string') {
+          const parsed = JSON.parse(details);
           if (parsed.amount) totalBlocked += Number(parsed.amount);
         }
       } catch (e) {}
@@ -473,31 +474,31 @@ router.get('/forensics/metrics', async (req: Request, res: Response) => {
 router.get('/forensics/ledger', async (req: Request, res: Response) => {
   try {
     const ledgerLogs = await prisma.auditLog.findMany({
-      where: { action: { in: ['TRANSFER', 'PAYMENT', 'REFUND', 'FLAG_TRANSACTION'] } },
-      orderBy: { createdAt: 'desc' },
+      where: { action: { in: ['CREATE', 'UPDATE'] }, entity_type: 'FINANCIAL_TRANSACTION' },
+      orderBy: { created_at: 'desc' },
       take: 20
     });
 
     const formattedLogs = ledgerLogs.map(log => ({
-      id: log.targetId,
+      id: log.entity_id,
       type: log.action,
-      actor: log.actorId,
-      timestamp: log.createdAt,
-      details: log.details
+      actor: log.user_id,
+      timestamp: log.created_at,
+      details: log.new_values
     }));
     
     // Fallback if empty (seed some mock data just for visual effect if DB is empty)
     if (formattedLogs.length === 0) {
       formattedLogs.push({
         id: 'mock_tx_1',
-        type: 'FLAG_TRANSACTION',
+        type: 'UPDATE',
         actor: 'user_123',
         timestamp: new Date(),
         details: { amount: 4500 }
       });
       formattedLogs.push({
         id: 'mock_tx_2',
-        type: 'PAYMENT',
+        type: 'CREATE',
         actor: 'user_456',
         timestamp: new Date(),
         details: { amount: 120 }
@@ -546,11 +547,12 @@ router.post('/forensics/emergency-freeze', requireAuth, requireAdmin, async (req
     // 1. Log the high-stakes override in AuditLog for security tracking
     await prisma.auditLog.create({
       data: {
-        action: 'EMERGENCY_ASSET_FREEZE',
-        actorId: (req as any).user?.email || 'admin',
-        targetId: 'GLOBAL_SYSTEM',
-        details: JSON.stringify({ status: 'Triggered emergency asset freeze' }),
-        ipAddress: req.ip || 'unknown'
+        action: 'UPDATE',
+        entity_type: 'SYSTEM',
+        entity_id: null,
+        user_id: (req as any).user?.id || null,
+        new_values: { target: 'GLOBAL_SYSTEM', status: 'Triggered emergency asset freeze' },
+        ip_address: req.ip || 'unknown'
       }
     });
 
@@ -572,11 +574,12 @@ router.post('/forensics/emergency-unfreeze', requireAuth, requireAdmin, async (r
     // 1. Log the unfreeze action
     await prisma.auditLog.create({
       data: {
-        action: 'EMERGENCY_ASSET_UNFREEZE',
-        actorId: (req as any).user?.email || 'admin',
-        targetId: 'GLOBAL_SYSTEM',
-        details: JSON.stringify({ status: 'Triggered emergency asset unfreeze' }),
-        ipAddress: req.ip || 'unknown'
+        action: 'UPDATE',
+        entity_type: 'SYSTEM',
+        entity_id: null,
+        user_id: (req as any).user?.id || null,
+        new_values: { target: 'GLOBAL_SYSTEM', status: 'Triggered emergency asset unfreeze' },
+        ip_address: req.ip || 'unknown'
       }
     });
 

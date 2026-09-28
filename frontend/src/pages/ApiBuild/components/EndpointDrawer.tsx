@@ -49,7 +49,19 @@ export const EndpointDrawer: React.FC<EndpointDrawerProps> = ({
     onShowToast(`${endpoint.method} ${endpoint.path} policy saved`);
   };
 
-  const curlExample = `curl -X ${endpoint.method} "${gatewayUrl || '${GATEWAY_URL}'}${endpoint.path}" \\
+  const samplePath = endpoint.path.replace(/\{([^}]+)\}/g, (_match, name: string) => {
+    const parameter = endpoint.parameters.find((item) => item.in === 'path' && item.name === name);
+    return encodeURIComponent(parameter?.example || String(parameter?.default ?? name));
+  });
+  const query = new URLSearchParams();
+  endpoint.parameters.filter((parameter) => parameter.in === 'query' && (parameter.example !== undefined || parameter.default !== undefined)).forEach((parameter) => {
+    const value = String(parameter.example ?? parameter.default);
+    if (parameter.type === 'array' && value.includes(',')) value.split(',').forEach((item) => query.append(parameter.name, item));
+    else query.set(parameter.name, value);
+  });
+  const routePath = `${endpoint.basePath || ''}${samplePath}`;
+  const requestUrl = `${(gatewayUrl || '${GATEWAY_URL}').replace(/\/$/, '')}${routePath.startsWith('/') ? routePath : `/${routePath}`}${query.size ? `?${query.toString()}` : ''}`;
+  const curlExample = `curl -X ${endpoint.method} "${requestUrl}" \\
   -H "Authorization: Bearer kly_live_your_key_here" \\
   -H "Content-Type: application/json"${endpoint.requestBody?.sampleBody ? ` \\\n  -d '${endpoint.requestBody.sampleBody.replace(/\n/g, '')}'` : ''}`;
 

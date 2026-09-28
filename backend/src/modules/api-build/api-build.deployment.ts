@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+
 /**
  * API Build — deployment model shared by the gateway, the deploy pipeline,
  * telemetry and the routes layer.
@@ -17,6 +19,28 @@
  */
 
 export type DeploymentKind = 'external' | 'docker';
+
+/** True when the backend process runs on the Docker host rather than in a container. */
+export function usesHostDockerRuntime(): boolean {
+  const configured = String(process.env.KLYRA_DOCKER_RUNTIME || '').trim().toLowerCase();
+  if (configured === 'host') return true;
+  if (configured === 'docker') return false;
+  if (process.platform === 'win32') return true;
+  if (existsSync('/.dockerenv') || existsSync('/run/.containerenv')) return false;
+  try {
+    const cgroups = readFileSync('/proc/1/cgroup', 'utf8');
+    if (/(docker|containerd|kubepods|libpod)/i.test(cgroups)) return false;
+  } catch {
+    // A missing cgroup file is expected on non-Linux hosts.
+  }
+  return true;
+}
+
+/** Stable, isolated bridge network for one deployment container. */
+export function sandboxNetworkName(containerName: string): string {
+  const safeName = containerName.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[^a-z0-9]+/, '');
+  return `klyra-sandbox-${safeName || 'api'}`;
+}
 
 /**
  * 'klyra' is the legacy kind the setup wizard used before the real Docker
@@ -224,7 +248,7 @@ export function resolveDeploymentUpstream(project: Record<string, unknown> | nul
   const runtime = activeDeploymentRuntime(project);
   if (runtime && deploymentIsLive(project)) {
     if (runtime.kind === 'docker') {
-      const preferHost = String(process.env.KLYRA_DOCKER_RUNTIME || 'docker').toLowerCase() === 'host';
+      const preferHost = usesHostDockerRuntime();
       const target = preferHost ? (runtime.hostUrl || runtime.internalUrl) : (runtime.internalUrl || runtime.upstream);
       if (target) return target;
     }
@@ -316,3 +340,4 @@ export const containerNameFor = (slug: string, version: string): string =>
 
 export const imageNameFor = (slug: string, version: string): string =>
   `klyra-api-${sanitizeContainerToken(slug)}:${sanitizeContainerToken(version) || 'latest'}`;
+

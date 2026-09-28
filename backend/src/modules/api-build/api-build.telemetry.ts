@@ -1,5 +1,7 @@
 import { getProject, appendLog, recordUsage, listEndpoints, setEndpointMetrics, saveIncident, listIncidents, listProjects, addActivity } from './api-build.service';
 import { projectApiBasePath, resolveDeploymentUpstream } from './api-build.deployment';
+import http from 'node:http';
+import https from 'node:https';
 
 /* ==========================================================================
  * Telemetry worker — the source of REAL operational data for the workspace.
@@ -67,16 +69,29 @@ export function resolveProbeTarget(
 
 async function fetchHealth(url: string, timeoutMs = TIMEOUT_MS): Promise<{ ok: boolean; statusCode: number; latencyMs: number }> {
   const started = Date.now();
-  try {
-    const response = await fetch(url, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(timeoutMs),
+  const parsed = /^([a-z][a-z\d+.-]*):\/\/(\[[^\]]+\]|[^/:?#]+)(?::(\d+))?([^?#]*)/i.exec(url);
+  if (!parsed) return { ok: false, statusCode: 0, latencyMs: Date.now() - started };
+  const protocol = parsed[1].toLowerCase() === 'https' ? https : http;
+  const hostname = parsed[2].replace(/^\[|\]$/g, '');
+  const port = Number(parsed[3]) || (protocol === https ? 443 : 80);
+  const requestPath = parsed[4] || '/';
+  return new Promise((resolve) => {
+    const request = protocol.request({
+      hostname,
+      port,
+      path: requestPath,
+      method: 'GET',
       headers: { 'User-Agent': 'KlyraGatewayHealth/1.0', Accept: '*/*' },
+      timeout: timeoutMs,
+    }, (response) => {
+      const statusCode = response.statusCode || 0;
+      response.resume();
+      resolve({ ok: statusCode >= 200 && statusCode < 400, statusCode, latencyMs: Date.now() - started });
     });
-    return { ok: response.status >= 200 && response.status < 400, statusCode: response.status, latencyMs: Date.now() - started };
-  } catch {
-    return { ok: false, statusCode: 0, latencyMs: Date.now() - started };
-  }
+    request.once('timeout', () => request.destroy(new Error('health request timed out')));
+    request.once('error', () => resolve({ ok: false, statusCode: 0, latencyMs: Date.now() - started }));
+    request.end();
+  });
 }
 /** Runs one real health check for a project and records everything it observes. */
 export async function probeProjectHealth(projectId: string): Promise<ProbeResult> {
@@ -89,21 +104,30 @@ export async function probeProjectHealth(projectId: string): Promise<ProbeResult
   // Docker deployments, the recorded upstream for external ones.
   const projectRecord = project as unknown as Record<string, unknown>;
   const upstream = resolveDeploymentUpstream(projectRecord) || String(project.baseUrl || '').trim();
+  const base = String(upstream || '').trim();
   const { target, reason } = resolveProbeTarget(upstream, healthPath, projectApiBasePath(projectRecord));
 
   if (!target) {
     return { projectId, ok: false, statusCode: 0, latencyMs: 0, checkedAt: new Date().toISOString(), target, reason };
   }
 
-  const outcome = await fetchHealth(target);
+  let outcome = await fetchHealth(target);
+  let checkedTarget = target;
+  // Imported APIs commonly expose their landing page or Swagger UI at `/`
+  // without implementing the conventional `/health` route. Treat that as a
+  // fallback only when the configured path is genuinely absent.
+  if (outcome.statusCode === 404 && healthPath !== '/') {
+    checkedTarget = `${base.replace(/\/+$/, '')}/`;
+    outcome = await fetchHealth(checkedTarget);
+  }
   const result: ProbeResult = {
     projectId,
     ok: outcome.ok,
     statusCode: outcome.statusCode,
     latencyMs: outcome.latencyMs,
     checkedAt: new Date().toISOString(),
-    target,
-    reason: outcome.ok ? undefined : `Upstream returned HTTP ${outcome.statusCode || 'no response'} for ${healthPath}`,
+    target: checkedTarget,
+    reason: outcome.ok ? undefined : `Upstream returned HTTP ${outcome.statusCode || 'no response'} for ${checkedTarget}`,
   };
 
   try {

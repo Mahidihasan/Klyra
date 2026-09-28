@@ -43,15 +43,15 @@ export async function isActiveAuthenticatedUser(payload: JwtPayload): Promise<bo
 
   // Validate Admin Session (if present)
   if (payload.adminSessionId) {
-    try {
-      const adminSession = await (prisma as any).session.findUnique({
-        where: { id: payload.adminSessionId }
-      });
-      if (!adminSession || adminSession.isRevoked) return false;
-    } catch (err) {
-      console.error('Admin session validation error:', err);
-      return false;
-    }
+    // A lookup that *fails* is not the same as a revoked session. Swallowing the
+    // error here reported schema/connection faults as "your session was
+    // revoked", so every authenticated request answered 401 and the client
+    // logged the user out instead of surfacing a server error. Let it throw and
+    // requireAuth answers 500.
+    const adminSession = await (prisma as any).session.findUnique({
+      where: { id: payload.adminSessionId }
+    });
+    if (!adminSession || adminSession.isRevoked) return false;
   }
 
   return true;
