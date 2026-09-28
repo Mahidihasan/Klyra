@@ -14,6 +14,7 @@ import { StepPublish, PublishSuccess } from './Wizard8';
 import { WorkspaceRedesignWithDraft } from './WorkspaceRedesignWithDraft';
 import { useApiBuild, ApiBuildState, BuildView } from './state';
 import { DetailedEndpoint } from './types';
+import { upstreamBaseUrl } from './format';
 import './styles.css';
 import './styles2.css';
 import './styles-professional.css';
@@ -71,6 +72,30 @@ export const ApiBuildPage: React.FC<{
       return undefined;
     }
   };
+
+  /**
+   * The base path to hand to the Playground, discovered on demand for projects
+   * whose deployment predates base-path detection (their detection record has no
+   * `basePath`, so requests would be sent without the prefix and 404). Probing
+   * the live gateway through the backend resolves it, and the answer is written
+   * back to the project's detection record so later openings are instant.
+   */
+  const resolvePlaygroundBasePath = async (
+    project: ProviderProject | null,
+  ): Promise<string | undefined> => {
+    const known = playgroundBasePath(project);
+    if (known || !project?.gatewayUrl) return known;
+    const detected = await apiBuildService
+      .detect({ kind: 'existing', baseUrl: project.gatewayUrl })
+      .catch(() => null);
+    const discovered = String(detected?.basePath || '').trim();
+    if (!discovered) return known;
+    const normalized = discovered.startsWith('/') ? discovered : `/${discovered}`;
+    void apiBuildService.update(project.id, {
+      detection: { ...(project.detection || detected), basePath: normalized },
+    } as Partial<ProviderProject>);
+    return normalized;
+  };
   const openPlaygroundWithUrl = async (ep?: DetailedEndpoint) => {
     const project = activeRef.current;
     // The "Open API Tester Playground" action carries the project's complete
@@ -90,6 +115,11 @@ export const ApiBuildPage: React.FC<{
               path: det.path,
               summary: det.description || `${det.method} ${det.path}`,
               description: det.description || '',
+              // Detection read the real operation shape from the document; keep
+              // it so the Playground pre-fills the inputs an endpoint needs
+              // instead of sending a request that cannot succeed.
+              parameters: det.parameters,
+              requestBody: det.requestBody,
             }) as unknown as DetailedEndpoint,
         );
       }
@@ -99,7 +129,7 @@ export const ApiBuildPage: React.FC<{
       apiName: project?.name || undefined,
       folderName: project?.name || undefined,
       baseUrl: project?.gatewayUrl || project?.baseUrl || undefined,
-      basePath: playgroundBasePath(project),
+      basePath: await resolvePlaygroundBasePath(project),
       endpoint: ep ? { method: ep.method, path: ep.path } : undefined,
       endpoints: catalog.map(toPlaygroundEndpoint),
     });
@@ -342,8 +372,11 @@ function ApiBuildRouter({ s, onBack }: { s: ApiBuildState; onBack?: () => void }
   if (view === 'detect') return <StepDetect loading={s.detecting} detection={s.detection} progress={s.detectProgress} containerSource={s.source.kind === 'docker' || s.source.kind === 'github'} importedEndpoints={importedEndpoints} deployed={deployed} manualMode={s.manual} setManualMode={s.setManual} onBack={() => s.setView('source')} onRetry={() => retryDetection(s, active)} onNext={() => s.setView('configure')} />;
   if (!active) return <ProjectsDashboard projects={projects} onNew={() => s.setView('new')} onOpen={openProj} onBack={onBack} />;
   if (view === 'configure') return <StepConfigure project={active} onBack={() => s.setView('detect')} onNext={(c) => {
+    // A gateway URL must never be persisted as the upstream origin: the gateway
+    // would be told to forward to itself and every playground request would hang.
+    const upstream = upstreamBaseUrl({ baseUrl: c.baseUrl, gatewayUrl: active.gatewayUrl });
     apiBuildService.update(active.id, {
-      name: c.apiName, version: c.version, baseUrl: c.baseUrl, authKind: c.authKind,
+      name: c.apiName, version: c.version, baseUrl: upstream, authKind: c.authKind,
       rateLimitPerMin: c.rateLimitPerMin, healthCheckPath: c.healthCheckPath, environment: c.environment,
       corsOrigins: c.corsOrigins, cacheTtlSeconds: c.cacheTtlSeconds, retryStrategy: c.retryStrategy,
       connectTimeoutMs: c.connectTimeoutMs, requestTimeoutMs: c.requestTimeoutMs, stripBasePath: c.stripBasePath,

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Settings, ShieldAlert, Trash2, Save, Users, UserPlus, Plus, X, ServerCog, ClipboardList, ShieldCheck, BellRing, GitCompare, LockKeyhole, Network } from 'lucide-react';
 import { ProviderProject } from '../../../types/apibuild';
+import { upstreamBaseUrl } from '../format';
 
 type SettingsView = 'general' | 'team' | 'environments' | 'security' | 'lifecycle' | 'notifications' | 'audit';
 type TeamRole = 'Owner' | 'Editor' | 'Viewer';
@@ -24,7 +25,9 @@ export const TabSettings: React.FC<TabSettingsProps> = ({
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
   const [category, setCategory] = useState(project.category);
-  const [baseUrl, setBaseUrl] = useState(project.baseUrl || 'https://api.kickonass.com');
+  // The API origin Klyra routes to. Never a placeholder domain, and never the
+  // Klyra gateway URL itself (see upstreamBaseUrl).
+  const [baseUrl, setBaseUrl] = useState(upstreamBaseUrl(project));
   const [rateLimit, setRateLimit] = useState(project.rateLimitPerMin || 100);
   const [visibility, setVisibility] = useState(project.visibility || 'public');
   const [customDomain, setCustomDomain] = useState('api.kickonass.com');

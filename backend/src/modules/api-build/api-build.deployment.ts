@@ -74,6 +74,24 @@ export function slugFromProjectId(id: string): string {
   return m ? m[1] : id;
 }
 
+/**
+ * True when a URL addresses Klyra's own gateway route (`/api/gateway/{slug}`).
+ *
+ * Project records can end up storing the gateway URL as their upstream origin —
+ * the Configure step used to prefill "Upstream base URL" from the deployment
+ * record, whose `providerUrl` *is* the gateway URL. The gateway would then
+ * forward requests to itself and every Playground call hung until the 30s
+ * timeout. Such a URL is never a valid forwarding target, so it is ignored.
+ */
+export function isKlyraGatewayUrl(url: string): boolean {
+  const value = String(url || '').trim();
+  if (!value) return false;
+  const path = (() => {
+    try { return new URL(value).pathname; } catch { return value; }
+  })();
+  return new RegExp(`^${GATEWAY_ROUTE_PREFIX}/[^/]+`).test(path);
+}
+
 /** Stable slug for a project record (slug field, falling back to the id). */
 export function slugOfProject(project: Record<string, unknown> | null | undefined): string {
   return String(project?.slug || '') || slugFromProjectId(String(project?.id || ''));
@@ -170,7 +188,17 @@ export function resolveDeploymentUpstream(project: Record<string, unknown> | nul
     }
     if (runtime.upstream) return runtime.upstream;
   }
-  return String(project?.baseUrl || '').trim();
+  return projectBaseUpstream(project);
+}
+
+/**
+ * The project's configured upstream origin, ignoring a self-referencing
+ * gateway URL (see isKlyraGatewayUrl). Callers that need "the origin behind
+ * project.baseUrl" must use this instead of reading baseUrl directly.
+ */
+export function projectBaseUpstream(project: Record<string, unknown> | null | undefined): string {
+  const base = String(project?.baseUrl || '').trim();
+  return isKlyraGatewayUrl(base) ? '' : base;
 }
 
 /** Decides which pipeline a deploy request takes. */
@@ -185,8 +213,9 @@ export function resolveDeploymentKind(
   if (LEGACY_DOCKER_KINDS.has(kindRaw)) return 'docker';
   if (kindRaw === 'external') return 'external';
   // No explicit signal: keep today's behavior for connected upstreams and
-  // default APIs built inside Klyra to Klyra-hosted containers.
-  const hasUpstream = Boolean(String(project?.baseUrl || '').trim());
+  // default APIs built inside Klyra to Klyra-hosted containers. A gateway URL
+  // stored as baseUrl is not an upstream (see isKlyraGatewayUrl).
+  const hasUpstream = Boolean(projectBaseUpstream(project));
   return String(project?.sourceKind || '') === 'existing' && hasUpstream ? 'external' : 'docker';
 }
 

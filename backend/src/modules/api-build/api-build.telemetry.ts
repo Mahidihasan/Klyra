@@ -59,7 +59,7 @@ async function fetchHealth(url: string, timeoutMs = TIMEOUT_MS): Promise<{ ok: b
 export async function probeProjectHealth(projectId: string): Promise<ProbeResult> {
   const project = await getProject(projectId);
   if (!project) throw new Error('Project not found.');
-  const base = String(resolveDeploymentUpstream(project) || project.baseUrl || '').trim();
+  const base = String(resolveDeploymentUpstream(project) || '').trim();
   const healthPath = String(project.healthCheckPath || '/health');
   const target = base ? `${base.replace(/\/+$/, '')}${healthPath.startsWith('/') ? healthPath : `/${healthPath}`}` : '';
 

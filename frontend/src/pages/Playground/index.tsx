@@ -515,6 +515,27 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
   // concurrent imports of the same project catalog).
   const importingFolderRef = useRef<string | null>(null);
 
+  /**
+   * OpenAPI path parameters are part of the URL rather than query rows. The
+   * documented example fills them in so an imported request can run immediately;
+   * otherwise a readable `{{placeholder}}` stays for the user (or the active
+   * environment) to provide. Import and target matching must resolve paths the
+   * same way, or "Test in Playground" opens the first endpoint of the folder
+   * instead of the endpoint the button was pressed on.
+   */
+  const resolveEndpointPath = (
+    path: string,
+    parameters?: PlaygroundOpenEndpoint['parameters'],
+  ): string => {
+    let resolved = path.startsWith('/') ? path : `/${path}`;
+    for (const param of parameters || []) {
+      if (String(param.in || '').toLowerCase() !== 'path') continue;
+      const value = String(param.example || '').trim() || `{{${param.name}}}`;
+      resolved = resolved.split(`{${param.name}}`).join(value);
+    }
+    return resolved;
+  };
+
   // Import an API project's complete endpoint catalog into the workspace tree
   // as a folder named after the project. Fired when the Playground is opened
   // from the ApiBuild workspace ("Open API Tester Playground" button, or
@@ -591,15 +612,9 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       let nextOrder = getNextOrder(workspaceItems, folderId);
       for (const ep of catalog) {
         const method = (ep.method || 'GET').toUpperCase();
-        let endpointPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
-        // OpenAPI path parameters are part of the URL rather than query rows.
-        // Fill documented examples so imported requests can run immediately;
-        // leave a readable placeholder when the spec provides no example.
-        for (const param of ep.parameters || []) {
-          if (String(param.in || '').toLowerCase() !== 'path') continue;
-          const value = String(param.example || '').trim() || `{{${param.name}}}`;
-          endpointPath = endpointPath.split(`{${param.name}}`).join(value);
-        }
+        // Path parameters are resolved with their documented examples (or a
+        // readable placeholder) so imported requests can run immediately.
+        const endpointPath = resolveEndpointPath(ep.path, ep.parameters);
         const epPath = endpointPath;
         const epUrl = apiUrl ? `${apiUrl}${epPath}` : epPath;
         const key = `${method} ${epUrl.replace(/\/+$/, '')}`;
@@ -663,11 +678,21 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       }
 
       // Open the requested endpoint (when the caller named one) or the first
-      // endpoint of the folder in the editor, ready to send.
+      // endpoint of the folder in the editor, ready to send. The requested
+      // endpoint is located through the same path resolution the import used,
+      // so a parameterized operation (`/pet/{petId}`) still opens its own item.
       const targetMethod = (target?.method || '').toUpperCase();
       const targetPath = (target?.path || '').trim();
-      const targetUrl = targetPath
-        ? `${apiUrl}${targetPath.startsWith('/') ? targetPath : `/${targetPath}`}`.replace(
+      const targetEntry = targetMethod && targetPath
+        ? catalog.find(
+            (ep) =>
+              (ep.method || '').toUpperCase() === targetMethod &&
+              resolveEndpointPath(ep.path, ep.parameters) ===
+                resolveEndpointPath(targetPath, ep.parameters),
+          )
+        : undefined;
+      const targetUrl = targetEntry
+        ? `${apiUrl}${resolveEndpointPath(targetEntry.path, targetEntry.parameters)}`.replace(
             /\/+$/,
             '',
           )

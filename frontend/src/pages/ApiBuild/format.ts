@@ -17,6 +17,27 @@ const RELEASE_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/;
 export const UNRELEASED_LABEL = 'not released yet';
 
 /**
+ * The upstream origin Klyra forwards requests to, or '' when the project has no
+ * usable one yet.
+ *
+ * `deployment.providerUrl` and `gatewayUrl` are the *Klyra* gateway
+ * (`/api/gateway/{slug}`), not the API's own origin. Storing that value as
+ * `baseUrl` made the gateway forward to itself: every Playground request hung
+ * until it timed out. Any stored gateway URL is therefore treated as "no
+ * upstream configured" instead of being shown or saved as the target.
+ */
+export const upstreamBaseUrl = (
+  project: { baseUrl?: string; gatewayUrl?: string },
+): string => {
+  const base = String(project?.baseUrl || '').trim();
+  const gateway = String(project?.gatewayUrl || '').trim();
+  if (!base) return '';
+  if (gateway && base.replace(/\/+$/, '') === gateway.replace(/\/+$/, '')) return '';
+  if (/\/api\/gateway\/[^/]+/.test(base)) return '';
+  return base;
+};
+
+/**
  * Renders a nullable version release timestamp as an inline status phrase —
  * `released 2026-03-11` for published rows, `not released yet` for drafts.
  * Safe for `null`, `undefined`, `''` and malformed values.

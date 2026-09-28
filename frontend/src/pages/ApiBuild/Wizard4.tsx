@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, ArrowRight, Network, ShieldCheck, Timer } from 'lucide-react';
 import { AuthKind, ConfigureInput, ProjectEnvironment, ProviderProject } from '../../types/apibuild';
 import { Field } from './bits';
+import { upstreamBaseUrl } from './format';
 import { WizardChrome } from './Wizard1';
 import './styles.css';
 
@@ -10,7 +11,7 @@ export const StepConfigure: React.FC<{
   onNext: (v: ConfigureInput) => void; onBack: () => void;
 }> = ({ project, onNext, onBack }) => {
   const [v, setV] = useState<ConfigureInput>({
-    apiName: project.name, version: project.version, baseUrl: project.baseUrl || project.deployment.providerUrl,
+    apiName: project.name, version: project.version, baseUrl: upstreamBaseUrl(project),
     authKind: project.authKind, rateLimitPerMin: project.rateLimitPerMin,
     healthCheckPath: project.healthCheckPath, environment: project.environment,
     corsOrigins: project.corsOrigins || '*', cacheTtlSeconds: project.cacheTtlSeconds || 0,
@@ -30,7 +31,7 @@ export const StepConfigure: React.FC<{
         <Field label="API Name"><input value={v.apiName} onChange={(e) => setV({ ...v, apiName: e.target.value })} /></Field>
         <Field label="Version"><input value={v.version} onChange={(e) => setV({ ...v, version: e.target.value })} placeholder="v1.0.0" /></Field>
       </div>
-      <Field label="Upstream base URL" hint="The origin Klyra will route requests to."><input value={v.baseUrl} onChange={(e) => setV({ ...v, baseUrl: e.target.value })} /></Field>
+      <Field label="Upstream base URL" hint="The API origin Klyra routes requests to — not the Klyra gateway URL. Leave empty for APIs Klyra hosts itself; the gateway then targets the deployed container directly."><input value={v.baseUrl} onChange={(e) => setV({ ...v, baseUrl: e.target.value })} /></Field>
       <section className="ab2-config-section"><div className="ab2-config-section-title"><ShieldCheck size={14} /> Security & access</div><Field label="Consumer authentication" hint="Required by the Klyra gateway before traffic reaches your API."><div className="ab2-auth-row">{auths.map((a) => (
         <button key={a.id} type="button" className={`ab2-auth ${v.authKind === a.id ? 'active' : ''}`} onClick={() => setV({ ...v, authKind: a.id })}>{a.label}</button>
       ))}</div></Field><div className="ab2-grid2"><Field label="Authentication header"><input value={v.authHeaderName} onChange={(e) => setV({ ...v, authHeaderName: e.target.value })} /></Field><Field label="CORS allowed origins"><input value={v.corsOrigins} onChange={(e) => setV({ ...v, corsOrigins: e.target.value })} placeholder="https://app.example.com" /></Field></div></section>

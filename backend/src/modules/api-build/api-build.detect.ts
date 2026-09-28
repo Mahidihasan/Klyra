@@ -60,6 +60,15 @@ export interface DetectionPayload {
    * request 404s against the deployed API.
    */
   basePath: string;
+  /**
+   * Internal evidence only (never returned to clients): the path declared by
+   * `servers[]` even when its host does not match the probed origin. Detection
+   * confirms it with one real request before trusting it (confirmServedBasePath)
+   * — see the petstore case, where the document declares
+   * `https://petstore3.swagger.io/api/v3` while the deployed container serves
+   * `/api/v3/...` on its own origin.
+   */
+  declaredBasePath?: string;
 }
 
 const blank = (baseUrl: string, extra: Partial<DetectionPayload> = {}): DetectionPayload => ({
@@ -99,6 +108,41 @@ export function resolveBasePath(servers: string[], probedBaseUrl = '', serverObj
     }
     if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(resolved)) continue; // other schemes
     const path = `/${resolved.replace(/^\/+/, '')}`.replace(/\/+$/, '');
+    if (path && path !== '/') return path;
+  }
+  return '';
+}
+
+/**
+ * The path the document declares, ignoring the declared host: both
+ * `/api/v3` and `https://petstore3.swagger.io/api/v3` yield `/api/v3`.
+ * Server variables are substituted from their declared defaults. Returns ''
+ * when the document declares no usable path.
+ *
+ * Unlike resolveBasePath this never asks whether the host is the probed origin:
+ * it is the *candidate* that confirmServedBasePath verifies against the origin
+ * the API is actually reachable on.
+ */
+export function declaredServerPath(servers: string[], serverObjects: unknown[] = []): string {
+  for (const raw of servers) {
+    const value = String(raw || '').trim();
+    if (!value || value === '/') continue;
+    const serverObject = serverObjects.find((item) => item && typeof item === 'object' && String((item as Record<string, unknown>).url || '') === value) as Record<string, unknown> | undefined;
+    const variables = serverObject?.variables && typeof serverObject.variables === 'object' ? serverObject.variables as Record<string, unknown> : {};
+    const resolved = value.replace(/\{([^}]+)\}/g, (match, name: string) => {
+      const variable = variables[name] && typeof variables[name] === 'object' ? variables[name] as Record<string, unknown> : {};
+      return variable.default !== undefined ? String(variable.default) : match;
+    });
+    if (resolved.includes('{')) continue;
+    let rawPath = '';
+    if (/^https?:\/\//i.test(resolved)) {
+      try { rawPath = new URL(resolved).pathname; } catch { continue; }
+    } else if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(resolved)) {
+      continue; // other schemes (kafka:, ws:, …) declare no HTTP path
+    } else {
+      rawPath = resolved;
+    }
+    const path = `/${String(rawPath).replace(/^\/+/, '')}`.replace(/\/+$/, '');
     if (path && path !== '/') return path;
   }
   return '';
@@ -198,13 +242,76 @@ function inspect(doc: Record<string, unknown>, baseUrl: string): DetectionPayloa
   const schemes = Object.entries(security).map(([name, item]) => item && typeof item === 'object' ? String((item as Record<string, unknown>).type || name) : name);
   const info = doc.info && typeof doc.info === 'object' ? doc.info as Record<string, unknown> : {};
   const servers = Array.isArray(doc.servers) ? doc.servers.map((server) => server && typeof server === 'object' ? String((server as Record<string, unknown>).url || '') : '').filter(Boolean) : [];
-  const basePath = doc.swagger === '2.0'
+  const declaredBasePath = doc.swagger === '2.0'
     ? String(doc.basePath || '').replace(/\/+$/, '')
+    : declaredServerPath(servers, Array.isArray(doc.servers) ? doc.servers : []);
+  const basePath = doc.swagger === '2.0'
+    ? declaredBasePath
     : resolveBasePath(servers, baseUrl, Array.isArray(doc.servers) ? doc.servers : []);
   // Every operation is served under the same base path, so it rides along with
   // each detected endpoint (see DetectedEndpoint.basePath).
   if (basePath) for (const endpoint of endpoints) endpoint.basePath = basePath;
-  return blank(baseUrl, { reachable: true, found: true, openApiVersion: doc.openapi ? `OpenAPI ${String(doc.openapi)}` : doc.swagger ? `Swagger ${String(doc.swagger)}` : 'OpenAPI', endpointCount: endpoints.length, schemaCount: Object.keys(schemas).length, authKind: schemes.length ? `${schemes.join(', ')} authentication` : null, title: String(info.title || '') || null, description: String(info.description || '') || null, servers, securitySchemes: schemes, endpoints, basePath });
+  return blank(baseUrl, { reachable: true, found: true, openApiVersion: doc.openapi ? `OpenAPI ${String(doc.openapi)}` : doc.swagger ? `Swagger ${String(doc.swagger)}` : 'OpenAPI', endpointCount: endpoints.length, schemaCount: Object.keys(schemas).length, authKind: schemes.length ? `${schemes.join(', ')} authentication` : null, title: String(info.title || '') || null, description: String(info.description || '') || null, servers, securitySchemes: schemes, endpoints, basePath, declaredBasePath });
+}
+
+/** HTTP statuses that prove nothing is served at the probed path. */
+const NOT_SERVED_STATUS = new Set([404, 405]);
+
+/**
+ * Confirms which prefix an origin really serves its operations under.
+ *
+ * Specifications frequently declare a production host
+ * (`servers: https://petstore3.swagger.io/api/v3`) while the API Klyra deployed
+ * answers on its own origin, where only the path part matters. Trusting the path
+ * without checking makes every Playground request 404; ignoring it does the same
+ * for APIs mounted under a prefix. So the candidate is verified with one real
+ * request against a GET operation that needs no inputs:
+ *   - declared prefix answers   -> that prefix is the base path;
+ *   - only the origin root answers -> the API is mounted at the root;
+ *   - nothing conclusive (all 404/network error) -> the document's declaration.
+ */
+export async function confirmServedBasePath(
+  origin: string,
+  candidateBasePath: string,
+  endpoints: DetectedEndpoint[],
+  timeout = 6000,
+): Promise<string> {
+  const candidate = String(candidateBasePath || '').trim();
+  const base = String(origin || '').replace(/\/+$/, '');
+  if (!candidate || !/^https?:\/\//i.test(base)) return candidate;
+  const sample = endpoints.find(
+    (endpoint) => ['GET', 'HEAD'].includes(String(endpoint.method).toUpperCase()) && !endpoint.path.includes('{'),
+  );
+  if (!sample) return candidate;
+  const samplePath = `/${String(sample.path).replace(/^\/+/, '')}`;
+  for (const prefix of [candidate, '']) {
+    try {
+      const response = await fetch(`${base}${prefix}${samplePath}`, {
+        headers: { Accept: 'application/json, application/yaml, text/yaml, text/plain, */*', 'User-Agent': 'KlyraApiBuild/1.0' },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(timeout),
+      });
+      if (!NOT_SERVED_STATUS.has(response.status)) return prefix;
+    } catch {
+      // An unreachable probe proves nothing; try the next candidate.
+    }
+  }
+  return candidate;
+}
+
+/** Applies a confirmed base path to a detection payload and its endpoints. */
+function withBasePath(payload: DetectionPayload, basePath: string): DetectionPayload {
+  const resolved = String(basePath || '').trim();
+  return {
+    ...payload,
+    basePath: resolved,
+    endpoints: payload.endpoints.map((endpoint) => {
+      const next = { ...endpoint };
+      if (resolved) next.basePath = resolved;
+      else delete (next as { basePath?: string }).basePath;
+      return next;
+    }),
+  };
 }
 
 export async function detectUpstream(baseInput: string, explicitSpecUrl = ''): Promise<DetectionPayload> {
@@ -241,7 +348,19 @@ async function resolveCandidateSpecs(baseUrl: string, candidates: string[]): Pro
     const result = await getText(url); if (!result.ok) continue;
     const document = parseDocument(result.text); if (!document) continue;
     const detected = inspect(document, baseUrl); if (!detected) continue;
-    return { ...detected, latencyMs: result.latencyMs, foundAt: url, reason: `Specification resolved from ${url}` };
+    // A path the document declares for a host that is not the one we just read
+    // from is only a candidate: confirm it against the origin the specification
+    // was actually served from, so the Playground addresses operations where the
+    // API answers them instead of 404-ing on every request.
+    let payload = detected;
+    if (detected.declaredBasePath && detected.declaredBasePath !== detected.basePath) {
+      let origin = '';
+      try { origin = new URL(url).origin; } catch { origin = ''; }
+      payload = withBasePath(detected, await confirmServedBasePath(origin, detected.declaredBasePath, detected.endpoints));
+    }
+    // declaredBasePath is internal evidence — it never leaves the backend.
+    const { declaredBasePath: _declared, ...publicPayload } = payload;
+    return { ...publicPayload, latencyMs: result.latencyMs, foundAt: url, reason: `Specification resolved from ${url}` };
   }
   return null;
 }

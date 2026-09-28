@@ -470,7 +470,10 @@ router.post('/ai/chat', async (req: Request, res: Response) => {
     // Return structured action result - the Playground executes actions on request state
     res.json(result);
   } catch (err: any) {
-    const status = err.message?.includes('not configured') ? 503 : 500;
+    const providerUnavailable = /not configured|Gemini rejected model|Gemini rate limit|Gemini is temporarily unavailable/i.test(
+      String(err?.message || ''),
+    );
+    const status = providerUnavailable ? 503 : 500;
     res.status(status).json({ error: err.message || 'AI chat failed' });
   }
 });

@@ -30,6 +30,25 @@ const HOP_BY_HOP = new Set([
   'content-length', 'content-encoding',
 ]);
 
+/** Join a gateway route to an upstream URL without duplicating its mount path.
+ * OpenAPI servers commonly declare `/api/v1` while the configured upstream
+ * base URL already contains `/api/v1`; naive string concatenation then sends
+ * `/api/v1/api/v1/...` and makes otherwise valid generated endpoints fail.
+ */
+function upstreamRequestUrl(upstream: string, routePath: string, search: string): string {
+  const target = new URL(upstream);
+  const prefix = target.pathname.replace(/\/+$/, '');
+  const route = `/${String(routePath || '').replace(/^\/+|\/+$/g, '')}`;
+  const prefixParts = prefix.split('/').filter(Boolean);
+  const routeParts = route.split('/').filter(Boolean);
+  let overlap = Math.min(prefixParts.length, routeParts.length);
+  while (overlap > 0 && prefixParts.slice(-overlap).join('/') !== routeParts.slice(0, overlap).join('/')) overlap -= 1;
+  target.pathname = `/${[...prefixParts, ...routeParts.slice(overlap)].join('/')}`;
+  target.search = search && search !== '?' ? search : target.search;
+  target.hash = '';
+  return target.toString();
+}
+
 const slugOf = (id: string) => {
   // Project ids are `proj-{slug}-{rand}`; fall back to the raw id.
   const m = /^proj-(.+)-[a-z0-9]{4,8}$/i.exec(id);
@@ -124,8 +143,12 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
     // Remaining path after /gateway/{slug}; preserve the caller's query string.
     const rest = (req.params[0] as string) || '';
     const search = new URL(req.originalUrl, 'http://localhost').search;
-    let target = `${upstream.replace(/\/+$/, '')}/${rest.replace(/^\/+/, '')}`.replace(/\/+$/, '') || upstream;
-    if (search && search !== '?') target += search;
+    let target: string;
+    try {
+      target = upstreamRequestUrl(upstream, rest, search);
+    } catch {
+      return res.status(502).json({ error: 'The configured upstream URL is invalid.' });
+    }
 
     const headers: Record<string, string> = {};
     Object.entries(req.headers).forEach(([k, v]) => {
@@ -159,7 +182,9 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
       const text = await upstreamRes.text();
       res.status(upstreamRes.status);
       upstreamRes.headers.forEach((v, k) => {
-        if (HOP_BY_HOP.has(k.toLowerCase()) || k.toLowerCase() === 'set-cookie') return;
+        // fetch() decodes compressed responses before text() reads them, so
+        // forwarding the original encoding header would corrupt the body.
+        if (HOP_BY_HOP.has(k.toLowerCase()) || ['set-cookie', 'content-encoding'].includes(k.toLowerCase())) return;
         res.setHeader(k, v);
       });
       return res.send(text);
@@ -168,9 +193,16 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
     }
   } catch (err) {
     const aborted = (err as { name?: string })?.name === 'AbortError';
-    return res.status(aborted ? 504 : 502).json({
-      error: aborted ? 'Upstream request timed out.' : 'Gateway forwarding failed.',
-      detail: err instanceof Error ? err.message : String(err),
+    const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+    const code = String(cause?.code || '');
+    const unreachable = ['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ECONNRESET'].includes(code);
+    return res.status(aborted ? 504 : unreachable ? 503 : 502).json({
+      error: aborted
+        ? 'Upstream request timed out.'
+        : unreachable
+          ? 'The configured upstream is unavailable. Check that the API container is running, then redeploy if needed.'
+          : 'Gateway forwarding failed.',
+      detail: code || (err instanceof Error ? err.message : String(err)),
     });
   }
 };
