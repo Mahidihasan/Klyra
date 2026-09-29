@@ -19,6 +19,7 @@ import { UsagePage } from './pages/Usage/index';
 import { RepositoriesPage } from './pages/Repositories/index';
 import { AdminLayout } from './layouts/AdminLayout/AdminLayout';
 import { MarketplacePage } from './pages/Marketplace/index';
+import { getSubscribedApisFromStorage, saveSubscribedApisToStorage } from './pages/Marketplace/useSubscription';
 import { catalogApi, toApiItem } from './services/api/catalog';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ProfilePage } from './pages/Profile';
@@ -65,6 +66,22 @@ const includeDemoApis = (demoApis: ApiItem[], catalogApis: ApiItem[]): ApiItem[]
 function AppContent() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const { hasPermission, isLoading: permissionsLoading } = usePermissions();
+
+  useEffect(() => {
+    if (isLoading || typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const sessionId = url.searchParams.get('marketplace_session');
+    if (!sessionId) return;
+    let active = true;
+    catalogApi.confirmMarketplacePurchase(sessionId).then((purchase) => {
+      if (!active) return;
+      const current = getSubscribedApisFromStorage();
+      saveSubscribedApisToStorage([...new Set([...current, purchase.apiId])]);
+      url.searchParams.delete('marketplace_session');
+      window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [isLoading]);
   // Persist active tab in localStorage to survive refresh
   const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
     if (typeof window !== 'undefined') {

@@ -1,10 +1,4 @@
 import { ApiItem } from '../../types/api';
-import {
-  MOCK_TRENDING_APIS,
-  MOCK_POPULAR_APIS,
-  MOCK_NEWLY_LAUNCHED_APIS,
-  MOCK_RECOMMENDED_APIS,
-} from '../../data/mockData';
 
 export interface CatalogEndpoint {
   id?: string;
@@ -26,6 +20,18 @@ export interface CatalogPricingPlan {
   billingInterval: string;
   features: string[];
   rateLimit?: number;
+}
+
+export interface CatalogPayAsYouGoPricing {
+  includedRequests: number;
+  ratePerRequest: number;
+}
+
+export function calculateMarketplacePaygo(
+  requests: number,
+  pricing: CatalogPayAsYouGoPricing,
+): number {
+  return Number((Math.max(0, requests - pricing.includedRequests) * pricing.ratePerRequest).toFixed(2));
 }
 
 export interface CatalogApi {
@@ -60,6 +66,7 @@ export interface CatalogApi {
   endpointsCount: number;
   endpoints?: CatalogEndpoint[];
   pricingPlans?: CatalogPricingPlan[];
+  payAsYouGo?: CatalogPayAsYouGoPricing;
   lastPublishedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -259,58 +266,6 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
-function browseMockApis(query: BrowseApisQuery): BrowseApisResponse {
-  let apis = mockCatalogFallback().trending;
-  const search = query.search?.trim().toLowerCase();
-
-  if (search) {
-    apis = apis.filter((api) =>
-      [api.name, api.description, api.categoryName, ...api.tags].some((value) =>
-        value.toLowerCase().includes(search),
-      ),
-    );
-  }
-  if (query.category && query.category !== 'all' && query.category !== 'All Categories') {
-    const category = query.category.toLowerCase();
-    apis = apis.filter(
-      (api) =>
-        api.categorySlug.toLowerCase() === category || api.categoryName.toLowerCase() === category,
-    );
-  }
-  if (query.pricingModel && query.pricingModel !== 'all') {
-    apis = apis.filter((api) => api.pricingModel === query.pricingModel?.toUpperCase());
-  }
-  if (query.minRating) apis = apis.filter((api) => api.rating >= query.minRating!);
-  if (query.maxLatency) apis = apis.filter((api) => api.latencyMs <= query.maxLatency!);
-
-  const direction = query.order === 'asc' ? 1 : -1;
-  apis = [...apis].sort((left, right) => {
-    switch (query.sort) {
-      case 'rating':
-        return (left.rating - right.rating) * direction;
-      case 'latency':
-        return (left.latencyMs - right.latencyMs) * (query.order === 'desc' ? -1 : 1);
-      case 'name':
-        return left.name.localeCompare(right.name) * (query.order === 'desc' ? -1 : 1);
-      case 'newest':
-        return right.createdAt.localeCompare(left.createdAt) * direction;
-      case 'popular':
-        return (right.totalRequests - left.totalRequests) * direction;
-      case 'trending':
-      default:
-        return 0;
-    }
-  });
-
-  const page = query.page || 1;
-  const limit = query.limit || 16;
-  const start = (page - 1) * limit;
-  return {
-    apis: apis.slice(start, start + limit),
-    meta: { page, limit, total: apis.length, totalPages: Math.ceil(apis.length / limit) || 1 },
-  };
-}
-
 /** Converts a backend CatalogApi to existing frontend ApiItem format for backward-compatibility. */
 export function toApiItem(api: CatalogApi): ApiItem {
   return {
@@ -361,105 +316,6 @@ export function toApiItem(api: CatalogApi): ApiItem {
   };
 }
 
-/** Fallback adapter mapping mock data to CatalogApi if backend is unreachable */
-function mockCatalogFallback(): CuratedRailsResponse {
-  const mapMock = (item: ApiItem): CatalogApi => {
-    const model = DEMO_PRICING[item.id] || 'FREEMIUM';
-    const basePrice = getApiCartPrice({ id: item.id, slug: item.id, pricingModel: model });
-    const plans: CatalogPricingPlan[] =
-      model === 'FREE'
-        ? [
-            {
-              id: `${item.id}-free`,
-              name: 'Developer Sandbox',
-              slug: 'free',
-              description: 'Zero-cost sandbox environment for testing and prototyping.',
-              price: 0,
-              currency: 'USD',
-              billingInterval: 'MONTHLY',
-              features: ['10,000 sandbox requests / mo', 'Rate limit: 60 req/min', 'Community support'],
-              rateLimit: 60,
-            },
-          ]
-        : [
-            {
-              id: `${item.id}-free`,
-              name: 'Developer Sandbox',
-              slug: 'free',
-              description: 'Zero-cost sandbox environment for testing.',
-              price: 0,
-              currency: 'USD',
-              billingInterval: 'MONTHLY',
-              features: ['10,000 sandbox requests / mo', 'Rate limit: 60 req/min', 'Community support'],
-              rateLimit: 60,
-            },
-            {
-              id: `${item.id}-starter`,
-              name: 'Starter Pro',
-              slug: 'starter',
-              description: 'Essential production volume with full endpoint access.',
-              price: basePrice,
-              currency: 'USD',
-              billingInterval: 'MONTHLY',
-              features: ['250,000 requests / mo', 'Rate limit: 300 req/min', 'Standard email SLA'],
-              rateLimit: 300,
-            },
-            {
-              id: `${item.id}-scale`,
-              name: 'Scale & Team',
-              slug: 'scale',
-              description: 'High concurrency, sub-millisecond edge routing and dedicated quota.',
-              price: Math.max(basePrice * 2.5, 79),
-              currency: 'USD',
-              billingInterval: 'MONTHLY',
-              features: ['2,000,000 requests / mo', 'Rate limit: 1,200 req/min', 'Priority support'],
-              rateLimit: 1200,
-            },
-          ];
-
-    return {
-      id: item.id,
-      name: item.name,
-      slug: item.id,
-      description: item.description,
-      longDescription: item.longDescription,
-      currentVersion: item.version,
-      baseUrl: item.baseUrl,
-      docsUrl: item.baseUrl,
-      logoUrl: undefined,
-      categoryId: item.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      categoryName: item.category,
-      categorySlug: item.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      categoryIcon: 'Layers',
-      ownerId: 'official-provider',
-      ownerName: item.provider,
-      pricingModel: model,
-      status: 'PUBLISHED',
-      isPublic: true,
-      rating: item.rating,
-      totalReviews: 84,
-      totalSubscribers: 3200,
-      totalRequests: 1200000,
-      latencyMs: item.latencyMs,
-      uptimePercentage: parseFloat(item.uptime.replace('%', '')) || 99.9,
-      tags: [item.category.toLowerCase()],
-      endpointsCount: item.endpointsCount,
-      endpoints: item.endpoints,
-      pricingPlans: plans,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-  };
-
-  return {
-    featured: MOCK_TRENDING_APIS.slice(0, 4).map(mapMock),
-    trending: MOCK_TRENDING_APIS.map(mapMock),
-    popular: MOCK_POPULAR_APIS.map(mapMock),
-    newlyLaunched: MOCK_NEWLY_LAUNCHED_APIS.map(mapMock),
-    recommended: MOCK_RECOMMENDED_APIS.map(mapMock),
-  };
-}
-
 export const catalogApi = {
   /** Fetch all curated rails for the homepage */
   async getCuratedRails(signal?: AbortSignal): Promise<CuratedRailsResponse> {
@@ -469,7 +325,7 @@ export const catalogApi = {
       const json = await res.json();
       return json.data;
     } catch {
-      return mockCatalogFallback();
+      return { featured: [], trending: [], popular: [], newlyLaunched: [], recommended: [] };
     }
   },
 
@@ -528,7 +384,10 @@ export const catalogApi = {
       return json.data;
     } catch (error) {
       if (signal?.aborted) throw error;
-      return browseMockApis(query);
+      return {
+        apis: [],
+        meta: { page: query.page || 1, limit: query.limit || 16, total: 0, totalPages: 0 },
+      };
     }
   },
 
@@ -719,15 +578,49 @@ export const catalogApi = {
   },
 
   /** Subscribe user to an API tier */
-  async subscribeToPlan(apiId: string, planId: string): Promise<any> {
+  async subscribeToPlan(
+    apiId: string,
+    planId: string,
+    options: { includePaygo?: boolean; monthlyRequests?: number } = {},
+  ): Promise<any> {
     const res = await fetch(`${API_BASE}/apis/${encodeURIComponent(apiId)}/subscribe`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ planId }),
+      body: JSON.stringify({ planId, ...options }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err?.error?.message || 'Failed to subscribe to plan');
+    }
+    const json = await res.json();
+    return json.data;
+  },
+
+  async createMarketplacePurchaseSession(
+    apiId: string,
+    input: { planId: string; includePaygo: boolean; monthlyRequests: number; returnUrl: string },
+  ): Promise<{ url?: string; completed?: boolean; amount: number }> {
+    const res = await fetch(`${API_BASE}/apis/${encodeURIComponent(apiId)}/purchase-session`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || 'Failed to start Marketplace payment');
+    }
+    const json = await res.json();
+    return json.data;
+  },
+
+  async confirmMarketplacePurchase(sessionId: string): Promise<{ apiId: string; planId: string; amount: number }> {
+    const res = await fetch(`${API_BASE}/purchase-session/${encodeURIComponent(sessionId)}/confirm`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || 'Failed to confirm Marketplace payment');
     }
     const json = await res.json();
     return json.data;

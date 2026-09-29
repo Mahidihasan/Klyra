@@ -20,6 +20,11 @@ export interface CatalogPricingPlan {
   rateLimit?: number;
 }
 
+export interface CatalogPayAsYouGoPricing {
+  includedRequests: number;
+  ratePerRequest: number;
+}
+
 export interface CatalogApi {
   id: string;
   studioProjectId?: string;
@@ -52,6 +57,7 @@ export interface CatalogApi {
   endpointsCount: number;
   endpoints?: CatalogEndpoint[];
   pricingPlans?: CatalogPricingPlan[];
+  payAsYouGo?: CatalogPayAsYouGoPricing;
   lastPublishedAt?: string;
   createdAt: string;
   updatedAt: string;

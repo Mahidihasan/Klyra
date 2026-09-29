@@ -10,6 +10,10 @@ import {
   PublishApiPayload,
   CatalogEndpoint,
 } from './catalog.types';
+import {
+  MARKETPLACE_PAYGO_FREE_REQUESTS,
+  MARKETPLACE_PAYGO_RATE_PER_REQUEST,
+} from './catalog.purchase';
 
 function extractEndpointsFromSpec(apiSpec: any): CatalogEndpoint[] {
   if (!apiSpec?.paths) return [];
@@ -69,6 +73,10 @@ function mapApiRow(row: any): CatalogApi {
           ? parseInt(row.endpoints_count, 10)
           : 1,
     endpoints: endpoints.length > 0 ? endpoints : undefined,
+    payAsYouGo: {
+      includedRequests: MARKETPLACE_PAYGO_FREE_REQUESTS,
+      ratePerRequest: MARKETPLACE_PAYGO_RATE_PER_REQUEST,
+    },
     lastPublishedAt: row.last_published_at
       ? new Date(row.last_published_at).toISOString()
       : undefined,

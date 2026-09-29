@@ -22,11 +22,14 @@ import {
   Copy,
   Award,
 } from 'lucide-react';
-import { CatalogApi, CatalogPricingPlan } from '../../../services/api/catalog';
+import {
+  CatalogApi,
+  calculateMarketplacePaygo,
+} from '../../../services/api/catalog';
 
 interface ApiPricingSectionProps {
   api: CatalogApi;
-  onSubscribe: (planId: string) => void;
+  onSubscribe: (planId: string, monthlyRequests: number) => void;
   subscribingPlan: string | null;
   onOpenTester?: (api: CatalogApi) => void;
 }
@@ -36,6 +39,8 @@ interface NormalizedTier {
   name: string;
   badge?: string;
   kicker: string;
+  currency: string;
+  billingInterval: string;
   monthlyPrice: number;
   annualPrice: number;
   description: string;
@@ -46,29 +51,6 @@ interface NormalizedTier {
   ctaText: string;
   type: 'free' | 'starter' | 'pro' | 'paygo' | 'enterprise';
 }
-
-const scaleAndTeamTier: NormalizedTier = {
-  id: 'tier-pro',
-  name: 'Scale & Team',
-  badge: 'Recommended for AI Apps',
-  kicker: 'Maximum Value',
-  monthlyPrice: 99,
-  annualPrice: 79,
-  description: 'High concurrency, sub-millisecond edge caching, and priority routing.',
-  features: [
-    '2,000,000 production requests / mo',
-    'Rate limit: 1,200 requests / min',
-    'P99 latency guarantee at edge',
-    '99.9% Uptime SLA commitment',
-    'Priority email & Slack support',
-    'Idempotency & batch processing',
-  ],
-  rateLimit: 1200,
-  requestsQuota: '2,000,000 req/mo',
-  isPopular: true,
-  ctaText: 'Subscribe Scale',
-  type: 'pro',
-};
 
 export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
   api,
@@ -142,8 +124,10 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           name: plan.name,
           badge: isPopular ? 'Most Popular' : undefined,
           kicker: isFree ? 'For Prototyping' : isPopular ? 'Best for Scale' : 'For Growing Teams',
+          currency: plan.currency,
+          billingInterval: plan.billingInterval,
           monthlyPrice: plan.price,
-          annualPrice: Math.round(plan.price * 0.8),
+          annualPrice: plan.price,
           description: plan.description || `Full access to ${api.name} endpoints.`,
           features:
             plan.features && plan.features.length > 0
@@ -156,68 +140,36 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           rateLimit: plan.rateLimit || 120 * (idx + 1),
           requestsQuota: isFree ? '10,000 req/mo' : `${((idx + 1) * 250).toLocaleString()}k req/mo`,
           isPopular,
-          ctaText: isFree ? 'Get Started Free' : 'Subscribe to Plan',
-          type: isFree ? 'free' : isPopular ? 'pro' : 'starter',
+          ctaText: isFree ? 'Get Started for Free' : 'Subscribe to Plan',
+          type: (isFree ? 'free' : isPopular ? 'pro' : 'starter') as NormalizedTier['type'],
         };
       });
 
-      return normalizedPlans.some((plan) => plan.name.toLowerCase() === 'scale & team')
-        ? normalizedPlans
-        : [...normalizedPlans, scaleAndTeamTier];
+      return normalizedPlans;
     }
 
-    // Default premium interactive tiers matching Klyra standards
-    return [
-      {
-        id: 'tier-free',
-        name: 'Developer Sandbox',
-        kicker: 'Free Forever',
-        monthlyPrice: 0,
-        annualPrice: 0,
-        description: 'Zero commitment sandbox environment for prototyping and testing.',
-        features: [
-          '10,000 sandbox requests / mo',
-          'Rate limit: 60 requests / min',
-          'Standard public edge routing',
-          'Community Discord support',
-          'OpenAPI 3.1 documentation',
-        ],
-        rateLimit: 60,
-        requestsQuota: '10,000 req/mo',
-        ctaText: 'Start Free Trial',
-        type: 'free',
-      },
-      {
-        id: 'tier-starter',
-        name: 'Starter Pro',
-        kicker: 'For Indie Builders',
-        monthlyPrice: 29,
-        annualPrice: 23,
-        description: 'Essential throughput and email support for production MVPs.',
-        features: [
-          '250,000 production requests / mo',
-          'Rate limit: 300 requests / min',
-          'Automated error alerts & logs',
-          'Standard email SLA (< 24h)',
-          'Custom webhook notifications',
-        ],
-        rateLimit: 300,
-        requestsQuota: '250,000 req/mo',
-        ctaText: 'Subscribe Starter',
-        type: 'starter',
-      },
-      scaleAndTeamTier,
-    ];
+    return rawPlans.map((plan) => ({
+      id: plan.id,
+      name: plan.name,
+      kicker: plan.billingInterval,
+      currency: plan.currency,
+      billingInterval: plan.billingInterval,
+      monthlyPrice: plan.price,
+      annualPrice: plan.price,
+      description: plan.description || `Full access to ${api.name} endpoints.`,
+      features: plan.features || [],
+      rateLimit: plan.rateLimit || 0,
+      requestsQuota: '',
+      ctaText: plan.price === 0 ? 'Get Started for Free' : 'Subscribe to Plan',
+      type: (plan.price === 0 ? 'free' : 'starter') as NormalizedTier['type'],
+    }));
   };
 
   const tiers = buildNormalizedTiers();
 
   // Calculation for Pay-As-You-Go
   const calculatePaygoCost = (requests: number): number => {
-    const freeAllowance = 10000;
-    const billable = Math.max(0, requests - freeAllowance);
-    // Rate: $0.80 per 1,000 requests ($0.0008/req)
-    return Number(((billable / 1000) * 0.8).toFixed(2));
+    return api.payAsYouGo ? calculateMarketplacePaygo(requests, api.payAsYouGo) : 0;
   };
 
   const paygoCost = calculatePaygoCost(monthlyRequests);
@@ -303,6 +255,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
 
       {/* Main Tier Cards Grid */}
       <div className="aps-tiers-grid">
+        <div className="aps-plan-list">
         {tiers.map((tier) => {
           const price = isAnnual ? tier.annualPrice : tier.monthlyPrice;
           const isSelected = selectedTierId === tier.id;
@@ -311,7 +264,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
           return (
             <div
               key={tier.id}
-              className={`aps-tier-card ${tier.isPopular ? 'popular' : ''} ${
+              className={`aps-tier-card aps-plan-row ${tier.isPopular ? 'popular' : ''} ${
                 isSelected ? 'selected' : ''
               }`}
               onClick={() => setSelectedTierId(tier.id)}
@@ -331,9 +284,9 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
 
               <div className="aps-price-row">
                 <div className="aps-price-wrap">
-                  <span className="aps-currency">$</span>
+                  <span className="aps-currency">{tier.currency}</span>
                   <span className="aps-amount">{price}</span>
-                  <span className="aps-interval">{price === 0 ? 'forever' : '/ month'}</span>
+                  <span className="aps-interval">{price === 0 ? 'forever' : `/ ${tier.billingInterval.toLowerCase()}`}</span>
                 </div>
                 {isAnnual && price > 0 && (
                   <span className="aps-annual-note">Billed annually (${price * 12}/yr)</span>
@@ -361,7 +314,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
                 disabled={isSubscribing}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onSubscribe(tier.id);
+                  onSubscribe(tier.id, monthlyRequests);
                 }}
               >
                 {isSubscribing ? (
@@ -376,10 +329,9 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
             </div>
           );
         })}
-
         {/* Pay-As-You-Go Card */}
         <div
-          className={`aps-tier-card paygo ${selectedTierId === 'paygo' ? 'selected' : ''}`}
+          className={`aps-tier-card aps-plan-row paygo ${selectedTierId === 'paygo' ? 'selected' : ''}`}
           onClick={() => setSelectedTierId('paygo')}
         >
           <div className="aps-card-header">
@@ -392,10 +344,10 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
 
           <div className="aps-price-row">
             <div className="aps-price-wrap">
-              <span className="aps-amount paygo">$0.0008</span>
+              <span className="aps-amount paygo">{api.payAsYouGo ? `$${api.payAsYouGo.ratePerRequest.toFixed(4)}` : 'Unavailable'}</span>
               <span className="aps-interval">/ request</span>
             </div>
-            <span className="aps-annual-note">First 10k requests/mo free</span>
+              <span className="aps-annual-note">First {(api.payAsYouGo?.includedRequests || 0).toLocaleString()} requests/mo free</span>
           </div>
 
           <div className="aps-quota-pill paygo">
@@ -437,7 +389,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
 
         {/* Enterprise Card */}
         <div
-          className={`aps-tier-card enterprise ${
+          className={`aps-tier-card aps-plan-row enterprise ${
             selectedTierId === 'enterprise' ? 'selected' : ''
           }`}
           onClick={() => setSelectedTierId('enterprise')}
@@ -491,6 +443,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
             <span>Talk to Solutions Team</span>
             <Building2 size={14} />
           </button>
+        </div>
         </div>
 
         {/* Klyra Promotional & Marketing Accelerator Banner - Spanning 3 panels beside Enterprise */}
@@ -679,7 +632,7 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
               <span className="aps-result-int">/ mo</span>
             </div>
             <div className="aps-result-breakdown">
-              <span>Based on $0.0008 / billable request after 10k free</span>
+              <span>{api.payAsYouGo ? `Based on $${api.payAsYouGo.ratePerRequest.toFixed(4)} / billable request after ${api.payAsYouGo.includedRequests.toLocaleString()} free` : 'Pay-as-you-go is unavailable for this API.'}</span>
             </div>
 
             <div className="aps-smart-rec">
@@ -2119,6 +2072,737 @@ export const ApiPricingSection: React.FC<ApiPricingSectionProps> = ({
         @media (max-width: 1024px) {
           .aps-calculator-card {
             grid-template-columns: 1fr;
+          }
+        }
+
+        /* Pricing refresh: fluid plan grid and clearer product hierarchy. */
+        .aps-container {
+          gap: clamp(22px, 3vw, 36px);
+          max-width: 1440px;
+          margin-inline: auto;
+          color-scheme: dark;
+        }
+
+        .aps-top-bar {
+          align-items: center;
+          padding: clamp(22px, 3.2vw, 34px);
+          border: 1px solid rgba(148, 163, 184, 0.16);
+          border-radius: 22px;
+          background:
+            radial-gradient(ellipse at 4% 0%, rgba(139, 92, 246, 0.17), transparent 48%),
+            linear-gradient(135deg, rgba(17, 24, 39, 0.96), rgba(12, 17, 30, 0.98));
+          box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+        }
+
+        .aps-intro-copy {
+          max-width: 760px;
+        }
+
+        .aps-kicker {
+          gap: 8px;
+          color: #b9a5ff;
+          letter-spacing: 0.12em;
+        }
+
+        .aps-title {
+          margin: 0 0 10px;
+          font-size: clamp(26px, 3vw, 38px);
+          line-height: 1.12;
+          letter-spacing: -0.045em;
+        }
+
+        .aps-subtitle {
+          max-width: 660px;
+          font-size: 14px;
+          line-height: 1.75;
+          color: var(--text-secondary);
+        }
+
+        .aps-billing-toggle-card {
+          flex-shrink: 0;
+          border-color: rgba(148, 163, 184, 0.2);
+          border-radius: 14px;
+          padding: 6px;
+          background: rgba(8, 12, 24, 0.68);
+        }
+
+        .aps-billing-toggle {
+          gap: 5px;
+        }
+
+        .aps-toggle-btn {
+          min-height: 38px;
+          justify-content: center;
+          padding: 8px 13px;
+          border-radius: 10px;
+          white-space: nowrap;
+        }
+
+        .aps-toggle-btn.active {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.26), rgba(99, 102, 241, 0.16));
+          color: #f5f3ff;
+          box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.22);
+        }
+
+        .aps-tiers-grid {
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 265px), 1fr));
+          align-items: stretch;
+          gap: 18px;
+        }
+
+        .aps-container .aps-tier-card {
+          box-sizing: border-box;
+          min-width: 0;
+          height: 100%;
+          gap: 18px;
+          padding: 25px;
+          border-color: rgba(148, 163, 184, 0.19);
+          border-radius: 18px;
+          background: linear-gradient(160deg, rgba(24, 31, 48, 0.98), rgba(15, 20, 34, 0.98));
+          box-shadow: 0 10px 28px rgba(0, 0, 0, 0.15);
+        }
+
+        .aps-container .aps-tier-card:hover {
+          transform: translateY(-3px);
+          border-color: rgba(167, 139, 250, 0.56);
+          box-shadow: 0 18px 38px rgba(0, 0, 0, 0.26), 0 0 24px rgba(139, 92, 246, 0.08);
+        }
+
+        .aps-container .aps-tier-card.selected {
+          border-color: rgba(167, 139, 250, 0.9);
+          background:
+            radial-gradient(ellipse at 100% 0%, rgba(139, 92, 246, 0.17), transparent 48%),
+            linear-gradient(160deg, rgba(29, 31, 54, 0.99), rgba(15, 20, 34, 0.99));
+          box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.18), 0 16px 36px rgba(0, 0, 0, 0.22);
+        }
+
+        .aps-container .aps-tier-card.popular {
+          border: 1px solid rgba(167, 139, 250, 0.62);
+          background:
+            radial-gradient(ellipse at 100% 0%, rgba(139, 92, 246, 0.2), transparent 52%),
+            linear-gradient(160deg, rgba(29, 28, 54, 0.99), rgba(15, 20, 34, 0.99));
+          box-shadow: 0 12px 34px rgba(78, 55, 150, 0.18);
+        }
+
+        .aps-container .aps-tier-card.aps-promo-banner-card {
+          grid-column: 1 / -1;
+          grid-row: auto;
+          min-height: 0;
+          height: auto;
+          overflow: hidden;
+          padding: clamp(22px, 3vw, 30px);
+          border-color: rgba(217, 70, 239, 0.32);
+          border-radius: 20px;
+          background:
+            radial-gradient(ellipse at 0% 0%, rgba(139, 92, 246, 0.18), transparent 38%),
+            linear-gradient(135deg, rgba(23, 20, 43, 0.98), rgba(13, 19, 34, 0.98));
+          box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2);
+        }
+
+        .aps-promo-3panel-grid {
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr));
+          gap: 18px;
+          height: auto;
+        }
+
+        .aps-promo-panel-left,
+        .aps-promo-panel-mid,
+        .aps-promo-panel-right {
+          min-height: 100%;
+          justify-content: flex-start;
+          padding: 17px;
+          border: 1px solid rgba(167, 139, 250, 0.14);
+          border-radius: 14px;
+          background: rgba(7, 11, 24, 0.28);
+        }
+
+        .aps-promo-panel-left .aps-card-header {
+          gap: 9px;
+        }
+
+        .aps-container .aps-tier-card:not(.aps-promo-banner-card) .aps-card-header {
+          min-height: 105px;
+          gap: 7px;
+        }
+
+        .aps-popular-badge {
+          top: 14px;
+          left: auto;
+          right: 14px;
+          z-index: 1;
+          transform: none;
+          padding: 5px 9px;
+          border: 1px solid rgba(221, 214, 254, 0.2);
+          font-size: 9px;
+          letter-spacing: 0.07em;
+        }
+
+        .aps-popular-badge.promo {
+          top: 14px;
+          left: 14px;
+          right: auto;
+        }
+
+        .aps-card-kicker {
+          font-size: 10px;
+          letter-spacing: 0.11em;
+          color: #b9a5ff;
+        }
+
+        .aps-plan-name {
+          font-size: clamp(19px, 1.5vw, 22px);
+          line-height: 1.2;
+          letter-spacing: -0.025em;
+        }
+
+        .aps-plan-desc {
+          min-height: 0;
+          font-size: 12.5px;
+          line-height: 1.65;
+        }
+
+        .aps-price-row {
+          min-height: 64px;
+          justify-content: center;
+          padding: 13px 14px;
+          border: 1px solid rgba(148, 163, 184, 0.13);
+          border-radius: 13px;
+          background: rgba(5, 9, 20, 0.28);
+        }
+
+        .aps-price-wrap {
+          align-items: baseline;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+
+        .aps-currency {
+          font-size: 14px;
+          color: var(--text-secondary);
+        }
+
+        .aps-amount {
+          font-size: clamp(30px, 2.4vw, 36px);
+          letter-spacing: -0.045em;
+        }
+
+        .aps-amount.paygo {
+          font-size: 25px;
+        }
+
+        .aps-interval {
+          font-size: 11px;
+          white-space: nowrap;
+        }
+
+        .aps-annual-note {
+          font-size: 10.5px;
+          line-height: 1.45;
+        }
+
+        .aps-quota-pill {
+          min-height: 34px;
+          flex-wrap: wrap;
+          gap: 6px;
+          padding: 7px 10px;
+          border-radius: 10px;
+          line-height: 1.4;
+        }
+
+        .aps-features-list {
+          gap: 10px;
+          margin-top: 0;
+          padding-top: 2px;
+        }
+
+        .aps-feature-item {
+          gap: 9px;
+          font-size: 12.5px;
+          line-height: 1.55;
+        }
+
+        .aps-feature-check {
+          margin-top: 3px;
+        }
+
+        .aps-subscribe-btn {
+          min-height: 43px;
+          margin-top: auto;
+          padding: 11px 14px;
+          border-radius: 11px;
+          font-size: 12.5px;
+          font-weight: 700;
+        }
+
+        .aps-container .aps-subscribe-btn.popular {
+          background: linear-gradient(110deg, #7c3aed, #6366f1);
+          box-shadow: 0 8px 20px rgba(109, 74, 220, 0.24);
+        }
+
+        .aps-calculator-card {
+          grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+          align-items: stretch;
+          gap: clamp(20px, 3vw, 34px);
+          padding: clamp(22px, 3vw, 32px);
+          border-color: rgba(148, 163, 184, 0.17);
+          border-radius: 20px;
+          background:
+            radial-gradient(ellipse at 100% 0%, rgba(99, 102, 241, 0.1), transparent 42%),
+            var(--bg-card);
+          box-shadow: 0 16px 38px rgba(0, 0, 0, 0.17);
+        }
+
+        .aps-calc-left {
+          justify-content: center;
+          gap: 15px;
+          min-width: 0;
+        }
+
+        .aps-calc-title {
+          font-size: clamp(20px, 2vw, 25px);
+          letter-spacing: -0.03em;
+        }
+
+        .aps-calc-desc {
+          max-width: 620px;
+          font-size: 13px;
+          line-height: 1.7;
+        }
+
+        .aps-presets-row {
+          gap: 8px;
+        }
+
+        .aps-preset-pill {
+          min-height: 31px;
+          padding: 6px 11px;
+          border-radius: 9px;
+        }
+
+        .aps-slider-box {
+          padding: 17px;
+          border-radius: 14px;
+        }
+
+        .aps-num-input {
+          min-height: 35px;
+          border-radius: 9px;
+        }
+
+        .aps-range-slider {
+          accent-color: #9b83ff;
+        }
+
+        .aps-calc-result-box {
+          height: 100%;
+          box-sizing: border-box;
+          justify-content: center;
+          padding: clamp(20px, 2.8vw, 28px);
+          border-color: rgba(167, 139, 250, 0.27);
+          border-radius: 16px;
+          background:
+            radial-gradient(ellipse at 50% 0%, rgba(139, 92, 246, 0.15), transparent 55%),
+            rgba(9, 13, 27, 0.64);
+        }
+
+        .aps-result-label {
+          line-height: 1.5;
+          letter-spacing: 0.09em;
+        }
+
+        .aps-result-num {
+          font-size: clamp(38px, 5vw, 50px);
+        }
+
+        .aps-smart-rec {
+          padding: 13px 15px;
+          border-radius: 12px;
+        }
+
+        .aps-rec-text {
+          font-size: 12px;
+          line-height: 1.55;
+        }
+
+        .aps-calc-test-btn {
+          min-height: 40px;
+          border-radius: 10px;
+        }
+
+        .aps-comparison-section {
+          gap: 12px;
+        }
+
+        .aps-comparison-toggle-btn {
+          min-height: 54px;
+          padding: 14px 18px;
+          border-color: rgba(148, 163, 184, 0.16);
+          border-radius: 13px;
+          background: linear-gradient(120deg, rgba(20, 27, 43, 0.96), rgba(15, 20, 34, 0.96));
+        }
+
+        .aps-table-wrapper {
+          border-color: rgba(148, 163, 184, 0.17);
+          border-radius: 15px;
+          box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+          scrollbar-color: rgba(139, 92, 246, 0.55) var(--bg-card);
+        }
+
+        .aps-matrix-table {
+          min-width: 900px;
+          font-size: 12px;
+        }
+
+        .aps-matrix-table th {
+          position: sticky;
+          top: 0;
+          padding: 14px 15px;
+          background: #171d2d;
+          white-space: nowrap;
+        }
+
+        .aps-matrix-table td {
+          padding: 12px 15px;
+          line-height: 1.5;
+        }
+
+        .aps-matrix-table tbody tr:not(.aps-group-row):hover td {
+          background-color: rgba(139, 92, 246, 0.045);
+        }
+
+        .aps-group-row td {
+          padding-block: 10px;
+        }
+
+        .aps-modal-card {
+          border-color: rgba(167, 139, 250, 0.25);
+          border-radius: 20px;
+          background: linear-gradient(155deg, #171d2d, #101625);
+        }
+
+        .aps-form-row input,
+        .aps-form-row select,
+        .aps-form-row textarea {
+          min-height: 40px;
+          box-sizing: border-box;
+          border-radius: 10px;
+        }
+
+        .aps-container button:focus-visible,
+        .aps-container input:focus-visible,
+        .aps-container select:focus-visible,
+        .aps-container textarea:focus-visible {
+          outline: 2px solid #a78bfa;
+          outline-offset: 3px;
+        }
+
+        @media (max-width: 900px) {
+          .aps-top-bar {
+            align-items: flex-start;
+          }
+
+          .aps-billing-toggle-card {
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          .aps-billing-toggle {
+            width: 100%;
+          }
+
+          .aps-toggle-btn {
+            flex: 1;
+          }
+
+          .aps-calculator-card {
+            grid-template-columns: minmax(0, 1fr);
+          }
+
+          .aps-calc-result-box {
+            min-height: 340px;
+          }
+        }
+
+        @media (max-width: 560px) {
+          .aps-container {
+            gap: 20px;
+          }
+
+          .aps-top-bar {
+            padding: 20px 17px;
+            border-radius: 17px;
+          }
+
+          .aps-title {
+            font-size: 27px;
+          }
+
+          .aps-subtitle {
+            font-size: 13px;
+          }
+
+          .aps-tiers-grid {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 13px;
+          }
+
+          .aps-container .aps-tier-card {
+            padding: 21px;
+          }
+
+          .aps-container .aps-tier-card:not(.aps-promo-banner-card) .aps-card-header {
+            min-height: 0;
+          }
+
+          .aps-popular-badge:not(.promo) {
+            top: 12px;
+            right: 12px;
+            max-width: 46%;
+            white-space: normal;
+            text-align: center;
+          }
+
+          .aps-container .aps-tier-card.popular .aps-card-header {
+            padding-top: 17px;
+          }
+
+          .aps-container .aps-tier-card.aps-promo-banner-card {
+            padding: 18px;
+          }
+
+          .aps-promo-3panel-grid {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 12px;
+            padding-top: 20px;
+          }
+
+          .aps-promo-panel-left,
+          .aps-promo-panel-mid,
+          .aps-promo-panel-right {
+            padding: 14px;
+          }
+
+          .aps-calculator-card {
+            padding: 19px 16px;
+            border-radius: 17px;
+          }
+
+          .aps-presets-row {
+            align-items: flex-start;
+          }
+
+          .aps-preset-label {
+            width: 100%;
+          }
+
+          .aps-slider-header {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 10px;
+          }
+
+          .aps-slider-val-box {
+            width: 100%;
+          }
+
+          .aps-num-input {
+            width: 100%;
+            flex: 1;
+            text-align: left;
+          }
+
+          .aps-calc-result-box {
+            min-height: 0;
+            padding: 20px 15px;
+          }
+
+          .aps-comparison-toggle-btn {
+            align-items: flex-start;
+            gap: 12px;
+            padding: 13px;
+            font-size: 12px;
+          }
+
+          .aps-ct-right {
+            font-size: 11px;
+            white-space: nowrap;
+          }
+
+          .aps-modal-card {
+            padding: 25px 19px;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .aps-container *,
+          .aps-container *::before,
+          .aps-container *::after {
+            scroll-behavior: auto !important;
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+
+        .aps-container .aps-tiers-grid {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          align-items: stretch;
+          gap: 18px;
+        }
+
+        .aps-container .aps-tiers-grid > .aps-tier-card:not(.aps-promo-banner-card) {
+          flex: 1 1 265px;
+          width: 100%;
+          max-width: 340px;
+        }
+
+        .aps-plan-list {
+          display: contents;
+        }
+
+        .aps-container .aps-plan-row {
+          flex: 1 1 100%;
+          width: 100%;
+          max-width: none;
+          display: grid;
+          grid-template-columns: minmax(170px, 1fr) minmax(150px, 0.8fr) minmax(0, 2fr) minmax(170px, 0.9fr);
+          grid-template-areas:
+            "header price features action"
+            "header quota features action";
+          align-items: center;
+          column-gap: 20px;
+          row-gap: 9px;
+          padding: 16px 20px;
+        }
+
+        .aps-plan-row .aps-card-header {
+          grid-area: header;
+          min-height: 0 !important;
+          gap: 6px;
+        }
+
+        .aps-plan-row .aps-plan-desc {
+          min-height: 0;
+        }
+
+        .aps-plan-row .aps-price-row {
+          grid-area: price;
+          min-height: 0;
+          padding: 0;
+          border: 0;
+          background: transparent;
+        }
+
+        .aps-plan-row .aps-quota-pill {
+          grid-area: quota;
+          justify-self: center;
+          justify-content: center;
+          width: fit-content;
+          max-width: 100%;
+          flex-wrap: nowrap;
+          white-space: nowrap;
+          padding-inline: 14px;
+        }
+
+        .aps-plan-row .aps-features-list {
+          grid-area: features;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+          gap: 9px 16px;
+          margin: 0;
+          padding: 2px 0 2px 22px;
+          border-left: 1px solid rgba(148, 163, 184, 0.18);
+        }
+
+        .aps-plan-row .aps-subscribe-btn {
+          grid-area: action;
+          width: 100%;
+          min-width: 0;
+          margin: 0;
+          align-self: center;
+        }
+
+        .aps-plan-row .aps-popular-badge {
+          top: 10px;
+          right: 12px;
+          left: auto;
+          transform: none;
+        }
+
+        .aps-plan-row.popular .aps-card-header {
+          padding-right: 92px;
+        }
+
+        .aps-container .aps-plan-row.popular {
+          border-color: rgba(214, 170, 96, 0.72);
+          background:
+            radial-gradient(ellipse at 100% 0%, rgba(214, 170, 96, 0.11), transparent 52%),
+            linear-gradient(160deg, rgba(31, 29, 43, 0.99), rgba(15, 20, 34, 0.99));
+          box-shadow: 0 0 0 1px rgba(214, 170, 96, 0.1), 0 12px 34px rgba(151, 111, 46, 0.2);
+        }
+
+        .aps-container .aps-plan-row.popular .aps-popular-badge {
+          border-color: rgba(214, 170, 96, 0.4);
+          background: rgba(82, 62, 31, 0.78);
+          color: #e8c98f;
+        }
+
+        @media (max-width: 900px) {
+          .aps-container .aps-plan-row {
+            grid-template-columns: minmax(0, 1fr) minmax(150px, auto);
+            grid-template-areas:
+              "header price"
+              "quota price"
+              "features features"
+              "action action";
+            column-gap: 16px;
+            padding: 16px 19px;
+          }
+
+          .aps-plan-row .aps-features-list {
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            padding: 15px 0 0;
+            border-top: 1px solid rgba(148, 163, 184, 0.18);
+            border-left: 0;
+          }
+
+          .aps-plan-row .aps-subscribe-btn {
+            justify-self: end;
+            width: min(100%, 280px);
+          }
+        }
+
+        @media (max-width: 560px) {
+          .aps-container .aps-plan-row {
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-areas:
+              "header"
+              "price"
+              "quota"
+              "features"
+              "action";
+            gap: 14px;
+            padding: 19px;
+          }
+
+          .aps-plan-row .aps-quota-pill {
+            flex-wrap: wrap;
+            white-space: normal;
+          }
+
+          .aps-plan-row.popular .aps-card-header {
+            padding: 17px 0 0;
+          }
+
+          .aps-plan-row .aps-features-list {
+            grid-template-columns: minmax(0, 1fr);
+          }
+
+          .aps-plan-row .aps-subscribe-btn {
+            justify-self: stretch;
+            width: 100%;
           }
         }
       `}</style>

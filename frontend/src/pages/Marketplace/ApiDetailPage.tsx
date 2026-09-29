@@ -26,6 +26,7 @@ import { ApiShowcaseSection } from './components/ApiShowcaseSection';
 import { ApiPricingSection } from './components/ApiPricingSection';
 import { ApiThumbnail } from './components/ApiThumbnail';
 import { useSubscription } from './useSubscription';
+import { MarketplacePaymentOverlay } from './components/MarketplacePaymentOverlay';
 
 type DetailTab = 'overview' | 'demo' | 'pricing' | 'reviews';
 
@@ -50,6 +51,8 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
   const [reviewsData, setReviewsData] = useState<ApiReviewsResponse | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [subscribingPlan, setSubscribingPlan] = useState<string | null>(null);
+  const [purchasePlan, setPurchasePlan] = useState<CatalogPricingPlan | null>(null);
+  const [purchaseMonthlyRequests, setPurchaseMonthlyRequests] = useState(0);
 
   useEffect(() => {
     if (activeTab === 'reviews' && !reviewsData) {
@@ -62,12 +65,12 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
     }
   }, [activeTab, api.id]);
 
-  const handleSubscribe = async (planId: string) => {
+  const handleSubscribe = (planId: string, monthlyRequests: number) => {
+    const plan = api.pricingPlans?.find((item) => item.id === planId);
+    if (!plan) return;
     setSubscribingPlan(planId);
-    try {
-      await catalogApi.subscribeToPlan(api.id, planId);
-    } catch (e) {}
-    setSubscribingPlan(null);
+    setPurchaseMonthlyRequests(monthlyRequests);
+    setPurchasePlan(plan);
   };
 
   const handleSubmitReview = async (rating: number, title: string, content: string) => {
@@ -253,6 +256,23 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
           />
         )}
       </div>
+
+      {purchasePlan && (
+        <MarketplacePaymentOverlay
+          api={api}
+          plan={purchasePlan}
+          monthlyRequests={purchaseMonthlyRequests}
+          onClose={() => {
+            setPurchasePlan(null);
+            setSubscribingPlan(null);
+          }}
+          onPurchased={() => {
+            subscribeToApi(api.id);
+            setPurchasePlan(null);
+            setSubscribingPlan(null);
+          }}
+        />
+      )}
 
       <style>{`
         .adp-container {

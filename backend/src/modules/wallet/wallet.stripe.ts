@@ -1,4 +1,4 @@
-// Stripe access for the Wallet module: one hosted Checkout session per top-up.
+// Stripe access shared by wallet top-ups and Marketplace purchases.
 //
 // Card data never reaches Klyra. The user pays on Stripe's page and the money
 // is credited only when the signed webhook arrives — see wallet.webhook.ts.
@@ -77,7 +77,7 @@ async function readCustomerContext(
 }
 
 /**
- * Creates a Checkout session in payment mode for a wallet top-up.
+ * Creates a hosted Checkout session using the existing Stripe integration.
  *
  * The amount is converted to minor units here and is the server's figure, not
  * the client's: the route validates it before this is ever called, and the
@@ -102,6 +102,11 @@ export async function createTopUpCheckoutSession(input: {
   amount: number;
   currency: string;
   returnUrl: string;
+  successUrl?: string;
+  purpose?: 'wallet_topup' | 'marketplace_purchase';
+  productName?: string;
+  productDescription?: string;
+  metadata?: Record<string, string>;
 }): Promise<TopUpCheckout> {
   const stripe = getStripe();
   const { customerId, email } = await readCustomerContext(input.userId);
@@ -111,7 +116,7 @@ export async function createTopUpCheckoutSession(input: {
 
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
-    success_url: input.returnUrl,
+    success_url: input.successUrl || input.returnUrl,
     cancel_url: input.returnUrl,
     expires_at: Math.floor(Date.now() / 1000) + TOPUP_SESSION_TTL_SECONDS,
     ...(customerId ? { customer: customerId } : {}),
@@ -123,8 +128,8 @@ export async function createTopUpCheckoutSession(input: {
           currency,
           unit_amount: unitAmount,
           product_data: {
-            name: 'Klyra wallet top-up',
-            description: 'Prepaid credit for API usage and invoices',
+            name: input.productName || 'Klyra wallet top-up',
+            description: input.productDescription || 'Prepaid credit for API usage and invoices',
           },
         },
       },
@@ -133,12 +138,14 @@ export async function createTopUpCheckoutSession(input: {
     // is somehow missing. Never trusted for the amount.
     metadata: {
       klyraUserId: input.userId,
-      klyraPurpose: 'wallet_topup',
+      klyraPurpose: input.purpose || 'wallet_topup',
+      ...input.metadata,
     },
     payment_intent_data: {
       metadata: {
         klyraUserId: input.userId,
-        klyraPurpose: 'wallet_topup',
+        klyraPurpose: input.purpose || 'wallet_topup',
+        ...input.metadata,
       },
     },
   });

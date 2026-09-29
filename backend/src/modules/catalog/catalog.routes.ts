@@ -2,6 +2,13 @@ import { Router, Request, Response } from 'express';
 import { catalogService } from './catalog.service';
 import { requireAuth, authOptional } from '../auth/auth.middleware';
 import { pool as db } from '../../services/database.service';
+import { applyTransaction, getOrCreateWallet, WalletError } from '../wallet/wallet.service';
+import { createTopUpCheckoutSession, getStripe, isStripeConfigured } from '../wallet/wallet.stripe';
+import {
+  activateMarketplaceSubscription,
+  getMarketplacePurchaseQuote,
+  MARKETPLACE_PAYGO_MAX_MONTHLY_REQUESTS,
+} from './catalog.purchase';
 
 const router = Router();
 
@@ -340,7 +347,7 @@ router.post('/apis', requireAuth, async (req: Request, res: Response) => {
  */
 router.post('/apis/:id/subscribe', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { planId } = req.body;
+    const { planId, includePaygo = false, monthlyRequests = 0 } = req.body;
     if (!planId) {
       return res.status(400).json({
         success: false,
@@ -348,47 +355,174 @@ router.post('/apis/:id/subscribe', requireAuth, async (req: Request, res: Respon
       });
     }
 
-    // Verify plan belongs to this API
-    const planRes = await db.query(
-      `SELECT id, price, name FROM subscription_plans WHERE id = $1 AND api_id = $2 AND is_active = true`,
-      [planId, req.params.id]
-    );
-
-    if (planRes.rows.length === 0) {
+    const quote = await getMarketplacePurchaseQuote({
+      apiId: req.params.id,
+      planId: String(planId),
+      includePaygo: includePaygo === true,
+      monthlyRequests: Number(monthlyRequests),
+    });
+    if (!quote) {
       return res.status(404).json({
         success: false,
         error: { message: 'Subscription plan not found for this API' },
       });
     }
 
-    // Upsert user_subscriptions
-    const subRes = await db.query(
-      `INSERT INTO user_subscriptions (user_id, api_id, plan_id, status, period_start)
-       VALUES ($1, $2, $3, 'ACTIVE', NOW())
-       ON CONFLICT (user_id, api_id) DO UPDATE SET
-         plan_id = EXCLUDED.plan_id,
-         status = 'ACTIVE',
-         updated_at = NOW()
-       RETURNING id, status, period_start`,
-      [req.user!.sub, req.params.id, planId]
-    );
-
-    // Bump total_subscribers counter on API
-    await db.query(
-      `UPDATE apis SET total_subscribers = total_subscribers + 1 WHERE id = $1`,
-      [req.params.id]
-    );
+    if (quote.totalAmount === 0) {
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        await activateMarketplaceSubscription(client, req.user!.sub, quote.apiId, quote.planId);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    } else {
+      const wallet = await getOrCreateWallet(req.user!.sub);
+      if (wallet.currency !== quote.currency) {
+        return res.status(409).json({ success: false, error: { message: 'Wallet currency does not match this plan.' } });
+      }
+      await applyTransaction(
+        {
+          userId: req.user!.sub,
+          type: 'SPEND',
+          direction: 'DEBIT',
+          amount: quote.totalAmount,
+          description: `Marketplace subscription · ${quote.apiName} · ${quote.planName}`,
+          referenceType: 'marketplace_subscription',
+          referenceId: quote.apiId,
+          metadata: { planId: quote.planId, paygoAmount: quote.paygoAmount },
+        },
+        async (client) => activateMarketplaceSubscription(client, req.user!.sub, quote.apiId, quote.planId),
+      );
+    }
 
     res.json({
       success: true,
-      data: subRes.rows[0],
-      message: `Subscribed successfully to ${planRes.rows[0].name}`,
+      data: { apiId: quote.apiId, planId: quote.planId, amount: quote.totalAmount },
+      message: `Subscribed successfully to ${quote.planName}`,
     });
   } catch (err: any) {
+    if (err instanceof WalletError) {
+      const status = err.code === 'INSUFFICIENT_FUNDS' ? 409 : err.code === 'WALLET_LOCKED' ? 423 : 400;
+      return res.status(status).json({ success: false, error: { code: err.code, message: err.message } });
+    }
     res.status(500).json({
       success: false,
       error: { message: err.message || 'Failed to subscribe to API' },
     });
+  }
+});
+
+router.post('/apis/:id/purchase-session', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const planId = String(req.body?.planId || '');
+    const includePaygo = req.body?.includePaygo === true;
+    const monthlyRequests = Number(req.body?.monthlyRequests ?? 0);
+    const returnUrl = typeof req.body?.returnUrl === 'string' ? req.body.returnUrl : '';
+    if (!planId) return res.status(400).json({ success: false, error: { message: 'planId is required' } });
+    if (!Number.isInteger(monthlyRequests) || monthlyRequests < 0 || monthlyRequests > MARKETPLACE_PAYGO_MAX_MONTHLY_REQUESTS) {
+      return res.status(400).json({ success: false, error: { message: 'Invalid monthly request estimate.' } });
+    }
+    if (!/^https?:\/\/(localhost|127\.0\.0\.1):3000(?:\/|$)/.test(returnUrl)) {
+      return res.status(400).json({ success: false, error: { message: 'returnUrl must point at the Klyra frontend.' } });
+    }
+    const quote = await getMarketplacePurchaseQuote({
+      apiId: req.params.id,
+      planId,
+      includePaygo,
+      monthlyRequests,
+    });
+    if (!quote) return res.status(404).json({ success: false, error: { message: 'Subscription plan not found for this API' } });
+    if (quote.totalAmount <= 0) {
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        await activateMarketplaceSubscription(client, req.user!.sub, quote.apiId, quote.planId);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+      return res.json({ success: true, data: { completed: true, amount: 0 } });
+    }
+    if (!isStripeConfigured()) {
+      return res.status(503).json({ success: false, error: { message: 'Payments are not configured on this environment.' } });
+    }
+    const parsedReturnUrl = new URL(returnUrl);
+    const successUrl = `${parsedReturnUrl.origin}${parsedReturnUrl.pathname}${parsedReturnUrl.search}${parsedReturnUrl.search ? '&' : '?'}marketplace_session={CHECKOUT_SESSION_ID}${parsedReturnUrl.hash}`;
+    const checkout = await createTopUpCheckoutSession({
+      userId: req.user!.sub,
+      amount: quote.totalAmount,
+      currency: quote.currency,
+      returnUrl,
+      successUrl,
+      purpose: 'marketplace_purchase',
+      productName: `${quote.apiName} · ${quote.planName}`,
+      productDescription: includePaygo
+        ? `Marketplace subscription with Pay-as-you-go estimate for ${monthlyRequests} requests`
+        : 'Marketplace API subscription',
+      metadata: {
+        klyraApiId: quote.apiId,
+        klyraPlanId: quote.planId,
+        klyraIncludePaygo: String(includePaygo),
+        klyraMonthlyRequests: String(monthlyRequests),
+        klyraTotalAmount: quote.totalAmount.toFixed(2),
+        klyraCurrency: quote.currency.toUpperCase(),
+      },
+    });
+    return res.json({ success: true, data: checkout });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: { message: err.message || 'Failed to start payment' } });
+  }
+});
+
+router.post('/purchase-session/:sessionId/confirm', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.sessionId);
+    if (!/^cs_[A-Za-z0-9_]{8,255}$/.test(sessionId)) {
+      return res.status(404).json({ success: false, error: { message: 'Payment session not found.' } });
+    }
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
+    if (
+      session.metadata?.klyraPurpose !== 'marketplace_purchase' ||
+      session.metadata?.klyraUserId !== req.user!.sub
+    ) {
+      return res.status(404).json({ success: false, error: { message: 'Payment session not found.' } });
+    }
+    if (session.payment_status !== 'paid') {
+      return res.status(409).json({ success: false, error: { message: 'Payment has not completed.' } });
+    }
+    const apiId = session.metadata.klyraApiId;
+    const planId = session.metadata.klyraPlanId;
+    const expectedAmount = Number(session.metadata.klyraTotalAmount);
+    const expectedCurrency = session.metadata.klyraCurrency;
+    if (
+      !Number.isFinite(expectedAmount) ||
+      Math.abs((session.amount_total ?? 0) / 100 - expectedAmount) > 0.004 ||
+      session.currency?.toUpperCase() !== expectedCurrency
+    ) {
+      return res.status(409).json({ success: false, error: { message: 'Payment no longer matches the current Marketplace pricing.' } });
+    }
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await activateMarketplaceSubscription(client, req.user!.sub, apiId, planId);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    return res.json({ success: true, data: { apiId, planId, amount: expectedAmount } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: { message: err.message || 'Failed to confirm payment' } });
   }
 });
 

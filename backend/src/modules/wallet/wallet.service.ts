@@ -275,6 +275,7 @@ async function findByExternalReference(
  */
 export async function applyTransaction(
   input: ApplyTransactionInput,
+  beforeCommit?: (client: PoolClient, transaction: WalletTransaction) => Promise<void>,
 ): Promise<WalletTransaction> {
   const amount = normalizeAmount(input.amount);
 
@@ -344,9 +345,9 @@ export async function applyTransaction(
       ],
     );
 
-    await client.query('COMMIT');
-
     const transaction = mapTransaction(inserted.rows[0]);
+    await beforeCommit?.(client, transaction);
+    await client.query('COMMIT');
     // After the commit, never before: a stream told about money that then
     // rolled back would be telling the screen something untrue.
     publishWalletChange(input.userId, 'transaction');

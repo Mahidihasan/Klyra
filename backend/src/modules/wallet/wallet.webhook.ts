@@ -18,6 +18,8 @@ import {
   getTopUpSessionByStripeId,
 } from './wallet.service';
 import { getStripe, isStripeConfigured } from './wallet.stripe';
+import { pool } from '../../services/database.service';
+import { activateMarketplaceSubscription } from '../catalog/catalog.purchase';
 
 const router = Router();
 
@@ -67,6 +69,38 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
   // Async payment methods fire this event before the money settles.
   if (session.payment_status !== 'paid') {
     console.log(`[wallet:webhook] ${session.id} completed but unpaid — ignoring for now`);
+    return;
+  }
+
+  if (session.metadata?.klyraPurpose === 'marketplace_purchase') {
+    const userId = session.metadata.klyraUserId;
+    const apiId = session.metadata.klyraApiId;
+    const planId = session.metadata.klyraPlanId;
+    if (!userId || !apiId || !planId) throw new Error('Marketplace Checkout metadata is incomplete.');
+
+    const expectedAmount = Number(session.metadata.klyraTotalAmount);
+    const expectedCurrency = session.metadata.klyraCurrency;
+    const chargedAmount = (session.amount_total ?? 0) / 100;
+    if (
+      !Number.isFinite(expectedAmount) ||
+      Math.abs(chargedAmount - expectedAmount) > 0.004 ||
+      session.currency?.toUpperCase() !== expectedCurrency
+    ) {
+      throw new Error(`Marketplace Checkout ${session.id} does not match its current plan price.`);
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await activateMarketplaceSubscription(client, userId, apiId, planId);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    console.log(`[wallet:webhook] subscribed ${userId} to ${apiId}/${planId} from ${session.id}`);
     return;
   }
 
