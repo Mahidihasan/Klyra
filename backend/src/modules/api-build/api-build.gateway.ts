@@ -2,6 +2,8 @@ import express, { Router, Request, Response } from 'express';
 import { pool } from '../../services/database.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ResolvedGatewayKey } from '../api-keys/api-keys.types';
+import { detectUpstream } from './api-build.detect';
+import { saveProject } from './api-build.service';
 
 /**
  * Klyra Gateway — dev-mode request forwarding for API Build projects.
@@ -55,6 +57,72 @@ const slugOf = (id: string) => {
   return m ? m[1] : id;
 };
 
+/* ---------------------------------------------------------------------------
+ * Base-path aware forwarding.
+ *
+ * An OpenAPI document declares the prefix its operations are served under
+ * (`servers[0].url` — `/api/v3` for the Swagger Petstore image, `/v3` for the
+ * OpenAPI Petstore). A request URL that leaves that prefix out reaches the
+ * container's front controller instead of the API and answers 404 — which is
+ * exactly the failure the Playground showed for Petstore:
+ *
+ *   GET /api/gateway/balerapi/pet/findByTags            -> 404 (Jetty: /pet/…)
+ *   GET /api/gateway/balerapi/api/v3/pet/findByTags     -> 200
+ *
+ * The gateway therefore knows the API's base path (detection records it on the
+ * project) and, when a forwarded request comes back 404/405 without it, retries
+ * once WITH it rather than surfacing a path-construction failure to the caller.
+ * Requests that already carry the prefix, APIs served at their origin root, and
+ * every non-404/405 response are forwarded exactly as before.
+ * ------------------------------------------------------------------------- */
+
+/** HTTP statuses that mean "nothing is served at this path" (same rule the
+ *  detection layer uses to tell a missing mount from a present one). */
+const NOT_SERVED_STATUS = new Set([404, 405]);
+
+/**
+ * Discovery results, so a project record that predates base-path detection is
+ * probed once instead of on every request. A negative result is cached too: an
+ * API that really serves at its root must not be probed again and again.
+ */
+const basePathCache = new Map<string, { basePath: string; at: number }>();
+const BASE_PATH_CACHE_MS = 5 * 60 * 1000;
+
+/**
+ * Probes the deployment's own origin for the API's base path, stores it on the
+ * project record (so the Playground's next import carries it) and caches it for
+ * this process. A probe that finds nothing, or fails, changes nothing.
+ */
+async function discoverProjectBasePath(
+  project: Record<string, unknown>,
+  projectId: string,
+  upstream: string,
+): Promise<string> {
+  const cached = basePathCache.get(projectId);
+  if (cached && Date.now() - cached.at < BASE_PATH_CACHE_MS) return cached.basePath;
+
+  let discovered = '';
+  try {
+    const detection = await detectUpstream(upstream, '', 5000);
+    if (detection.found && detection.basePath) discovered = normalizeApiBasePath(detection.basePath);
+  } catch {
+    // Unreachable or spec-less upstream: keep today's behaviour (forward as-is).
+  }
+  basePathCache.set(projectId, { basePath: discovered, at: Date.now() });
+  if (discovered) {
+    const stored =
+      project.detection && typeof project.detection === 'object'
+        ? (project.detection as Record<string, unknown>)
+        : {};
+    await saveProject({
+      ...project,
+      id: projectId,
+      detection: { ...stored, basePath: discovered },
+    }).catch(() => undefined);
+  }
+  return discovered;
+}
+
 /** Extracts a Klyra-issued key from the request, if the caller presented one. */
 function extractKlyraKey(req: Request): string | null {
   const header = req.headers['x-api-key'];
@@ -68,6 +136,9 @@ function extractKlyraKey(req: Request): string | null {
 }
 
 import {
+  apiSubPathWithBasePath,
+  normalizeApiBasePath,
+  projectApiBasePath,
   resolveDeploymentUpstream,
   resolveDeploymentKind,
   activeDeploymentRuntime,
@@ -175,22 +246,64 @@ const handleGateway = async (req: Request, res: Response): Promise<Response> => 
       headers['content-type'] = headers['content-type'] || 'application/json';
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    try {
-      const upstreamRes = await fetch(target, { method, headers, body: body as any, signal: controller.signal, redirect: 'follow' });
-      const text = await upstreamRes.text();
-      res.status(upstreamRes.status);
-      upstreamRes.headers.forEach((v, k) => {
-        // fetch() decodes compressed responses before text() reads them, so
-        // forwarding the original encoding header would corrupt the body.
-        if (HOP_BY_HOP.has(k.toLowerCase()) || ['set-cookie', 'content-encoding'].includes(k.toLowerCase())) return;
-        res.setHeader(k, v);
-      });
-      return res.send(text);
-    } finally {
-      clearTimeout(timeout);
+    /**
+     * Forwards once and buffers the response, so a 404/405 can still be turned
+     * into a path-corrected retry before anything is written to the client.
+     */
+    const forward = async (url: string) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      try {
+        const upstreamRes = await fetch(url, {
+          method,
+          headers,
+          body: body as any,
+          signal: controller.signal,
+          redirect: 'follow',
+        });
+        const text = await upstreamRes.text();
+        const forwardedHeaders: Record<string, string> = {};
+        upstreamRes.headers.forEach((v, k) => {
+          // fetch() decodes compressed responses before text() reads them, so
+          // forwarding the original encoding header would corrupt the body.
+          if (HOP_BY_HOP.has(k.toLowerCase()) || ['set-cookie', 'content-encoding'].includes(k.toLowerCase())) return;
+          forwardedHeaders[k] = v;
+        });
+        return { status: upstreamRes.status, headers: forwardedHeaders, text };
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
+    const sendUpstream = (result: { status: number; headers: Record<string, string>; text: string }): Response => {
+      res.status(result.status);
+      Object.entries(result.headers).forEach(([key, value]) => res.setHeader(key, value));
+      return res.send(result.text);
+    };
+
+    let outcome = await forward(target);
+
+    // A 404/405 from the upstream is the signature of a request that omitted the
+    // API's base path (Petstore answers 404 for `/pet/findByTags` and 200 for
+    // `/api/v3/pet/findByTags`). Retry once with the base path detection
+    // recorded for this project — lazily discovered and stored when the record
+    // predates base-path support.
+    if (NOT_SERVED_STATUS.has(outcome.status)) {
+      const basePath =
+        projectApiBasePath(project) || (await discoverProjectBasePath(project, String(row!.id), upstream));
+      const prefixed = apiSubPathWithBasePath(rest, basePath);
+      if (prefixed) {
+        const retried = await forward(upstreamRequestUrl(upstream, prefixed, search));
+        if (!NOT_SERVED_STATUS.has(retried.status)) {
+          console.warn(
+            `[gateway] ${slug}: ${method} ${rest || '/'} answered ${outcome.status}; retried under the API base path ${basePath} (HTTP ${retried.status}).`,
+          );
+          outcome = retried;
+        }
+      }
     }
+
+    return sendUpstream(outcome);
   } catch (err) {
     const aborted = (err as { name?: string })?.name === 'AbortError';
     const cause = (err as { cause?: { code?: string; message?: string } })?.cause;

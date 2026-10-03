@@ -42,16 +42,34 @@ function sendAuthError(res: Response, err: any, fallback: string): void {
 }
 
 function getClientIp(req: Request): string {
-  let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || 'Unknown';
+  let clientIp =
+    req.headers['x-forwarded-for'] ||
+    req.socket.remoteAddress ||
+    req.ip ||
+    '127.0.0.1';
+
   if (Array.isArray(clientIp)) {
     clientIp = clientIp[0];
   }
-  if (typeof clientIp === 'string' && clientIp.includes(',')) {
-    clientIp = clientIp.split(',')[0].trim();
-  }
-  return clientIp as string;
-}
 
+  if (typeof clientIp !== 'string') {
+    return '127.0.0.1';
+  }
+
+  clientIp = clientIp.split(',')[0].trim();
+
+  if (clientIp.startsWith('::ffff:')) {
+    clientIp = clientIp.slice(7);
+  }
+
+  const ipv4Match = clientIp.match(/(\d{1,3}(?:\.\d{1,3}){3})$/);
+
+  if (ipv4Match) {
+    clientIp = ipv4Match[1];
+  }
+
+  return clientIp || '127.0.0.1';
+}
 function getUserAgent(req: Request): string {
   return req.headers['user-agent'] || 'Unknown Device';
 }

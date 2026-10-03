@@ -92,6 +92,72 @@ export function isKlyraGatewayUrl(url: string): boolean {
   return new RegExp(`^${GATEWAY_ROUTE_PREFIX}/[^/]+`).test(path);
 }
 
+/**
+ * The project slug a Klyra gateway URL addresses (`.../api/gateway/{slug}`), or
+ * '' when the value is not a gateway URL. A gateway URL is not an upstream
+ * origin, so callers that need to probe an API must resolve the project behind
+ * the slug and use its real deployment origin (resolveDeploymentUpstream).
+ */
+export function gatewaySlugFromUrl(url: string): string {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  let path = value;
+  try {
+    path = new URL(value).pathname;
+  } catch {
+    // A bare path (`/api/gateway/petstore`) is accepted as-is.
+  }
+  const match = new RegExp(`^${GATEWAY_ROUTE_PREFIX}/([^/]+)`).exec(path);
+  if (!match) return '';
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+/**
+ * Base path an API serves its operations under (`servers[0].url` — `/api/v3`
+ * for the Swagger Petstore image, `/v3` for the OpenAPI Petstore), normalized
+ * into a safe mount prefix: a single leading slash, no trailing slash, and no
+ * scheme, host, query, fragment, whitespace or traversal segment (the value is
+ * concatenated onto a forwarded URL). Returns '' for the origin root and for
+ * anything that cannot be used as a prefix.
+ */
+export function normalizeApiBasePath(value: unknown): string {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed || /[\s?#]/.test(trimmed)) return '';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return '';
+  const normalized = `/${trimmed.replace(/^\/+/, '')}`.replace(/\/+$/, '');
+  if (normalized === '/') return '';
+  if (normalized.split('/').some((segment) => segment === '.' || segment === '..')) return '';
+  return normalized;
+}
+
+/** The base path detection recorded on a project ('' when unknown). */
+export function projectApiBasePath(project: Record<string, unknown> | null | undefined): string {
+  const detection =
+    project?.detection && typeof project.detection === 'object'
+      ? (project.detection as Record<string, unknown>)
+      : null;
+  return normalizeApiBasePath(detection?.basePath);
+}
+
+/**
+ * `rest` — the path after `/api/gateway/{slug}` — with the API's base path in
+ * front, or null when there is nothing to add: no base path, the landing path,
+ * or a request that already carries the prefix. The prefix check is
+ * segment-aware, so `/api/v30/...` is never mistaken for `/api/v3`.
+ */
+export function apiSubPathWithBasePath(rest: string, basePath: string): string | null {
+  const base = normalizeApiBasePath(basePath);
+  if (!base) return null;
+  const path = `/${String(rest || '').replace(/^\/+/, '')}`;
+  if (path === '/') return null;
+  if (path === base || path.startsWith(`${base}/`)) return null;
+  return `${base}${path}`;
+}
+
 /** Stable slug for a project record (slug field, falling back to the id). */
 export function slugOfProject(project: Record<string, unknown> | null | undefined): string {
   return String(project?.slug || '') || slugFromProjectId(String(project?.id || ''));
@@ -183,7 +249,9 @@ export function resolveDeploymentUpstream(project: Record<string, unknown> | nul
   if (runtime && deploymentIsLive(project)) {
     if (runtime.kind === 'docker') {
       const preferHost = usesHostDockerRuntime();
-      const target = preferHost ? (runtime.hostUrl || runtime.internalUrl) : (runtime.internalUrl || runtime.upstream);
+      const target = preferHost
+  ? (runtime.hostUrl || runtime.internalUrl || runtime.upstream)
+  : (runtime.internalUrl || runtime.hostUrl || runtime.upstream);
       if (target) return target;
     }
     if (runtime.upstream) return runtime.upstream;

@@ -16,7 +16,11 @@ services:
     networks:
       - api-marketplace-network
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-api_marketplace} -d ${POSTGRES_DB:-api_marketplace_dev}']
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-api_marketplace} -d ${POSTGRES_DB:-api_marketplace_dev}'
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -50,11 +54,13 @@ services:
       - ./backend/.env
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgresql://${POSTGRES_USER:-api_marketplace}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-api_marketplace_dev}
       REDIS_URL: redis://default:${REDIS_PASSWORD:-secret}@redis:6379
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./backend/src:/app/src
       - ./backend/package.json:/app/package.json
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,6 +82,8 @@ services:
       - ./frontend/.env
     environment:
       NODE_ENV: development
+      # Inside the container the backend is reachable by service name, not localhost.
+      KLYRA_API_PROXY_TARGET: http://backend:4000
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/package.json:/app/package.json
@@ -98,15 +106,14 @@ services:
       - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       - backend
-      - frontend
     networks:
       - api-marketplace-network
 
 networks:
   api-marketplace-network:
     driver: bridge
+
   klyra-api-network:
-    name: klyra-api-network
     driver: bridge
 
 volumes:

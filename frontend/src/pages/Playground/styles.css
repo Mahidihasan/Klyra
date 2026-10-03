@@ -5764,3 +5764,59 @@
 .pg-confirm-btn.danger:hover {
   background: rgba(239, 68, 68, 0.25);
 }
+
+/* =========================================================
+   TOPBAR SAVE FEEDBACK + TAB RENAME
+   ========================================================= */
+
+.pg-save-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pg-save-hint > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pg-save-hint.ok {
+  color: var(--status-active);
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.pg-save-hint.error {
+  color: var(--status-maintenance);
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.pg-tab-rename-input {
+  flex: 1;
+  min-width: 40px;
+  max-width: 140px;
+  padding: 1px 5px;
+  background: var(--bg-input);
+  border: 1px solid var(--accent-purple);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  outline: none;
+}
+
+@media (max-width: 900px) {
+  .pg-save-hint > span {
+    display: none;
+  }
+}
+

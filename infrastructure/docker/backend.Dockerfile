@@ -3,7 +3,9 @@ FROM node:24-bookworm-slim
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl \
+    && apt-get install -y --no-install-recommends \
+        openssl \
+        docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./

@@ -970,7 +970,7 @@ export class AuthService {
         user_id, refresh_token_hash, user_agent, ip_address, expires_at
       ) VALUES ($1, $2, $3, $4::inet, $5)
       RETURNING id`,
-      [user.id, refreshTokenHash, userAgent, ip.replace(/[^0-9.:]/g, '') || '127.0.0.1', refreshExpiresAt]
+     [user.id, refreshTokenHash, userAgent, ip || '127.0.0.1', refreshExpiresAt]
     );
 
     const sessionId = sessionRes.rows[0].id;
@@ -994,7 +994,7 @@ export class AuthService {
     let resolvedLocation = 'Unknown Location';
     let resolvedLatitude = null;
     let resolvedLongitude = null;
-    const cleanIp = ip.replace(/[^0-9.:]/g, '') || '127.0.0.1';
+    const cleanIp = ip || '127.0.0.1';
 
     if (cleanIp === '::1' || cleanIp === '127.0.0.1' || cleanIp.startsWith('192.168.')) {
       resolvedLocation = 'Localhost (Dev)';

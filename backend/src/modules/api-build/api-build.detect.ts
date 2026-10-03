@@ -314,17 +314,30 @@ function withBasePath(payload: DetectionPayload, basePath: string): DetectionPay
   };
 }
 
-export async function detectUpstream(baseInput: string, explicitSpecUrl = ''): Promise<DetectionPayload> {
+/**
+ * `timeoutMs` bounds every HTTP probe.
+ *
+ * The default (TIMEOUT_MS) is the wizard's interactive budget, where a slow
+ * upstream may still be worth waiting for. Callers that must answer a live
+ * request — the gateway healing a project record whose detection predates
+ * base-path support — pass a much smaller budget and take the declared value
+ * when the probe cannot finish in time.
+ */
+export async function detectUpstream(
+  baseInput: string,
+  explicitSpecUrl = '',
+  timeoutMs = TIMEOUT_MS,
+): Promise<DetectionPayload> {
   const baseUrl = normalize(baseInput || explicitSpecUrl);
   const direct = explicitSpecUrl.trim();
   let landingText = '';
   if (!direct) {
-    const health = await getText(baseUrl, 6000);
+    const health = await getText(baseUrl, Math.min(6000, timeoutMs));
     if (!health.ok) return blank(baseUrl, { reason: `Unable to reach ${baseUrl} (HTTP ${health.status || 'network error'}).`, latencyMs: health.latencyMs });
     landingText = health.text;
   }
   const conventional = direct ? [direct] : SPEC_PATHS.map((path) => `${baseUrl}${path}`);
-  const resolved = await resolveCandidateSpecs(baseUrl, conventional);
+  const resolved = await resolveCandidateSpecs(baseUrl, conventional, timeoutMs);
   if (resolved) return resolved;
   // Not at a conventional location: ask the application itself. Swagger UI
   // pages declare their own specification URL, so discovery stays targeted
@@ -335,6 +348,7 @@ export async function detectUpstream(baseInput: string, explicitSpecUrl = ''): P
       const declaredResolved = await resolveCandidateSpecs(
         baseUrl,
         declared.map((url) => (/^https?:\/\//i.test(url) ? url : `${baseUrl}${url}`)),
+        timeoutMs,
       );
       if (declaredResolved) return declaredResolved;
     }
@@ -343,9 +357,13 @@ export async function detectUpstream(baseInput: string, explicitSpecUrl = ''): P
 }
 
 /** Tries candidate URLs in order and returns the first real specification. */
-async function resolveCandidateSpecs(baseUrl: string, candidates: string[]): Promise<DetectionPayload | null> {
+async function resolveCandidateSpecs(
+  baseUrl: string,
+  candidates: string[],
+  timeoutMs = TIMEOUT_MS,
+): Promise<DetectionPayload | null> {
   for (const url of candidates) {
-    const result = await getText(url); if (!result.ok) continue;
+    const result = await getText(url, timeoutMs); if (!result.ok) continue;
     const document = parseDocument(result.text); if (!document) continue;
     const detected = inspect(document, baseUrl); if (!detected) continue;
     // A path the document declares for a host that is not the one we just read
@@ -356,7 +374,15 @@ async function resolveCandidateSpecs(baseUrl: string, candidates: string[]): Pro
     if (detected.declaredBasePath && detected.declaredBasePath !== detected.basePath) {
       let origin = '';
       try { origin = new URL(url).origin; } catch { origin = ''; }
-      payload = withBasePath(detected, await confirmServedBasePath(origin, detected.declaredBasePath, detected.endpoints));
+      payload = withBasePath(
+        detected,
+        await confirmServedBasePath(
+          origin,
+          detected.declaredBasePath,
+          detected.endpoints,
+          Math.min(6000, timeoutMs),
+        ),
+      );
     }
     // declaredBasePath is internal evidence — it never leaves the backend.
     const { declaredBasePath: _declared, ...publicPayload } = payload;
