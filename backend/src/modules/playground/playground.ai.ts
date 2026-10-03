@@ -1,107 +1,27 @@
-import { GoogleGenAI, Type, FunctionDeclaration, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 
-/** Required model for Copilot and request inspection. */
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-3.5-flash';
+const GEMINI_INSPECTOR_MODEL = process.env.GEMINI_INSPECTOR_MODEL || 'gemini-2.5-flash';
 
-/** Keep all Copilot and inspection calls pinned to the explicitly selected model. */
-function modelCandidates(_preferred?: string): string[] {
-  return [GEMINI_MODEL];
+/** Compatibility with the current chat route's sanitized error envelope. */
+export class AiChatError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number = 502,
+  ) {
+    super(message);
+    this.name = 'AiChatError';
+  }
 }
 
-/** HTTP statuses Gemini returns for temporary conditions (retry, then move on). */
-const TRANSIENT_GEMINI_STATUS = new Set([429, 500, 502, 503, 504]);
-
-interface GeminiAttemptFailure {
-  model: string;
-  status: number;
-  message: string;
-  transient: boolean;
-}
-
-/** Normalizes any SDK failure into a readable, single-line description. */
-function describeGeminiFailure(model: string, error: unknown): GeminiAttemptFailure {
-  const raw = error instanceof Error ? error.message : String(error);
-  let status = 0;
-  let detail = raw;
-  // The SDK surfaces the API error as a JSON string; unwrap code + message.
-  const jsonStart = raw.indexOf('{');
-  if (jsonStart >= 0) {
-    try {
-      const parsed = JSON.parse(raw.slice(jsonStart)) as { error?: { code?: number; message?: string; status?: string } };
-      if (parsed?.error) {
-        status = Number(parsed.error.code) || 0;
-        detail = String(parsed.error.message || parsed.error.status || raw);
-      }
-    } catch {
-      /* not JSON — keep the raw message */
-    }
+export function toAiChatError(error: unknown): AiChatError {
+  if (error instanceof AiChatError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  if (/GEMINI_API_KEY is not configured/i.test(message)) {
+    return new AiChatError('not_configured', 'AI chat is not configured.', 503);
   }
-  if (!status) {
-    const match = /(?:status|code)[^0-9]{0,8}(\d{3})/i.exec(raw);
-    if (match) status = Number(match[1]);
-    if (/\bUNAVAILABLE\b|high demand|overloaded|timed? ?out|ECONNRESET|socket hang up|fetch failed/i.test(raw)) status = 503;
-  }
-  return {
-    model,
-    status,
-    message: detail.replace(/\s+/g, ' ').trim().slice(0, 300),
-    transient: TRANSIENT_GEMINI_STATUS.has(status) || /\bUNAVAILABLE\b|high demand|overloaded|deadline/i.test(raw),
-  };
-}
-
-/**
- * Turns the collected attempt failures into one actionable error. The raw
- * provider payload ("{"error":{"code":503,...}}") is never shown to the user.
- */
-function geminiUnavailableError(failures: GeminiAttemptFailure[]): Error {
-  const tried = failures.map((f) => f.model).join(', ');
-  const retired = failures.filter((f) => f.status === 404 || /no longer available|not found|not supported/i.test(f.message));
-  const quota = failures.filter((f) => f.status === 429 && !f.transient);
-  const auth = failures.filter((f) => [400, 401, 403].includes(f.status) && /api.?key|permission|credential|unauthenticated/i.test(f.message));
-  const last = failures[failures.length - 1];
-
-  if (failures.length > 0 && auth.length === failures.length) {
-    return new Error(`GEMINI_API_KEY was rejected by Gemini (${last?.message || 'invalid or unauthorized key'}). Update the key in the backend environment.`);
-  }
-  if (failures.length > 0 && quota.length === failures.length) {
-    return new Error('Gemini rate limit reached for this project. Wait a moment and try again, or raise the quota for GEMINI_API_KEY.');
-  }
-  if (failures.length > 0 && failures.every((f) => f.transient)) {
-    return new Error('Gemini is temporarily unavailable (its models are at capacity right now). Please retry in a few seconds.');
-  }
-  if (failures.length > 0 && retired.length === failures.length) {
-    return new Error(`Gemini rejected model ${last?.model || 'configured model'}: ${last?.message || 'the model is unavailable to this API key.'}`);
-  }
-  return new Error(`AI request failed (tried: ${tried}). ${last?.message || 'Gemini returned no usable response.'}`);
-}
-
-/**
- * Runs one Gemini call, walking the model chain and retrying a model once when
- * it fails for a temporary reason. Only throws when every candidate failed.
- */
-async function generateWithModelFallback(
-  client: GoogleGenAI,
-  models: string[],
-  request: Omit<Parameters<GoogleGenAI['models']['generateContent']>[0], 'model'>,
-): Promise<{ response: Awaited<ReturnType<GoogleGenAI['models']['generateContent']>>; model: string }> {
-  const failures: GeminiAttemptFailure[] = [];
-  for (const model of models) {
-    // Move to another supported model immediately on capacity errors rather
-    // than spending a second full model timeout on the same overloaded model.
-    const attempts = 1;
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      try {
-        const response = await client.models.generateContent({ model, ...request });
-        return { response, model };
-      } catch (error) {
-        const failure = describeGeminiFailure(model, error);
-        failures.push(failure);
-        if (!failure.transient || attempt === attempts) break;
-        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
-      }
-    }
-  }
-  throw geminiUnavailableError(failures);
+  return new AiChatError('provider_error', 'The AI request failed. Please try again.', 502);
 }
 
 // =========================================================
@@ -723,64 +643,50 @@ export async function chatWithGemini(
     playgroundContext ? buildPlaygroundContext(playgroundContext) : 'No specific playground context provided.'
   }`;
 
-  const contents = messages
-    .filter((m) => typeof m?.content === 'string' && m.content.trim().length > 0)
-    .map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
-  if (contents.length === 0) {
-    throw new Error('No message content was provided to the AI Copilot.');
-  }
+  const contents = messages.map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
 
-  const { response } = await generateWithModelFallback(
-    client,
-    modelCandidates(process.env.GEMINI_MODEL),
-    {
-      contents,
-      config: {
-        systemInstruction: {
-          role: 'system',
-          parts: [{ text: systemMessage }],
-        },
-        tools: [{ functionDeclarations: FUNCTION_DECLARATIONS }],
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        maxOutputTokens: 2048,
+  const response = await client.models.generateContent({
+    model: GEMINI_MODEL,
+    contents,
+    config: {
+      systemInstruction: {
+        role: 'system',
+        parts: [{ text: systemMessage }],
       },
+      tools: [{ functionDeclarations: FUNCTION_DECLARATIONS }],
+      temperature: 0.2,
+      maxOutputTokens: 4096,
     },
-  );
+  });
 
   const candidate = response.candidates?.[0];
-  const parts = candidate?.content?.parts || [];
-
-  // A function call wins: the Playground applies it to the live request state.
-  // Names outside the declared set are ignored so a confused model can never
-  // produce an action the Playground cannot validate.
-  const call = parts.map((p) => p.functionCall).find((fc) => fc && isAiActionName(fc.name));
-  if (call) {
-    return {
-      type: 'action',
-      action: {
-        name: call.name as AiActionName,
-        args: (call.args as Record<string, unknown>) || {},
-      },
-    };
+  if (!candidate) {
+    throw new Error('Gemini returned an empty response');
   }
 
-  // Otherwise return the model's answer. Thinking parts are internal and must
-  // never be shown as the reply.
-  const text = parts
-    .filter((p) => !p.thought)
-    .map((p) => p.text || '')
-    .join('')
-    .trim();
+  const parts = candidate.content?.parts || [];
+
+  // Check for function calls
+  for (const part of parts) {
+    if (part.functionCall) {
+      const fc = part.functionCall;
+      return {
+        type: 'action',
+        action: {
+          name: fc.name as AiActionName,
+          args: (fc.args as Record<string, unknown>) || {},
+        },
+      };
+    }
+  }
+
+  // Fallback to text
+  const text = parts.map((p) => p.text || '').join('');
   if (!text) {
-    const finish = candidate?.finishReason ? String(candidate.finishReason) : '';
-    throw new Error(
-      finish && finish !== 'STOP'
-        ? `The AI Copilot returned no answer (finish reason: ${finish}). Try rephrasing your request.`
-        : 'Gemini returned an empty response. Please try again.',
-    );
+    throw new Error('Gemini returned an empty response');
   }
 
   return {
@@ -811,83 +717,77 @@ export async function inspectRequest(
       ? buildPlaygroundContext(playgroundContext)
       : 'No specific playground context provided.';
 
-    // Inspection is latency-sensitive and best-effort, so it walks only the
-    // first few candidates of the model chain (the copilot chat itself walks
-    // all of them). A retired or saturated model must never disable findings.
-    const { response } = await generateWithModelFallback(
-      client,
-      modelCandidates(process.env.GEMINI_INSPECTOR_MODEL || process.env.GEMINI_MODEL).slice(0, 3),
-      {
-        contents: [
+    const response = await client.models.generateContent({
+      model: GEMINI_INSPECTOR_MODEL,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text:
+                `${contextMessage}\n\n` +
+                'Return findings by calling the report_findings function with an array of findings. Every finding must include an executable action and actionArgs.',
+            },
+          ],
+        },
+      ],
+      config: {
+        systemInstruction: {
+          role: 'system',
+          parts: [{ text: INSPECTION_SYSTEM_INSTRUCTION }],
+        },
+        tools: [
           {
-            role: 'user',
-            parts: [
+            functionDeclarations: [
               {
-                text:
-                  `${contextMessage}\n\n` +
-                  'Return findings by calling the report_findings function with an array of findings. Every finding must include an executable action and actionArgs.',
+                name: 'report_findings',
+                description: 'Returns structured and actionable request inspection findings.',
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    findings: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          type: {
+                            type: Type.STRING,
+                            enum: [
+                              'authentication_required',
+                              'missing_header',
+                              'missing_environment_variable',
+                              'invalid_request',
+                              'response_error',
+                              'body_required',
+                              'insecure_configuration',
+                            ],
+                          },
+                          severity: {
+                            type: Type.STRING,
+                            enum: ['info', 'warning', 'error'],
+                          },
+                          message: { type: Type.STRING },
+                          suggestion: { type: Type.STRING },
+                          action: {
+                            type: Type.STRING,
+                            enum: AI_ACTION_NAMES,
+                          },
+                          actionArgs: { type: Type.OBJECT },
+                        },
+                        required: ['type', 'severity', 'message', 'action', 'actionArgs'],
+                      },
+                    },
+                  },
+                  required: ['findings'],
+                },
               },
             ],
           },
         ],
-        config: {
-          systemInstruction: {
-            role: 'system',
-            parts: [{ text: INSPECTION_SYSTEM_INSTRUCTION }],
-          },
-          tools: [
-            {
-              functionDeclarations: [
-                {
-                  name: 'report_findings',
-                  description: 'Returns structured and actionable request inspection findings.',
-                  parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                      findings: {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            type: {
-                              type: Type.STRING,
-                              enum: [
-                                'authentication_required',
-                                'missing_header',
-                                'missing_environment_variable',
-                                'invalid_request',
-                                'response_error',
-                                'body_required',
-                                'insecure_configuration',
-                              ],
-                            },
-                            severity: {
-                              type: Type.STRING,
-                              enum: ['info', 'warning', 'error'],
-                            },
-                            message: { type: Type.STRING },
-                            suggestion: { type: Type.STRING },
-                            action: {
-                              type: Type.STRING,
-                              enum: AI_ACTION_NAMES,
-                            },
-                            actionArgs: { type: Type.OBJECT },
-                          },
-                          required: ['type', 'severity', 'message', 'action', 'actionArgs'],
-                        },
-                      },
-                    },
-                    required: ['findings'],
-                  },
-                },
-              ],
-            },
-          ],
-          temperature: 0.1,
-          maxOutputTokens: 2048,
-        },
+        temperature: 0.1,
+        maxOutputTokens: 2048,
       },
-    );
+    });
 
     const candidate = response.candidates?.[0];
     const parts = candidate?.content?.parts || [];
