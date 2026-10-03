@@ -654,7 +654,10 @@ router.post('/projects/:id/usage', async (req, res) => {
   ok(res, { recorded: true }, 201);
 });
 router.get('/projects/:id/analytics', async (req, res) => {
-  ok(res, await computeAnalytics(req.params.id));
+  const range = ['24h', '7d', '30d'].includes(String(req.query.range))
+    ? String(req.query.range) as '24h' | '7d' | '30d'
+    : '7d';
+  ok(res, await computeAnalytics(req.params.id, range));
 });
 router.get('/projects/:id/insights', async (req, res) => {
   ok(res, await computeInsights(req.params.id));
