@@ -38,6 +38,7 @@ import {
   savePlan,
   saveConsumer,
   saveVersion,
+  setMarketplacePlanPublished,
   touchApiKey,
   updateApiKey,
   updateDeploymentStatus,
@@ -426,7 +427,21 @@ router.post('/projects/:id/plans', async (req, res) => {
 router.put('/projects/:id/plans/:pid', async (req, res) => {
   const existing = (await listPlans(req.params.id)).find((p) => p.id === req.params.pid);
   if (!existing) return fail(res, 404, 'NOT_FOUND', 'Plan not found.');
-  ok(res, await savePlan(req.params.id, { ...existing, ...(req.body || {}), id: req.params.pid }));
+  if (typeof req.body?.marketplacePublished === 'boolean') {
+    await setMarketplacePlanPublished(
+      req.params.id,
+      req.params.pid,
+      req.body.marketplacePublished,
+    );
+  }
+  ok(
+    res,
+    await savePlan(
+      req.params.id,
+      { ...existing, ...(req.body || {}), id: req.params.pid },
+      existing.name,
+    ),
+  );
 });
 router.delete('/projects/:id/plans/:pid', async (req, res) => {
   ok(res, { deleted: await deletePlan(req.params.id, req.params.pid) });

@@ -79,6 +79,7 @@ export interface PricingPlan {
   overagePer1k: number;
   trialDays: number;
   subscribers: number;
+  marketplacePublished?: boolean;
 }
 
 export interface ApiConsumer {

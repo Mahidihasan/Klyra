@@ -772,31 +772,113 @@ export class CatalogService {
         );
       }
 
-      if (payload.studioProjectId && payload.proposedStudioChanges?.plans?.length) {
-        for (const plan of payload.proposedStudioChanges.plans) {
-          if (!plan?.name || !Number.isFinite(plan.priceMonthly)) continue;
-          await client.query(
-            `UPDATE api_build_plans
-             SET price_monthly = $1,
-                 requests_per_month = COALESCE($2, requests_per_month),
-                 rate_limit_per_min = COALESCE($3, rate_limit_per_min)
-             WHERE project_id = $4 AND (id = $5 OR name = $6)`,
-            [
-              plan.priceMonthly,
-              plan.requestsPerMonth ?? null,
-              plan.rateLimitPerMin ?? null,
-              payload.studioProjectId,
-              plan.id || '',
-              plan.name,
-            ],
+      if (existingApiId && payload.plans?.length) {
+        for (const plan of payload.plans) {
+          const updateResult = await client.query(
+            `UPDATE subscription_plans
+             SET price = $1
+             WHERE api_id = $2 AND slug = $3
+             RETURNING id`,
+            [plan.price, apiId, plan.slug],
           );
+          if (!updateResult.rowCount) {
+            await client.query(
+              `UPDATE subscription_plans
+               SET price = $1
+               WHERE api_id = $2 AND name = $3`,
+              [plan.price, apiId, plan.name],
+            );
+          }
+        }
+      }
+
+      if (payload.studioProjectId && payload.proposedStudioChanges?.plans?.length) {
+        const studioProjectResult = await client.query(
+          `SELECT id, project
+           FROM api_build_projects
+           WHERE id = $1
+           FOR UPDATE`,
+          [payload.studioProjectId],
+        );
+        if (!studioProjectResult.rowCount) {
+          throw new Error('The selected API Studio project could not be found.');
         }
 
-        await client.query(
-          `INSERT INTO api_build_activity (project_id, label, kind)
-           VALUES ($1, $2, 'ok')`,
-          [payload.studioProjectId, 'Marketplace listing published. Studio pricing synced.'],
+        const studioProject = studioProjectResult.rows[0].project || {};
+        const studioPlansFromProject = Array.isArray(studioProject.plans)
+          ? studioProject.plans
+          : [];
+        const studioPlansResult = await client.query(
+          `SELECT id, name, requests_per_month, price_monthly, rate_limit_per_min,
+                  overage_per_1k, trial_days, subscribers, created_at
+           FROM api_build_plans
+           WHERE project_id = $1
+           ORDER BY price_monthly ASC`,
+          [payload.studioProjectId],
         );
+        const studioPlans = studioPlansResult.rows.map((studioPlan) => ({
+          id: String(studioPlan.id),
+          name: String(studioPlan.name),
+          requestsPerMonth: Number(studioPlan.requests_per_month),
+          priceMonthly: Number(studioPlan.price_monthly),
+          rateLimitPerMin: Number(studioPlan.rate_limit_per_min),
+          overagePer1k: Number(studioPlan.overage_per_1k),
+          trialDays: Number(studioPlan.trial_days),
+          subscribers: Number(studioPlan.subscribers),
+          createdAt: new Date(studioPlan.created_at).toISOString(),
+        }));
+        let pricingChanged = false;
+
+        for (const plan of payload.proposedStudioChanges.plans) {
+          if (!plan?.name || !Number.isFinite(plan.priceMonthly)) continue;
+          const studioPlan = studioPlans.find(
+            (candidate) =>
+              candidate.id === String(plan.id || '') ||
+              (candidate.id !== String(plan.id || '') && candidate.name === plan.name),
+          );
+
+          const projectPlan = studioPlansFromProject.find(
+            (candidate: any) =>
+              String(candidate?.id || '') === String(plan.id || '') ||
+              (String(candidate?.id || '') !== String(plan.id || '') &&
+                candidate?.name === plan.name),
+          );
+
+          if (studioPlan && studioPlan.priceMonthly !== plan.priceMonthly) {
+            await client.query(
+              `UPDATE api_build_plans
+               SET price_monthly = $1
+               WHERE project_id = $2 AND id = $3`,
+              [plan.priceMonthly, payload.studioProjectId, studioPlan.id],
+            );
+            studioPlan.priceMonthly = plan.priceMonthly;
+            pricingChanged = true;
+          }
+
+          if (projectPlan && Number(projectPlan.priceMonthly) !== plan.priceMonthly) {
+            projectPlan.priceMonthly = plan.priceMonthly;
+            pricingChanged = true;
+          }
+        }
+
+        if (pricingChanged) {
+          const plansForProject = studioPlansFromProject.length
+            ? studioPlansFromProject
+            : studioPlans;
+          await client.query(
+            `UPDATE api_build_projects
+             SET project = jsonb_set(project, '{plans}', $2::jsonb, true),
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [payload.studioProjectId, JSON.stringify(plansForProject)],
+          );
+
+          await client.query(
+            `INSERT INTO api_build_activity (project_id, label, kind)
+             VALUES ($1, $2, 'ok')`,
+            [payload.studioProjectId, 'Marketplace listing published. Studio pricing synced.'],
+          );
+        }
       }
 
       // Log in audit_logs

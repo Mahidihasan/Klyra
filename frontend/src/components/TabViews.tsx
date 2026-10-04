@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { CollectionItem, ApiItem, NavigationTab } from '../types/api';
 
+import { SubscriptionsPage } from '../pages/Subscriptions';
+
 interface TabViewsProps {
   activeTab: NavigationTab;
   collections: CollectionItem[];
@@ -23,6 +25,7 @@ interface TabViewsProps {
   onOpenCreateCollection: () => void;
   onOpenTester: (api?: ApiItem) => void;
   onSelectApi: (api: ApiItem) => void;
+  onNavigateTab?: (tab: string) => void;
 }
 
 export const TabViews: React.FC<TabViewsProps> = ({
@@ -31,8 +34,20 @@ export const TabViews: React.FC<TabViewsProps> = ({
   apis,
   onOpenCreateCollection,
   onOpenTester,
-  onSelectApi
+  onSelectApi,
+  onNavigateTab
 }) => {
+
+  if (activeTab === 'subscriptions') {
+    return (
+      <SubscriptionsPage
+        apis={apis}
+        onOpenTester={onOpenTester}
+        onSelectApi={onSelectApi}
+        onNavigateTab={onNavigateTab}
+      />
+    );
+  }
 
   if (activeTab === 'collections') {
     return (
@@ -69,11 +84,10 @@ export const TabViews: React.FC<TabViewsProps> = ({
     );
   }
 
-  // API catalog pages (APIs, Subscriptions, Playground)
-  if (activeTab === 'apis' || activeTab === 'subscriptions' || activeTab === 'playground') {
+  // API catalog pages (APIs, Playground)
+  if (activeTab === 'apis' || activeTab === 'playground') {
     const titleMap: Record<string, string> = {
       'apis': 'All Developer APIs',
-      'subscriptions': 'Subscribed APIs',
       'playground': 'API Playground'
     };
     return (

@@ -5,6 +5,8 @@ export type ApiBuildProject = Record<string, unknown> & { id: string };
 
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const nowIso = () => new Date().toISOString();
+const planSlug = (name: string) =>
+  name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'plan';
 
 export async function listProjects(): Promise<ApiBuildProject[]> {
   const result = await pool.query('SELECT project FROM api_build_projects ORDER BY updated_at DESC');
@@ -398,6 +400,7 @@ export interface PlanRow {
   trialDays: number;
   subscribers: number;
   createdAt: string;
+  marketplacePublished?: boolean;
 }
 
 const mapPlan = (r: Record<string, unknown>): PlanRow => ({
@@ -405,25 +408,159 @@ const mapPlan = (r: Record<string, unknown>): PlanRow => ({
   priceMonthly: Math.round(num(r.price_monthly) * 100) / 100, rateLimitPerMin: Math.round(num(r.rate_limit_per_min)),
   overagePer1k: Math.round(num(r.overage_per_1k) * 100) / 100, trialDays: Math.round(num(r.trial_days)),
   subscribers: Math.round(num(r.subscribers)), createdAt: String(r.created_at ?? ''),
+  marketplacePublished: r.marketplace_published === undefined ? true : Boolean(r.marketplace_published),
 });
 
 export async function listPlans(projectId: string): Promise<PlanRow[]> {
   const result = await pool.query(
-    'SELECT id, name, requests_per_month, price_monthly, rate_limit_per_min, overage_per_1k, trial_days, subscribers, created_at FROM api_build_plans WHERE project_id = $1 ORDER BY price_monthly ASC',
+    `SELECT p.id, p.name, p.requests_per_month, p.price_monthly, p.rate_limit_per_min,
+            p.overage_per_1k, p.trial_days, p.subscribers, p.created_at,
+            COALESCE(sp.is_active, true) AS marketplace_published
+     FROM api_build_plans p
+     LEFT JOIN apis a
+       ON a.api_spec->>'studioProjectId' = p.project_id
+      AND a.status = 'PUBLISHED'
+      AND a.deleted_at IS NULL
+     LEFT JOIN subscription_plans sp
+       ON sp.api_id = a.id
+      AND (sp.slug = lower(regexp_replace(trim(p.name), '[^a-zA-Z0-9]+', '-', 'g'))
+           OR sp.name = p.name)
+      AND sp.deleted_at IS NULL
+     WHERE p.project_id = $1
+     ORDER BY p.price_monthly ASC`,
     [projectId]);
   return result.rows.map(mapPlan);
 }
 
-export async function savePlan(projectId: string, plan: PlanRow): Promise<PlanRow> {
+export async function savePlan(
+  projectId: string,
+  plan: PlanRow,
+  previousName?: string,
+): Promise<PlanRow> {
   await pool.query(
     `INSERT INTO api_build_plans (project_id, id, name, requests_per_month, price_monthly, rate_limit_per_min, overage_per_1k, trial_days, subscribers)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     ON CONFLICT (project_id, name) DO UPDATE SET requests_per_month = EXCLUDED.requests_per_month,
-       price_monthly = EXCLUDED.price_monthly, rate_limit_per_min = EXCLUDED.rate_limit_per_min,
+     ON CONFLICT (project_id, id) DO UPDATE SET name = EXCLUDED.name,
+       requests_per_month = EXCLUDED.requests_per_month,
+      price_monthly = EXCLUDED.price_monthly, rate_limit_per_min = EXCLUDED.rate_limit_per_min,
        overage_per_1k = EXCLUDED.overage_per_1k, trial_days = EXCLUDED.trial_days`,
     [projectId, plan.id, plan.name, plan.requestsPerMonth, plan.priceMonthly, plan.rateLimitPerMin,
      plan.overagePer1k, plan.trialDays, plan.subscribers]);
+
+  const projectResult = await pool.query(
+    'SELECT project FROM api_build_projects WHERE id = $1',
+    [projectId],
+  );
+  const project = projectResult.rows[0]?.project;
+  if (project) {
+    const plans = Array.isArray(project.plans) ? [...project.plans] : [];
+    const snapshotIndex = plans.findIndex((item: any) => String(item?.id) === plan.id);
+    const snapshotPlan = {
+      ...(snapshotIndex >= 0 ? plans[snapshotIndex] : {}),
+      ...plan,
+    };
+    if (snapshotIndex >= 0) plans[snapshotIndex] = snapshotPlan;
+    else plans.push(snapshotPlan);
+    await pool.query(
+      `UPDATE api_build_projects
+       SET project = jsonb_set(project, '{plans}', $2::jsonb, true), updated_at = NOW()
+       WHERE id = $1`,
+      [projectId, JSON.stringify(plans)],
+    );
+  }
+
+  const marketplaceApi = await pool.query(
+    `SELECT id
+     FROM apis
+     WHERE api_spec->>'studioProjectId' = $1
+       AND status = 'PUBLISHED'
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [projectId],
+  );
+  const apiId = marketplaceApi.rows[0]?.id;
+  if (apiId) {
+    const currentSlug = planSlug(plan.name);
+    const previousSlug = previousName ? planSlug(previousName) : currentSlug;
+    const marketplacePlan = await pool.query(
+      `SELECT id
+       FROM subscription_plans
+       WHERE api_id = $1
+         AND deleted_at IS NULL
+         AND (slug IN ($2, $3) OR name IN ($4, $5))
+       ORDER BY CASE WHEN slug = $2 OR name = $4 THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [apiId, previousSlug, currentSlug, previousName || plan.name, plan.name],
+    );
+
+    if (marketplacePlan.rows[0]?.id) {
+      await pool.query(
+        `UPDATE subscription_plans
+         SET name = $1,
+             slug = $2,
+             price = $3,
+             rate_limit = $4,
+             updated_at = NOW()
+         WHERE id = $5`,
+        [plan.name, currentSlug, plan.priceMonthly, plan.rateLimitPerMin, marketplacePlan.rows[0].id],
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO subscription_plans
+           (api_id, name, slug, description, price, billing_interval, features, rate_limit, is_active)
+         VALUES ($1, $2, $3, $4, $5, 'MONTHLY', '[]'::jsonb, $6, true)
+         ON CONFLICT (api_id, slug) DO UPDATE
+           SET name = EXCLUDED.name,
+               price = EXCLUDED.price,
+               rate_limit = EXCLUDED.rate_limit,
+               updated_at = NOW()`,
+        [
+          apiId,
+          plan.name,
+          currentSlug,
+          `${plan.requestsPerMonth.toLocaleString()} requests/mo`,
+          plan.priceMonthly,
+          plan.rateLimitPerMin,
+        ],
+      );
+    }
+  }
+
   return plan;
+}
+
+export async function setMarketplacePlanPublished(
+  projectId: string,
+  planId: string,
+  published: boolean,
+): Promise<void> {
+  const planResult = await pool.query(
+    'SELECT name FROM api_build_plans WHERE project_id = $1 AND id = $2',
+    [projectId, planId],
+  );
+  const plan = planResult.rows[0];
+  if (!plan) return;
+
+  const apiResult = await pool.query(
+    `SELECT id
+     FROM apis
+     WHERE api_spec->>'studioProjectId' = $1
+       AND status = 'PUBLISHED'
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [projectId],
+  );
+  const apiId = apiResult.rows[0]?.id;
+  if (!apiId) return;
+
+  await pool.query(
+    `UPDATE subscription_plans
+     SET is_active = $1, updated_at = NOW()
+     WHERE api_id = $2
+       AND deleted_at IS NULL
+       AND (slug = $3 OR name = $4)`,
+    [published, apiId, planSlug(plan.name), plan.name],
+  );
 }
 
 export async function deletePlan(projectId: string, id: string): Promise<boolean> {

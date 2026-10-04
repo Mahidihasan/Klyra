@@ -53,6 +53,7 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
   const [subscribingPlan, setSubscribingPlan] = useState<string | null>(null);
   const [purchasePlan, setPurchasePlan] = useState<CatalogPricingPlan | null>(null);
   const [purchaseMonthlyRequests, setPurchaseMonthlyRequests] = useState(0);
+  const goToPricing = () => setActiveTab('pricing');
 
   useEffect(() => {
     if (activeTab === 'reviews' && !reviewsData) {
@@ -150,7 +151,7 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
             <div
               className={`adp-metric-card metric-latency ${!isCurrentSubscribed ? 'locked' : ''}`}
               title={isCurrentSubscribed ? 'Real-Time Anycast Latency Telemetry' : 'Subscribe to view live latency'}
-              onClick={() => { if (!isCurrentSubscribed) { setShowSubRequiredToast(true); setTimeout(() => setShowSubRequiredToast(false), 2400); } }}
+              onClick={() => { if (!isCurrentSubscribed) goToPricing(); }}
               style={{ cursor: !isCurrentSubscribed ? 'pointer' : 'default' }}
             >
               <Zap size={16} className="adp-metric-icon zap" />
@@ -179,7 +180,7 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
           <div className="adp-sub-required-toast">
             <Lock size={14} />
             <span>Subscription required to access this feature</span>
-            <button className="adp-sub-toast-btn" onClick={() => { subscribeToApi(api.id); setShowSubRequiredToast(false); }}>Subscribe Now</button>
+            <button className="adp-sub-toast-btn" onClick={goToPricing}>Subscribe Now</button>
           </div>
         )}
 
@@ -193,7 +194,7 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
                 <Code size={14} /> Open in Playground
               </button>
             ) : (
-              <button className="adp-action-btn locked-action" onClick={() => { setShowSubRequiredToast(true); setTimeout(() => setShowSubRequiredToast(false), 2400); }}>
+              <button className="adp-action-btn locked-action" onClick={goToPricing}>
                 <Lock size={13} /> Try in Tester
                 <span className="adp-locked-pill">Subscribe</span>
               </button>
@@ -226,7 +227,7 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
 
       {/* Tab Content */}
       <div className="adp-tab-content">
-        {activeTab === 'overview' && <ApiOverviewSection api={api} onOpenTester={onOpenTester} isSubscribed={canTest} onSubscribe={() => subscribeToApi(api.id)} />}
+        {activeTab === 'overview' && <ApiOverviewSection api={api} onOpenTester={onOpenTester} isSubscribed={canTest} onSubscribe={goToPricing} />}
 
         {activeTab === 'demo' && (
           <ApiShowcaseSection
@@ -234,7 +235,7 @@ export const ApiDetailPage: React.FC<ApiDetailPageProps> = ({
             onOpenProvider={onOpenProvider}
             onOpenTester={onOpenTester}
             isSubscribed={canTest}
-            onSubscribe={() => subscribeToApi(api.id)}
+            onSubscribe={goToPricing}
           />
         )}
 

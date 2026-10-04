@@ -88,6 +88,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
 
   // Mutable collections initialized from project
   const [plans, setPlans] = useState<PricingPlan[]>(project.plans || []);
+  const [editingPlan, setEditingPlan] = useState<PricingPlan | null>(null);
   const [consumers, setConsumers] = useState<ApiConsumer[]>(project.consumersList || []);
   const [apiKeys, setApiKeys] = useState<ProviderApiKey[]>(project.apiKeys || []);
 
@@ -243,10 +244,36 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
     setApiKeys((prev: ProviderApiKey[]) => prev.map((k: ProviderApiKey) => (k.id === keyId ? { ...k, revoked: true } : k)));
   };
 
-  const handleCreatePlan = (plan: PricingPlan) => {
-    const updated = [...plans, plan];
+  const handleCreatePlan = async (plan: PricingPlan) => {
+    const saved = await apiBuildService.createPlan<PricingPlan>(project.id, plan);
+    const updated = [...plans, saved];
     setPlans(updated);
     onUpdateProject({ plans: updated });
+  };
+
+  const handleUpdatePlan = async (plan: PricingPlan) => {
+    const currentPlan = plans.find((item) => item.id === plan.id);
+    const existingPlans = await apiBuildService.listPlans<PricingPlan>(project.id);
+    const existingPlan = existingPlans.find(
+      (item) => item.id === plan.id || item.name === currentPlan?.name,
+    );
+    if (!existingPlan) throw new Error('Plan not found.');
+    const saved = await apiBuildService.updatePlan<PricingPlan>(project.id, existingPlan.id, plan);
+    const updated = plans.map((item) => (item.id === plan.id ? saved : item));
+    setPlans(updated);
+    onUpdateProject({ plans: updated });
+    setEditingPlan(null);
+  };
+
+  const handleTogglePlanPublish = async (plan: PricingPlan, published: boolean) => {
+    await apiBuildService.updatePlan<PricingPlan>(project.id, plan.id, {
+      marketplacePublished: published,
+    });
+    setPlans((current) =>
+      current.map((item) =>
+        item.id === plan.id ? { ...item, marketplacePublished: published } : item,
+      ),
+    );
   };
 
   const handleChangeConsumerPlan = (consumerId: string, newPlan: string) => {
@@ -356,6 +383,8 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
           <TabPlans
             plans={plans}
             onOpenCreatePlan={() => setIsCreatePlanOpen(true)}
+            onEditPlan={setEditingPlan}
+            onTogglePublish={handleTogglePlanPublish}
             onShowToast={showToast}
           />
         )}
@@ -483,9 +512,14 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
       />
 
       <CreatePlanModal
-        isOpen={isCreatePlanOpen}
-        onClose={() => setIsCreatePlanOpen(false)}
+        isOpen={isCreatePlanOpen || Boolean(editingPlan)}
+        onClose={() => {
+          setIsCreatePlanOpen(false);
+          setEditingPlan(null);
+        }}
         onCreatePlan={handleCreatePlan}
+        editingPlan={editingPlan}
+        onUpdatePlan={handleUpdatePlan}
         onShowToast={showToast}
       />
 

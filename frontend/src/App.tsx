@@ -25,6 +25,7 @@ import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ProfilePage } from './pages/Profile';
 import { ApiKeysPage } from './pages/ApiKeys';
 import { MyApisPage } from './pages/MyApis';
+import { SubscriptionsPage } from './pages/Subscriptions';
 import { LandingPage } from './pages/Landing';
 import './pages/Playground/styles.css';
 
@@ -35,6 +36,8 @@ import { CartDrawer } from './pages/Marketplace/components/CartDrawer';
 import { AuthPage, AuthMode } from './pages/Auth/AuthPage';
 import { DemoInboxPage } from './pages/Auth/DemoInboxPage';
 import { Toaster } from 'react-hot-toast';
+import { FloatingCopilotLauncher } from './components/FloatingCopilotLauncher';
+import { DummyActivityNotification } from './components/DummyActivityNotification';
 
 import {
   MOCK_TRENDING_APIS,
@@ -247,6 +250,7 @@ function AppContent() {
   const [playgroundPrefill, setPlaygroundPrefill] = useState<PlaygroundOpenPayload | null>(null);
   const [apiBuildInitialView, setApiBuildInitialView] = useState<'dash' | 'new' | 'workspace'>('dash');
   const [apiBuildProjectId, setApiBuildProjectId] = useState<string | undefined>(undefined);
+  const [isFloatingCopilotOpen, setIsFloatingCopilotOpen] = useState(false);
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -532,6 +536,34 @@ function AppContent() {
       {/* Sits above every mode, including the full-screen Playground and API
           Builder, so an impersonated session is never invisible. */}
       <ImpersonationBanner />
+      <DummyActivityNotification />
+      {activeTab !== 'playground' && !isFloatingCopilotOpen && (
+        <FloatingCopilotLauncher onOpen={() => setIsFloatingCopilotOpen(true)} />
+      )}
+      {isFloatingCopilotOpen && activeTab !== 'playground' && (
+        <>
+          <button
+            type="button"
+            aria-label="Close Klyra Copilot"
+            onClick={() => setIsFloatingCopilotOpen(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 1198,
+              border: 0,
+              padding: 0,
+              cursor: 'default',
+              background: 'transparent',
+            }}
+          />
+          <PlaygroundPage
+            copilotOnly
+            apiProject={activeApiProject}
+            onBackToKlyra={() => setIsFloatingCopilotOpen(false)}
+            onCopilotClose={() => setIsFloatingCopilotOpen(false)}
+          />
+        </>
+      )}
 
       {/* When in Playground, hide the main Klyra topbar & sidebar entirely */}
       {activeTab === 'playground' ? (
@@ -940,6 +972,28 @@ function AppContent() {
                     }}
                   />
                 </main>
+              ) : activeTab === 'subscriptions' ? (
+                <main className="content-page-wrapper">
+                  <SubscriptionsPage
+                    apis={allApis}
+                    onOpenTester={(api) => handleOpenTester(api)}
+                    onSelectApi={(api) => setSelectedApi(api)}
+                    onNavigateTab={(tab, detail) => {
+                      if (tab === 'api-build' && detail?.apiBuildView) {
+                        setApiBuildInitialView(detail.apiBuildView);
+                      }
+                      if (tab === 'api-build' && detail?.projectId) {
+                        setApiBuildProjectId(detail.projectId);
+                      }
+                      setActiveTab(tab as NavigationTab);
+                      try {
+                        localStorage.setItem('activeTab', tab);
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  />
+                </main>
               ) : (
                 <main className="content-page-wrapper">
                   <TabViews
@@ -949,6 +1003,7 @@ function AppContent() {
                     onOpenCreateCollection={() => setIsCreateColOpen(true)}
                     onOpenTester={(api) => handleOpenTester(api)}
                     onSelectApi={(api) => setSelectedApi(api)}
+                    onNavigateTab={(tab) => setActiveTab(tab as NavigationTab)}
                   />
                 </main>
               )}

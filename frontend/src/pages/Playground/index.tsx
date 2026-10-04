@@ -130,6 +130,8 @@ import { ApiProject } from '../../types/api';
 interface PlaygroundProps {
   onBackToKlyra?: () => void;
   apiProject?: ApiProject | null;
+  copilotOnly?: boolean;
+  onCopilotClose?: () => void;
   /**
    * One-shot payload set by the screen that navigated here (API management
    * "Test in Playground", repository bridge). When present, the request
@@ -295,7 +297,14 @@ const JsonTreeViewer: React.FC<{ body: string }> = ({ body }) => {
 
 // Playground data is now loaded dynamically from the backend API.
 
-export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiProject, openContext, onPrefillConsumed }) => {
+export const PlaygroundPage: React.FC<PlaygroundProps> = ({
+  onBackToKlyra,
+  apiProject,
+  openContext,
+  onPrefillConsumed,
+  copilotOnly = false,
+  onCopilotClose,
+}) => {
   // Core request state
   const [config, setConfig] = useState<RequestConfig>(emptyRequestConfig());
   const [response, setResponse] = useState<PlaygroundResponse | null>(null);
@@ -3167,10 +3176,15 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
           </div>
           <button
             className="pg-icon-btn"
-            onClick={() => setIsRightExpanded(false)}
-            title="Collapse AI sidebar"
+            style={{ marginLeft: 'auto', flexShrink: 0 }}
+            onClick={() => {
+              setIsRightExpanded(false);
+              onCopilotClose?.();
+            }}
+            title="Close Klyra Copilot"
+            aria-label="Close Klyra Copilot"
           >
-            <ChevronsRight size={16} />
+            <X size={16} />
           </button>
         </div>
 
@@ -3339,6 +3353,24 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({ onBackToKlyra, apiPr
       </div>
     </div>
   );
+
+  if (copilotOnly) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 1199,
+          display: 'flex',
+          boxShadow: '-12px 0 32px rgba(0, 0, 0, 0.28)',
+        }}
+      >
+        {renderRightSidebar()}
+      </div>
+    );
+  }
 
   return (
     <div className="pg-root" ref={splitRef}>

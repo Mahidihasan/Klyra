@@ -16,6 +16,8 @@ interface PlanVersion {
 interface TabPlansProps {
   plans: PricingPlan[];
   onOpenCreatePlan: () => void;
+  onEditPlan: (plan: PricingPlan) => void;
+  onTogglePublish: (plan: PricingPlan, published: boolean) => void | Promise<void>;
   onShowToast: (msg: string) => void;
 }
 
@@ -59,6 +61,8 @@ const PLAN_BORDER: Record<string, string> = {
 export const TabPlans: React.FC<TabPlansProps> = ({
   plans,
   onOpenCreatePlan,
+  onEditPlan,
+  onTogglePublish,
   onShowToast
 }) => {
   const [view, setView] = useState('ALL');
@@ -69,7 +73,7 @@ export const TabPlans: React.FC<TabPlansProps> = ({
   );
   // Per-plan publish toggle
   const [planPublished, setPlanPublished] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(plans.map(p => [p.id, true]))
+    Object.fromEntries(plans.map(p => [p.id, p.marketplacePublished !== false]))
   );
 
   const totalSubscribers = plans.reduce((acc, p) => acc + p.subscribers, 0);
@@ -82,12 +86,15 @@ export const TabPlans: React.FC<TabPlansProps> = ({
     onShowToast(`Plan version updated to ${vLabel}`);
   };
 
-  const handleTogglePublish = (planId: string, planName: string) => {
-    setPlanPublished(prev => {
-      const next = !prev[planId];
-      onShowToast(`${planName} plan ${next ? 'published' : 'unpublished'}`);
-      return { ...prev, [planId]: next };
-    });
+  const handleTogglePublish = async (plan: PricingPlan) => {
+    const next = !planPublished[plan.id];
+    try {
+      await onTogglePublish(plan, next);
+      setPlanPublished(prev => ({ ...prev, [plan.id]: next }));
+      onShowToast(`${plan.name} plan ${next ? 'published' : 'unpublished'}`);
+    } catch (error) {
+      onShowToast(error instanceof Error ? error.message : 'Failed to update plan visibility');
+    }
   };
 
   return (
@@ -296,7 +303,7 @@ export const TabPlans: React.FC<TabPlansProps> = ({
                     className="kly-btn kly-btn-ghost"
                     id={`plan-edit-${p.id}`}
                     title="Edit plan"
-                    onClick={() => onShowToast(`Editing ${p.name} plan`)}
+                    onClick={() => onEditPlan(p)}
                     style={{ fontSize: 11 }}
                   >
                     <Edit3 size={12} />
@@ -326,7 +333,7 @@ export const TabPlans: React.FC<TabPlansProps> = ({
                       className="kly-btn kly-btn-ghost"
                       id={`plan-publish-${p.id}`}
                       style={{ fontSize: 11, color: '#34d399', borderColor: 'rgba(52,211,153,.3)' }}
-                      onClick={() => handleTogglePublish(p.id, p.name)}
+                      onClick={() => void handleTogglePublish(p)}
                     >
                       <Unlock size={12} /> Publish
                     </button>
@@ -335,7 +342,7 @@ export const TabPlans: React.FC<TabPlansProps> = ({
                       className="kly-btn kly-btn-ghost"
                       id={`plan-unpublish-${p.id}`}
                       style={{ fontSize: 11, color: 'var(--kly-text-dim)' }}
-                      onClick={() => handleTogglePublish(p.id, p.name)}
+                      onClick={() => void handleTogglePublish(p)}
                     >
                       <Lock size={12} /> Unpublish
                     </button>
@@ -356,4 +363,3 @@ export const TabPlans: React.FC<TabPlansProps> = ({
     </div>
   );
 };
-

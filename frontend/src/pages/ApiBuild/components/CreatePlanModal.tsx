@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, DollarSign, Sparkles, Check } from 'lucide-react';
 import { PricingPlan } from '../../../types/apibuild';
 
 interface CreatePlanModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreatePlan: (plan: PricingPlan) => void;
+  onCreatePlan: (plan: PricingPlan) => void | Promise<void>;
+  editingPlan?: PricingPlan | null;
+  onUpdatePlan?: (plan: PricingPlan) => void | Promise<void>;
   onShowToast: (msg: string) => void;
 }
 
@@ -13,31 +15,47 @@ export const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
   isOpen,
   onClose,
   onCreatePlan,
+  editingPlan,
+  onUpdatePlan,
   onShowToast
 }) => {
-  const [name, setName] = useState('');
-  const [price, setPrice] = useState(29);
-  const [reqs, setReqs] = useState(100000);
-  const [rateLimit, setRateLimit] = useState(600);
-  const [overage, setOverage] = useState(0.35);
-  const [trialDays, setTrialDays] = useState(14);
+  const [name, setName] = useState(editingPlan?.name || '');
+  const [price, setPrice] = useState(editingPlan?.priceMonthly ?? 29);
+  const [reqs, setReqs] = useState(editingPlan?.requestsPerMonth ?? 100000);
+  const [rateLimit, setRateLimit] = useState(editingPlan?.rateLimitPerMin ?? 600);
+  const [overage, setOverage] = useState(editingPlan?.overagePer1k ?? 0.35);
+  const [trialDays, setTrialDays] = useState(editingPlan?.trialDays ?? 14);
+
+  useEffect(() => {
+    setName(editingPlan?.name || '');
+    setPrice(editingPlan?.priceMonthly ?? 29);
+    setReqs(editingPlan?.requestsPerMonth ?? 100000);
+    setRateLimit(editingPlan?.rateLimitPerMin ?? 600);
+    setOverage(editingPlan?.overagePer1k ?? 0.35);
+    setTrialDays(editingPlan?.trialDays ?? 14);
+  }, [editingPlan, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!name.trim()) return;
-    const newPlan: PricingPlan = {
-      id: `plan-${Date.now()}`,
+    const updatedPlan: PricingPlan = {
+      id: editingPlan?.id || `plan-${Date.now()}`,
       name: name.trim(),
       priceMonthly: Number(price),
       requestsPerMonth: Number(reqs),
       rateLimitPerMin: Number(rateLimit),
       overagePer1k: Number(overage),
       trialDays: Number(trialDays),
-      subscribers: 0
+      subscribers: editingPlan?.subscribers || 0
     };
-    onCreatePlan(newPlan);
-    onShowToast(`Pricing plan "${newPlan.name}" created`);
+    if (editingPlan) {
+      await onUpdatePlan?.(updatedPlan);
+      onShowToast(`Pricing plan "${updatedPlan.name}" updated`);
+    } else {
+      await onCreatePlan(updatedPlan);
+      onShowToast(`Pricing plan "${updatedPlan.name}" created`);
+    }
     onClose();
   };
 
@@ -47,7 +65,7 @@ export const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
         <div className="kly-modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <DollarSign size={16} color="#34d399" />
-            <h3 style={{ fontSize: 15 }}>Create Pricing Plan</h3>
+            <h3 style={{ fontSize: 15 }}>{editingPlan ? 'Edit Pricing Plan' : 'Create Pricing Plan'}</h3>
           </div>
           <button className="kly-btn-icon" onClick={onClose}><X size={14} /></button>
         </div>
