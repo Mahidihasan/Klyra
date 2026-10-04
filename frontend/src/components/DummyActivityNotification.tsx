@@ -13,34 +13,46 @@ const DEMO_MESSAGES = [
   'Zara just tried the Weather API tester · 2 min ago',
 ];
 
-export const DummyActivityNotification: React.FC = () => {
+interface DummyActivityNotificationProps {
+  enabled?: boolean;
+}
+
+export const DummyActivityNotification: React.FC<DummyActivityNotificationProps> = ({
+  enabled = true,
+}) => {
   const [messageIndex, setMessageIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    let hideTimer: number | undefined;
-    let showTimer: number | undefined;
-    let cancelled = false;
+  if (!enabled) return;
 
-    const scheduleNext = () => {
-      showTimer = window.setTimeout(() => {
-        if (cancelled) return;
-        setMessageIndex((index) => (index + 1) % DEMO_MESSAGES.length);
-        setIsVisible(true);
-        hideTimer = window.setTimeout(() => {
-          setIsVisible(false);
-          scheduleNext();
-        }, 5600);
-      }, 10000);
-    };
+  let hideTimer: number | undefined;
+  let showTimer: number | undefined;
+  let cancelled = false;
 
-    scheduleNext();
-    return () => {
-      cancelled = true;
-      if (showTimer) window.clearTimeout(showTimer);
-      if (hideTimer) window.clearTimeout(hideTimer);
-    };
-  }, []);
+  const scheduleNext = () => {
+    showTimer = window.setTimeout(() => {
+      if (cancelled) return;
+
+      setMessageIndex((index) => (index + 1) % DEMO_MESSAGES.length);
+      setIsVisible(true);
+
+      hideTimer = window.setTimeout(() => {
+        setIsVisible(false);
+        scheduleNext();
+      }, 5600);
+    }, 10000);
+  };
+
+  scheduleNext();
+
+  return () => {
+    cancelled = true;
+
+    if (showTimer) window.clearTimeout(showTimer);
+    if (hideTimer) window.clearTimeout(hideTimer);
+  };
+}, [enabled]);
 
   const rawMessage = DEMO_MESSAGES[messageIndex];
   const [content, time] = rawMessage.includes(' · ')

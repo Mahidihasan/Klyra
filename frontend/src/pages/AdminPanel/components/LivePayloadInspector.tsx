@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Terminal, Pause, Play, Trash2, Copy, Check, ChevronDown, ChevronRight, Activity, Wifi } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { io } from 'socket.io-client';
 
 // ─── Types & Data ────────────────────────────────────────────────────────
 
@@ -108,37 +107,6 @@ export const LivePayloadInspector = () => {
   const [leftWidth, setLeftWidth] = useState(450);
   const isDragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (isPaused) return;
-
-    const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-    
-    // Connect to the secure admin namespace
-    const socket = io('/admin/live-logs', {
-      auth: { token }
-    });
-
-    socket.on('connect', () => {
-      console.log('[LivePayloadInspector] Connected to secure uplink');
-    });
-
-    socket.on('new-api-log', (newLog: PayloadLog) => {
-      setLogs(prev => {
-        const newLogs = [newLog, ...prev]; // Prepend for sliding down
-        if (newLogs.length > 50) newLogs.pop();
-        return newLogs;
-      });
-    });
-
-    socket.on('connect_error', (err) => {
-      console.error('[LivePayloadInspector] Uplink error:', err.message);
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [isPaused]);
 
   // Resizable drag logic
   const startDrag = useCallback((e: React.MouseEvent) => {

@@ -182,7 +182,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
     const version = selectedVersion === 'all' ? project.version : selectedVersion;
     void ops.start({
       type: 'deploy',
-      environment: project.environment,
+      environment,
       payload: { version, strategy },
       reason: `Manual redeploy (${strategy}) from project controls`,
     }).then((op) => {

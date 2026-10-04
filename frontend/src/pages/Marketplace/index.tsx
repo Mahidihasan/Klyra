@@ -13,22 +13,29 @@ import { ApiListView } from './components/ApiListView';
 import { ApiDetailPage } from './ApiDetailPage';
 import { ProviderProfileModal } from './ProviderProfileModal';
 import { PublishApiModal } from './PublishApiModal';
+import { ApiItem } from '../../types/api';
 
 interface MarketplacePageProps {
   initialSearch?: string;
   initialCategory?: string;
+  initialSelectedApi?: ApiItem | null;
+  onInitialSelectedApiHandled?: () => void;
   onOpenTester?: (api: any) => void;
 }
 
 export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   initialSearch = '',
   initialCategory = '',
+  initialSelectedApi = null,
+  onInitialSelectedApiHandled,
   onOpenTester,
 }) => {
   return (
     <MarketplaceContent
       initialSearch={initialSearch}
       initialCategory={initialCategory}
+      initialSelectedApi={initialSelectedApi}
+      onInitialSelectedApiHandled={onInitialSelectedApiHandled}
       onOpenTester={onOpenTester}
     />
   );
@@ -37,6 +44,8 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 const MarketplaceContent: React.FC<MarketplacePageProps> = ({
   initialSearch = '',
   initialCategory = '',
+  initialSelectedApi = null,
+  onInitialSelectedApiHandled,
   onOpenTester,
 }) => {
   // View state
@@ -67,6 +76,60 @@ const MarketplaceContent: React.FC<MarketplacePageProps> = ({
   const [showPublish, setShowPublish] = useState(false);
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!initialSelectedApi) return;
+    let cancelled = false;
+    const openSelectedApi = async () => {
+      let api: CatalogApi | null = null;
+      try {
+        api = await catalogApi.getApiBySlugOrId(initialSelectedApi.id);
+      } catch {
+        try {
+          const result = await catalogApi.browseApis({ search: initialSelectedApi.name, limit: 50 });
+          api = result.apis.find((item) => item.name.toLowerCase() === initialSelectedApi.name.toLowerCase()) || null;
+          if (api) api = await catalogApi.getApiBySlugOrId(api.slug || api.id);
+        } catch {}
+      }
+
+      if (!api) {
+        const now = new Date().toISOString();
+        api = {
+          id: initialSelectedApi.id,
+          name: initialSelectedApi.name,
+          slug: initialSelectedApi.id,
+          description: initialSelectedApi.description,
+          longDescription: initialSelectedApi.longDescription,
+          currentVersion: initialSelectedApi.version,
+          baseUrl: initialSelectedApi.baseUrl,
+          categoryId: initialSelectedApi.category,
+          categoryName: initialSelectedApi.category,
+          categorySlug: initialSelectedApi.category.toLowerCase().replace(/\s+/g, '-'),
+          ownerId: initialSelectedApi.provider,
+          ownerName: initialSelectedApi.provider,
+          pricingModel: 'FREE',
+          status: initialSelectedApi.status,
+          isPublic: true,
+          rating: initialSelectedApi.rating,
+          totalReviews: 0,
+          totalSubscribers: 0,
+          totalRequests: Number(initialSelectedApi.requestCount.replace(/[^0-9.]/g, '')) || 0,
+          latencyMs: initialSelectedApi.latencyMs,
+          uptimePercentage: Number(initialSelectedApi.uptime.replace(/[^0-9.]/g, '')) || 0,
+          tags: [],
+          endpointsCount: initialSelectedApi.endpointsCount,
+          endpoints: initialSelectedApi.endpoints?.map((endpoint) => ({ ...endpoint })),
+          createdAt: now,
+          updatedAt: now,
+        };
+      }
+
+      if (!cancelled) setSelectedApi(api);
+      onInitialSelectedApiHandled?.();
+    };
+    void openSelectedApi();
+    return () => { cancelled = true; };
+  }, [initialSelectedApi, onInitialSelectedApiHandled]);
 
   // Fetch categories on mount
   useEffect(() => {

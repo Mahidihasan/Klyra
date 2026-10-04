@@ -36,7 +36,23 @@ interface AdminLayoutProps {
 
 const AdminLayoutInner: React.FC<AdminLayoutProps> = ({ activeTab, setActiveTab }) => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [databaseAccess, setDatabaseAccess] = useState<'checking' | 'enabled' | 'disabled' | 'unavailable'>('checking');
   const { isDrawerOpen, drawerContent, drawerTitle, closeDrawer } = useAdminUI();
+
+  useEffect(() => {
+    let mounted = true;
+    const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
+    fetch('/api/v1/admin/access-status', { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Admin access status unavailable');
+        return response.json();
+      })
+      .then((body) => {
+        if (mounted) setDatabaseAccess(body?.data?.databaseAccessEnabled === false ? 'disabled' : 'enabled');
+      })
+      .catch(() => { if (mounted) setDatabaseAccess('unavailable'); });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -54,6 +70,21 @@ const AdminLayoutInner: React.FC<AdminLayoutProps> = ({ activeTab, setActiveTab 
   };
 
   const renderContent = () => {
+    if (databaseAccess === 'checking') {
+      return <div role="status" className="flex h-full min-h-[320px] items-center justify-center text-sm text-white/60">Checking Admin Panel data access…</div>;
+    }
+    if (databaseAccess === 'disabled') {
+      return <div role="status" className="flex h-full min-h-[320px] flex-col items-center justify-center gap-3 px-6 text-center">
+        <h2 className="text-xl font-semibold text-white">Admin database access is disabled</h2>
+        <p className="max-w-lg text-sm text-white/60">Admin Panel data requests are blocked by server configuration. Set <code>ADMIN_DB_ACCESS_ENABLED</code> to <code>true</code> and reload this page to restore access.</p>
+      </div>;
+    }
+    if (databaseAccess === 'unavailable') {
+      return <div role="status" className="flex h-full min-h-[320px] flex-col items-center justify-center gap-3 px-6 text-center">
+        <h2 className="text-xl font-semibold text-white">Admin data access could not be verified</h2>
+        <p className="max-w-lg text-sm text-white/60">Admin screens were not loaded. Reload the page after confirming the server is available.</p>
+      </div>;
+    }
     switch (activeTab) {
       case 'admin-overview': return <AdminOverview />;
       case 'admin-users': return <AdminUsers />;

@@ -8,29 +8,35 @@ interface FloatingCopilotLauncherProps {
 export const FloatingCopilotLauncher: React.FC<FloatingCopilotLauncherProps> = ({ onOpen }) => {
   const [showBubble, setShowBubble] = useState(false);
 
-  useEffect(() => {
-    let hideTimer: number | undefined;
-    let nextTimer: number | undefined;
-    let cancelled = false;
+ useEffect(() => {
+  const STORAGE_KEY = 'klyra-copilot-introduced';
 
-    const schedule = () => {
-      nextTimer = window.setTimeout(() => {
-        if (cancelled) return;
-        setShowBubble(true);
-        hideTimer = window.setTimeout(() => {
-          setShowBubble(false);
-          schedule();
-        }, 4200);
-      }, 5000 + Math.round(Math.random() * 2000));
-    };
+  // Don't show again if the user has already seen it
+  if (localStorage.getItem(STORAGE_KEY) === 'true') {
+    return;
+  }
 
-    schedule();
-    return () => {
-      cancelled = true;
-      if (nextTimer) window.clearTimeout(nextTimer);
-      if (hideTimer) window.clearTimeout(hideTimer);
-    };
-  }, []);
+  let hideTimer: number | undefined;
+
+  const showTimer = window.setTimeout(() => {
+    setShowBubble(true);
+
+    // Permanently remember that this user has been introduced
+    localStorage.setItem(STORAGE_KEY, 'true');
+
+    hideTimer = window.setTimeout(() => {
+      setShowBubble(false);
+    }, 4200);
+  }, 6000);
+
+  return () => {
+    window.clearTimeout(showTimer);
+
+    if (hideTimer) {
+      window.clearTimeout(hideTimer);
+    }
+  };
+}, []);
 
   return (
     <div
@@ -180,14 +186,6 @@ export const FloatingCopilotLauncher: React.FC<FloatingCopilotLauncherProps> = (
             justifyContent: 'center',
           }}
         >
-          <Sparkles
-            size={12}
-            strokeWidth={2.2}
-            style={{
-              color: '#fbcfe8',
-              filter: 'drop-shadow(0 0 4px rgba(244, 114, 182, 0.6))',
-            }}
-          />
         </span>
       </button>
 

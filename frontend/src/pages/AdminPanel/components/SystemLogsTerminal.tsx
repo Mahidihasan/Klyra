@@ -96,7 +96,7 @@ const Magnetic = ({ children }: { children: React.ReactElement }) => {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const SystemLogsTerminal = () => {
-  const [logs, setLogs] = useState<LogEntry[] | null>(null);
+  const [logs, setLogs] = useState<LogEntry[] | null>([]);
   const [paused, setPaused] = useState(false);
   const [showHighlight, setShowHighlight] = useState(true);
   
@@ -104,38 +104,6 @@ export const SystemLogsTerminal = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const pausedRef = useRef(false);
   pausedRef.current = paused;
-
-  // Fetch logs with auto-refresh polling
-  useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval>;
-
-    const fetchLogs = async () => {
-      // Skip fetching if the user paused the terminal stream
-      if (pausedRef.current) return;
-
-      try {
-        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-        const res = await fetch(`/api/v1/admin/logs/system?t=` + new Date().getTime(), {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        console.log("Fetched Logs:", data);
-        if (Array.isArray(data)) {
-          setLogs(data);
-        } else {
-          console.warn("Backend returned non-array data, setting to empty array.");
-          setLogs([]);
-        }
-      } catch (err) {
-        console.error('Failed to fetch system logs', err);
-      }
-    };
-
-    fetchLogs(); // Initial fetch
-    intervalId = setInterval(fetchLogs, 3000); // 3-second polling
-
-    return () => clearInterval(intervalId);
-  }, []);
 
   // 30-second highlight effect
   useEffect(() => {

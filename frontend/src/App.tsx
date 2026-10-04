@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { HeroBanner } from './components/HeroBanner';
@@ -215,6 +215,8 @@ function AppContent() {
 
   // Modals state
   const [selectedApi, setSelectedApi] = useState<ApiItem | null>(null);
+  const [homeMarketplaceApi, setHomeMarketplaceApi] = useState<ApiItem | null>(null);
+  const clearHomeMarketplaceApi = useCallback(() => setHomeMarketplaceApi(null), []);
   const [isTesterOpen, setIsTesterOpen] = useState<boolean>(false);
   const [testerApi, setTesterApi] = useState<ApiItem | null>(null);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
@@ -536,7 +538,7 @@ function AppContent() {
       {/* Sits above every mode, including the full-screen Playground and API
           Builder, so an impersonated session is never invisible. */}
       <ImpersonationBanner />
-      <DummyActivityNotification />
+      {/* <DummyActivityNotification /> */}
       {activeTab !== 'playground' && !isFloatingCopilotOpen && (
         <FloatingCopilotLauncher onOpen={() => setIsFloatingCopilotOpen(true)} />
       )}
@@ -775,7 +777,7 @@ function AppContent() {
                               <TrendingApiCard
                                 key={api.id}
                                 api={api}
-                                onSelectApi={(item) => setSelectedApi(item)}
+                                onSelectApi={(item) => { setHomeMarketplaceApi(item); setActiveTab('apis'); }}
                               />
                             ))
                         ) : (
@@ -813,7 +815,7 @@ function AppContent() {
                               <TrendingApiCard
                                 key={api.id}
                                 api={api}
-                                onSelectApi={(item) => setSelectedApi(item)}
+                                onSelectApi={(item) => { setHomeMarketplaceApi(item); setActiveTab('apis'); }}
                               />
                             ))
                         ) : (
@@ -851,7 +853,7 @@ function AppContent() {
                               <TrendingApiCard
                                 key={api.id}
                                 api={api}
-                                onSelectApi={(item) => setSelectedApi(item)}
+                                onSelectApi={(item) => { setHomeMarketplaceApi(item); setActiveTab('apis'); }}
                               />
                             ))
                         ) : (
@@ -891,7 +893,7 @@ function AppContent() {
                               <TrendingApiCard
                                 key={api.id}
                                 api={api}
-                                onSelectApi={(item) => setSelectedApi(item)}
+                                onSelectApi={(item) => { setHomeMarketplaceApi(item); setActiveTab('apis'); }}
                               />
                             ))
                         ) : (
@@ -932,6 +934,8 @@ function AppContent() {
                   <MarketplacePage
                     initialSearch={searchQuery}
                     initialCategory={selectedCategory !== 'All Categories' ? selectedCategory : ''}
+                    initialSelectedApi={homeMarketplaceApi}
+                    onInitialSelectedApiHandled={clearHomeMarketplaceApi}
                     onOpenTester={(api: any) => {
                       const item = api.baseUrl ? toApiItem(api) : api;
                       handleOpenTester(item);

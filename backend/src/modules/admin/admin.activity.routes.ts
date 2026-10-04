@@ -13,8 +13,8 @@ router.get(
       severity: severity as string,
       entity: entity as string,
       search: search as string,
-      limit: limit ? parseInt(limit as string, 10) : 100,
-      offset: offset ? parseInt(offset as string, 10) : 0,
+      limit: limit ? Math.min(100, Math.max(1, parseInt(limit as string, 10) || 100)) : 100,
+      offset: offset ? Math.max(0, parseInt(offset as string, 10) || 0) : 0,
     });
     
     res.json({ success: true, data: logs });

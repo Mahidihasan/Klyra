@@ -462,6 +462,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
   const [tabResponses, setTabResponses] = useState<Record<string, { response: PlaygroundResponse | null }>>({});
   const [workspaceSearch, setWorkspaceSearch] = useState('');
   const [expandedTreeIds, setExpandedTreeIds] = useState<Record<string, boolean>>({});
+  const [visibleHeaderValues, setVisibleHeaderValues] = useState<Record<string, boolean>>({});
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     message: string;
@@ -2439,17 +2440,27 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
           />
           <input
             type="text"
-            value={item.value}
+            value={kind === 'headers' && !visibleHeaderValues[item.id] ? '' : item.value}
             onChange={(e) => handleKvChange(kind, index, 'value', e.target.value)}
-            placeholder="Value"
+            placeholder={kind === 'headers' && !visibleHeaderValues[item.id] && item.value ? '••••••••' : 'Value'}
+            readOnly={kind === 'headers' && !visibleHeaderValues[item.id]}
             className="pg-input pg-input-sm pg-kv-value"
           />
           <button
             className="pg-icon-btn"
-            onClick={() => handleKvChange(kind, index, 'enabled', !item.enabled)}
-            title={item.enabled ? 'Disable' : 'Enable'}
+            onClick={() => kind === 'headers'
+              ? setVisibleHeaderValues((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
+              : handleKvChange(kind, index, 'enabled', !item.enabled)}
+            title={kind === 'headers'
+              ? visibleHeaderValues[item.id] ? 'Hide value' : 'Reveal value'
+              : item.enabled ? 'Disable' : 'Enable'}
+            aria-label={kind === 'headers'
+              ? visibleHeaderValues[item.id] ? 'Hide header value' : 'Reveal header value'
+              : item.enabled ? 'Disable' : 'Enable'}
           >
-            {item.enabled ? <Eye size={14} /> : <EyeOff size={14} />}
+            {kind === 'headers'
+              ? visibleHeaderValues[item.id] ? <Eye size={14} /> : <EyeOff size={14} />
+              : item.enabled ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
           <button
             className="pg-icon-btn pg-danger-hover"

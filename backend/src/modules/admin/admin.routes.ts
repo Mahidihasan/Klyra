@@ -21,6 +21,8 @@ import { adminSubscriptionsRouter } from './admin.subscriptions.routes';
 import { adminUsageRouter } from './admin.usage.routes';
 import { PlatformController } from './controllers/PlatformController';
 import { QueueController } from './controllers/QueueController';
+import { adminCacheMiddleware } from './admin.cache.middleware';
+import { ADMIN_DB_ACCESS_ENABLED } from './admin.config';
 
 const router = Router();
 
@@ -81,7 +83,16 @@ function parseRange(req: Request, res: Response): TrafficRange | null {
   return raw;
 }
 
-router.use(requireAdmin);
+router.get('/access-status', requireAdmin, (_req, res) => {
+  return res.json({ success: true, data: { databaseAccessEnabled: ADMIN_DB_ACCESS_ENABLED } });
+});
+
+router.use(requireAdmin, (req, res, next) => {
+  if (!ADMIN_DB_ACCESS_ENABLED) {
+    return fail(res, 503, 'ADMIN_DB_ACCESS_DISABLED', 'Admin Panel database access is disabled by configuration.');
+  }
+  return adminCacheMiddleware(req, res, next);
+});
 
 // ============ User management (/api/v1/admin/users/...) ============
 // Mounted below requireAdmin so the users routes inherit the same gate.

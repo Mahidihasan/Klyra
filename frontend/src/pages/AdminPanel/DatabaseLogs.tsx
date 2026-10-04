@@ -102,36 +102,6 @@ const LiveLogTerminal = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchLogs = async () => {
-      try {
-        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-        const res = await axios.get('/api/v1/admin/logs/audit-logs', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (res.data.success) {
-          const formattedLogs = res.data.data.map((log: any) => {
-            const time = new Date(log.created_at).toLocaleTimeString();
-            const action = log.action || 'EVENT';
-            const entity = log.entity_type || 'System';
-            const isError = action.includes('DELETE') || action.includes('ERROR') || action.includes('FAIL');
-            const prefix = isError ? '[ERROR]' : `[${action}]`;
-            
-            return `${prefix} ${time} - ${entity} modified by user (Target: ${log.entity_id})`;
-          });
-          setLogs(formattedLogs.reverse());
-        }
-      } catch (err) {
-        console.error('Failed to fetch audit logs:', err);
-      }
-    };
-    
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
         top: scrollRef.current.scrollHeight,

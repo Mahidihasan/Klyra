@@ -467,9 +467,11 @@ function ApiBuildRouter({ s, onBack }: { s: ApiBuildState; onBack?: () => void }
         s.setActiveId(p.id);
         s.setTab('overview');
       }}
-      onPauseToggle={() => {
-        apiBuildService.update(active.id, { status: active.status === 'paused' ? 'healthy' : 'paused' } as Partial<ProviderProject>);
-        s.refresh();
+      onPauseToggle={async () => {
+        const status = active.status === 'paused' ? 'healthy' : 'paused';
+        const updated = await apiBuildService.update(active.id, { status } as Partial<ProviderProject>);
+        if (!updated) return;
+        await s.refresh();
       }}
       onDeleteProject={() => {
         if (window.confirm(`Delete "${active.name}"? This action cannot be undone.`)) {

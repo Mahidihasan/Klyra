@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 import { Activity, Server, ArrowUpRight, Clock, CheckCircle2, Loader2, Terminal, Pause, Play, Trash2, Eye, Sparkles } from 'lucide-react';
-import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ------------------------------------------------------------------
@@ -482,44 +481,7 @@ export const LiveGatewayFeedWidget = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchFeed = async () => {
-      try {
-        const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-        const res = await fetch('/api/v1/admin/platform/activity-feed', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const json = await res.json();
-          // Assume feed is returned ordered newest first
-          setLogs(json.feed || []);
-        }
-      } catch (err) {
-        console.error('Failed to fetch activity feed', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchFeed();
-  }, []);
-
-  useEffect(() => {
-    if (isPaused) return;
-
-    const token = localStorage.getItem('klyra_access_token') || localStorage.getItem('klyra_token');
-    const socket = io('/admin/platform', {
-      auth: { token },
-      transports: ['websocket']
-    });
-
-    socket.on('new-system-event', (eventLog) => {
-      setLogs(prev => [eventLog, ...prev.slice(0, 49)]); // Prepend new log
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [isPaused]);
+  useEffect(() => { setIsLoading(false); }, []);
 
   const getStatusColor = (status: number) => {
     if (status >= 500) return '#ef4444';
