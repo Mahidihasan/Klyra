@@ -66,12 +66,21 @@ const isGatewayRequest = (req: { originalUrl?: string; url?: string }): boolean 
   return path === GATEWAY_MOUNT || path.startsWith(`${GATEWAY_MOUNT}/`);
 };
 
-app.use(express.json({ limit: '10mb', type: (req) => (isGatewayRequest(req) ? false : 'application/json') }));
+app.use(express.json({
+  limit: '10mb',
+  type: (req) =>
+    isGatewayRequest(req) || /^multipart\/form-data(?:;|$)/i.test(String(req.headers['content-type'] || ''))
+      ? false
+      : 'application/json',
+}));
 app.use(
   express.urlencoded({
     extended: true,
     limit: '10mb',
-    type: (req) => (isGatewayRequest(req) ? false : 'application/x-www-form-urlencoded'),
+    type: (req) =>
+      isGatewayRequest(req) || /^multipart\/form-data(?:;|$)/i.test(String(req.headers['content-type'] || ''))
+        ? false
+        : 'application/x-www-form-urlencoded',
   }),
 );
 

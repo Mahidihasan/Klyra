@@ -90,6 +90,24 @@ const projectUpload = multer({
 
 const router = Router();
 
+/** Convert errors raised before the upload route handler (for example Multer's
+ * file-size limit) into the same JSON envelope used by the route itself. */
+const uploadProjectFile: express.RequestHandler = (req, res, next) => {
+  projectUpload.single('file')(req, res, (error) => {
+    if (!error) return next();
+
+    const isMulterError = error instanceof multer.MulterError;
+    const status = isMulterError && error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    const code = isMulterError ? error.code : 'UPLOAD_PARSE_FAILED';
+    return fail(
+      res,
+      status,
+      code,
+      error instanceof Error ? error.message : 'Could not receive the project archive.',
+    );
+  });
+};
+
 const ok = (res: express.Response, data: unknown, status = 200) =>
   res.status(status).json({ success: true, data });
 const fail = (res: express.Response, status: number, code: string, message: string) =>
@@ -742,7 +760,7 @@ router.post('/detect', async (req, res) => {
 });
 
 /* Project Folder / ZIP Upload for Docker container build */
-router.post('/upload-project', projectUpload.single('file'), async (req, res) => {
+router.post('/upload-project', uploadProjectFile, async (req, res) => {
   try {
     const file = req.file;
     if (!file) return fail(res, 400, 'NO_FILE', 'No project file uploaded. Provide a ZIP archive in the "file" field.');
