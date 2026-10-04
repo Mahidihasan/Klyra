@@ -238,6 +238,13 @@ export interface PlaygroundAction {
   args: Record<string, unknown>;
 }
 
+export interface AiActionResult {
+  type: 'action' | 'text';
+  action?: PlaygroundAction;
+  text?: string;
+  findings?: AiFinding[];
+}
+
 export type AiFindingType =
   | 'authentication_required'
   | 'missing_header'

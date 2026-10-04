@@ -1,4 +1,4 @@
-import { AiAction, AiActionResult, AiFinding, PlaygroundActionName, PlaygroundResponse } from '../types/playground';
+import { AiAction, AiActionResult, AiFinding, PlaygroundResponse } from '../types/playground';
 
 export interface GeminiMessage {
   role: 'user' | 'assistant';

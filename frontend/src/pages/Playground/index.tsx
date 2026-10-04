@@ -96,7 +96,7 @@ import {
   isPlaceholderBody,
   toEnvVarName,
 } from '../../utils/playground';
-import { buildPlaygroundContext, inspectRequest } from '../../services/aiChat';
+import { buildPlaygroundContext, inspectRequest } from '../../services/gemini';
 import { useAiChat, AiChatEntry } from '../../hooks/useAiChat';
 import {
   PlaygroundAction,
@@ -339,7 +339,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
       { id: 'generate-code', label: 'Generate Code' },
       { id: 'recommend-endpoint', label: 'Recommend Endpoint' },
       { id: 'suggest-improvements', label: 'Suggest Improvements' },
-      { id: 'ask-ai', label: 'Ask AI' },
+      { id: 'ask-ai', label: 'Copilot' },
     ];
   });
   const aiChatEndRef = useRef<HTMLDivElement>(null);
@@ -3040,7 +3040,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
     return (
       <div className="pg-ai-card">
         <div className="pg-ai-card-head">
-          <span>{label || 'Klyra Copilot'}</span>
+          <span>{label || 'Copilot'}</span>
         </div>
         <div className="pg-ai-card-body">{text}</div>
       </div>
@@ -3108,7 +3108,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
         async () => aiChat.applyProposal(entry.id, entry.action),
       );
     }
-    return renderAiResponseCard(entry.text, entry.label);
+    return renderAiResponseCard(entry.text);
   };
 
   const renderResponseCopilot = () => {
