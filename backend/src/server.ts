@@ -5,9 +5,21 @@ import dotenv from 'dotenv';
 // Load environment variables before anything imports the database pool —
 // database.service.ts builds its Pool at module load, so process.env must
 // already be populated. Keep the './app' import below this call.
+const shellGeminiEnv = Object.fromEntries(
+  ['GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_INSPECTOR_MODEL'].map((key) => [key, process.env[key]]),
+);
 const envFile = process.env.ENV_FILE || '.env.development';
 dotenv.config({ path: path.resolve(__dirname, '../../', envFile) });
 dotenv.config();
+// The backend has its own local .env as well as the workspace-level
+// .env.development. Prefer backend-specific Gemini credentials/model settings
+// when present, without changing precedence for database or other services.
+const backendEnv = dotenv.config({ path: path.resolve(__dirname, '../.env') }).parsed || {};
+for (const key of ['GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_INSPECTOR_MODEL']) {
+  const value = backendEnv[key]?.trim();
+  if (value) process.env[key] = value;
+  if (shellGeminiEnv[key]) process.env[key] = shellGeminiEnv[key];
+}
 
 // eslint-disable-next-line import/first
 import app from './app';

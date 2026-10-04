@@ -74,40 +74,93 @@ export function slugFromProjectId(id: string): string {
   return m ? m[1] : id;
 }
 
+/**
+ * True when a URL addresses Klyra's own gateway route (`/api/gateway/{slug}`).
+ *
+ * Project records can end up storing the gateway URL as their upstream origin —
+ * the Configure step used to prefill "Upstream base URL" from the deployment
+ * record, whose `providerUrl` *is* the gateway URL. The gateway would then
+ * forward requests to itself and every Playground call hung until the 30s
+ * timeout. Such a URL is never a valid forwarding target, so it is ignored.
+ */
+export function isKlyraGatewayUrl(url: string): boolean {
+  const value = String(url || '').trim();
+  if (!value) return false;
+  const path = (() => {
+    try { return new URL(value).pathname; } catch { return value; }
+  })();
+  return new RegExp(`^${GATEWAY_ROUTE_PREFIX}/[^/]+`).test(path);
+}
+
+/**
+ * The project slug a Klyra gateway URL addresses (`.../api/gateway/{slug}`), or
+ * '' when the value is not a gateway URL. A gateway URL is not an upstream
+ * origin, so callers that need to probe an API must resolve the project behind
+ * the slug and use its real deployment origin (resolveDeploymentUpstream).
+ */
+export function gatewaySlugFromUrl(url: string): string {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  let path = value;
+  try {
+    path = new URL(value).pathname;
+  } catch {
+    // A bare path (`/api/gateway/petstore`) is accepted as-is.
+  }
+  const match = new RegExp(`^${GATEWAY_ROUTE_PREFIX}/([^/]+)`).exec(path);
+  if (!match) return '';
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+/**
+ * Base path an API serves its operations under (`servers[0].url` — `/api/v3`
+ * for the Swagger Petstore image, `/v3` for the OpenAPI Petstore), normalized
+ * into a safe mount prefix: a single leading slash, no trailing slash, and no
+ * scheme, host, query, fragment, whitespace or traversal segment (the value is
+ * concatenated onto a forwarded URL). Returns '' for the origin root and for
+ * anything that cannot be used as a prefix.
+ */
+export function normalizeApiBasePath(value: unknown): string {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed || /[\s?#]/.test(trimmed)) return '';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return '';
+  const normalized = `/${trimmed.replace(/^\/+/, '')}`.replace(/\/+$/, '');
+  if (normalized === '/') return '';
+  if (normalized.split('/').some((segment) => segment === '.' || segment === '..')) return '';
+  return normalized;
+}
+
+/** The base path detection recorded on a project ('' when unknown). */
+export function projectApiBasePath(project: Record<string, unknown> | null | undefined): string {
+  const detection =
+    project?.detection && typeof project.detection === 'object'
+      ? (project.detection as Record<string, unknown>)
+      : null;
+  return normalizeApiBasePath(detection?.basePath ?? project?.basePath);
+}
+
+/**
+ * `rest` — the path after `/api/gateway/{slug}` — with the API's base path in
+ * front, or null when there is nothing to add: no base path, the landing path,
+ * or a request that already carries the prefix. The prefix check is
+ * segment-aware, so `/api/v30/...` is never mistaken for `/api/v3`.
+ */
+export function apiSubPathWithBasePath(rest: string, basePath: string): string | null {
+  const base = normalizeApiBasePath(basePath);
+  if (!base) return null;
+  const path = `/${String(rest || '').replace(/^\/+/, '')}`;
+  if (path === '/') return null;
+  if (path === base || path.startsWith(`${base}/`)) return null;
+  return `${base}${path}`;
+}
+
 /** Stable slug for a project record (slug field, falling back to the id). */
 export function slugOfProject(project: Record<string, unknown> | null | undefined): string {
   return String(project?.slug || '') || slugFromProjectId(String(project?.id || ''));
-}
-
-/* ==========================================================================
- * API base path — the prefix a project's operations are served under
- * ========================================================================== */
-
-/**
- * Normalizes any base-path form a record may hold into the canonical `/api/v3`
- * form: a relative `servers[0].url` (`/api/v3`), a bare token (`api/v3`),
- * trailing slashes, and the origin root (`/` — which means "no base path").
- * Returns '' when the API is served at the origin root.
- */
-export function normalizeApiBasePath(value: unknown): string {
-  const raw = String(value ?? '').trim();
-  if (!raw || raw === '/' || raw === '.') return '';
-  const trimmed = (raw.startsWith('/') ? raw : `/${raw}`).replace(/\/+$/, '');
-  return trimmed === '' || trimmed === '/' ? '' : trimmed;
-}
-
-/**
- * The path prefix a project's operations are served under, as declared by its
- * OpenAPI document (`servers[0].url`, recorded as `basePath` by detection).
- *
- * Klyra-hosted APIs (swagger-inflector, springdoc, FastAPI sub-mounts, …) serve
- * their operations below such a prefix: a request must address
- * `<origin><basePath><operation path>`, or the origin answers 404. The gateway
- * therefore resolves every incoming request through this value.
- */
-export function projectApiBasePath(project: Record<string, unknown> | null | undefined): string {
-  const detection = asRecord(project?.detection);
-  return normalizeApiBasePath(detection?.basePath ?? project?.basePath);
 }
 
 /** Pathname of a URL without a trailing slash ('https://host/v1/' -> '/v1'). */
@@ -249,12 +302,24 @@ export function resolveDeploymentUpstream(project: Record<string, unknown> | nul
   if (runtime && deploymentIsLive(project)) {
     if (runtime.kind === 'docker') {
       const preferHost = usesHostDockerRuntime();
-      const target = preferHost ? (runtime.hostUrl || runtime.internalUrl) : (runtime.internalUrl || runtime.upstream);
+      const target = preferHost
+  ? (runtime.hostUrl || runtime.internalUrl || runtime.upstream)
+  : (runtime.internalUrl || runtime.hostUrl || runtime.upstream);
       if (target) return target;
     }
     if (runtime.upstream) return runtime.upstream;
   }
-  return String(project?.baseUrl || '').trim();
+  return projectBaseUpstream(project);
+}
+
+/**
+ * The project's configured upstream origin, ignoring a self-referencing
+ * gateway URL (see isKlyraGatewayUrl). Callers that need "the origin behind
+ * project.baseUrl" must use this instead of reading baseUrl directly.
+ */
+export function projectBaseUpstream(project: Record<string, unknown> | null | undefined): string {
+  const base = String(project?.baseUrl || '').trim();
+  return isKlyraGatewayUrl(base) ? '' : base;
 }
 
 /** Decides which pipeline a deploy request takes. */
@@ -269,8 +334,9 @@ export function resolveDeploymentKind(
   if (LEGACY_DOCKER_KINDS.has(kindRaw)) return 'docker';
   if (kindRaw === 'external') return 'external';
   // No explicit signal: keep today's behavior for connected upstreams and
-  // default APIs built inside Klyra to Klyra-hosted containers.
-  const hasUpstream = Boolean(String(project?.baseUrl || '').trim());
+  // default APIs built inside Klyra to Klyra-hosted containers. A gateway URL
+  // stored as baseUrl is not an upstream (see isKlyraGatewayUrl).
+  const hasUpstream = Boolean(projectBaseUpstream(project));
   return String(project?.sourceKind || '') === 'existing' && hasUpstream ? 'external' : 'docker';
 }
 
@@ -340,4 +406,3 @@ export const containerNameFor = (slug: string, version: string): string =>
 
 export const imageNameFor = (slug: string, version: string): string =>
   `klyra-api-${sanitizeContainerToken(slug)}:${sanitizeContainerToken(version) || 'latest'}`;
-

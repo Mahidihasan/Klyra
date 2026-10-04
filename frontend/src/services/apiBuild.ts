@@ -440,8 +440,8 @@ export const apiBuildService = {
   async getInsights<T = unknown>(projectId: string): Promise<T[]> {
     return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/insights`);
   },
-  async getAnalytics<T = unknown>(projectId: string): Promise<T> {
-    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/analytics`);
+  async getAnalytics<T = unknown>(projectId: string, range: '24h' | '7d' | '30d' = '7d'): Promise<T> {
+    return api(`${PROJECTS_ROOT}/${encodeURIComponent(projectId)}/analytics?range=${range}`);
   },
   /** One real upstream health probe (same machinery the telemetry worker uses). */
   async runHealthProbe<T = unknown>(projectId: string): Promise<T> {

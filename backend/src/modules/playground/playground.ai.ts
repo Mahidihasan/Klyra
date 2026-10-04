@@ -3,6 +3,27 @@ import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 const GEMINI_MODEL = 'gemini-3.5-flash';
 const GEMINI_INSPECTOR_MODEL = process.env.GEMINI_INSPECTOR_MODEL || 'gemini-2.5-flash';
 
+/** Compatibility with the current chat route's sanitized error envelope. */
+export class AiChatError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number = 502,
+  ) {
+    super(message);
+    this.name = 'AiChatError';
+  }
+}
+
+export function toAiChatError(error: unknown): AiChatError {
+  if (error instanceof AiChatError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  if (/GEMINI_API_KEY is not configured/i.test(message)) {
+    return new AiChatError('not_configured', 'AI chat is not configured.', 503);
+  }
+  return new AiChatError('provider_error', 'The AI request failed. Please try again.', 502);
+}
+
 // =========================================================
 // ACTION-ORIENTED COPILOT
 // Gemini uses function calling to return structured actions

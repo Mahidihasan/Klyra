@@ -8,7 +8,11 @@ export default defineConfig(({ mode }) => {
   // container itself. Docker Compose therefore injects VITE_PROXY_TARGET=http://backend:4000
   // (the backend Compose service name). On the host the backend stays at localhost:4000.
   const env = loadEnv(mode, process.cwd(), '');
-  const proxyTarget = env.VITE_PROXY_TARGET || 'http://localhost:4000';
+  const proxyTarget =
+    env.VITE_PROXY_TARGET ||
+    env.KLYRA_API_PROXY_TARGET ||
+    process.env.KLYRA_API_PROXY_TARGET ||
+    'http://localhost:4000';
 
   return {
     plugins: [react()],

@@ -232,6 +232,15 @@ async function runDeployPipeline(
   const gatewayUrl = buildGatewayUrl(slug);
   const actor = opts.actor || 'system';
 
+  /**
+   * What specification discovery learned about this API — above all its base
+   * path (`servers[0].url`, e.g. `/api/v3` for the Swagger Petstore image).
+   * The Playground builds every request URL as gatewayUrl + basePath + operation
+   * path, so the base path is persisted with the project instead of being used
+   * once for the endpoint import and then dropped.
+   */
+  let detectionRecord: Record<string, unknown> | null = null;
+
   // 1. Resolve deployment kind
   const deploymentKind: DeploymentKind = resolveDeploymentKind(project, {
     kind: opts.sourceKind || project.sourceKind,
@@ -246,8 +255,7 @@ async function runDeployPipeline(
     const probe = await probeProjectHealth(projectId);
     const healthy = probe.ok;
     log(
-      `[external] Probed ${probe.target || 'upstream'} -> HTTP ${
-        probe.statusCode || 'no response'
+      `[external] Probed ${probe.target || 'upstream'} -> HTTP ${probe.statusCode || 'no response'
       } in ${probe.latencyMs}ms`,
     );
 
@@ -347,8 +355,8 @@ async function runDeployPipeline(
   const deploymentSource = repositoryForSource
     ? 'GitHub'
     : dockerSourceMode === 'folder'
-    ? 'Klyra Hosted'
-    : 'Docker';
+      ? 'Klyra Hosted'
+      : 'Docker';
 
   try {
     await step('Validating Docker runtime', 5);
@@ -535,8 +543,16 @@ async function runDeployPipeline(
 
     const preferHost = usesHostDockerRuntime();
     const internalUrl = `http://${containerName}:${internalPort}`;
-    const hostUrl = runResult.hostPort ? `http://127.0.0.1:${runResult.hostPort}` : undefined;
-    const probeTargetUrl = preferHost && hostUrl ? hostUrl : hostUrl || internalUrl;
+
+    const hostOrigin = usesHostDockerRuntime()
+      ? 'http://127.0.0.1'
+      : 'http://host.docker.internal';
+
+    const hostUrl = runResult.hostPort
+      ? `${hostOrigin}:${runResult.hostPort}`
+      : undefined;
+
+    const probeTargetUrl = hostUrl || internalUrl;
 
     // 8. Wait for readiness
     await step(`Health Check: waiting for API response (${effectiveReadinessMode} mode)`, 75);
@@ -587,6 +603,33 @@ async function runDeployPipeline(
           updatedAt: new Date().toISOString(),
         }));
         await importEndpoints(projectId, rows).catch(() => undefined);
+
+        // Publish the spec location as a gateway-relative URL: the discovered
+        // address points at the container's internal origin, which must never
+        // reach the browser, while the gateway-relative form is routable and
+        // matches the URL the Playground sends.
+        const probeOrigin = probeTargetUrl.replace(/\/+$/, '');
+        const publicFoundAt =
+          detected.foundAt && detected.foundAt.startsWith(probeOrigin)
+            ? `${gatewayUrl}${detected.foundAt.slice(probeOrigin.length)}`
+            : null;
+
+        detectionRecord = {
+          ...(project.detection && typeof project.detection === 'object'
+            ? (project.detection as Record<string, unknown>)
+            : {}),
+          reachable: true,
+          found: true,
+          basePath: detected.basePath || '',
+          openApiVersion: detected.openApiVersion,
+          title: detected.title,
+          servers: detected.servers,
+          authKind: detected.authKind,
+          endpointCount: detected.endpoints.length,
+          foundAt: publicFoundAt,
+        };
+        // Written now so the record is complete even if a later step fails.
+        await saveProject({ ...project, detection: detectionRecord }).catch(() => undefined);
       } else {
         log(
           '[docker] OpenAPI specification not detected — API is live and endpoints can be configured manually',
@@ -611,9 +654,14 @@ async function runDeployPipeline(
       logs: [...logs, 'Deployment healthy and routable through Klyra Gateway'],
     });
 
-    // 12. Persist project runtime state
+    // 12. Persist project runtime state. The record is re-read first: detection
+    // (step 10) and the endpoint import write to the same JSON document, and
+    // saving the copy loaded before those steps silently dropped the base path
+    // again — which is why projects deployed before this fix had no base path.
+    const latestRecord = (await getProject(projectId).catch(() => null)) || project;
     await saveProject({
-      ...project,
+      ...latestRecord,
+      ...(detectionRecord ? { detection: detectionRecord } : {}),
       version,
       environment,
       status: 'healthy',
@@ -623,10 +671,10 @@ async function runDeployPipeline(
       ...(repository ? { repository, branch, sourceKind: 'github' } : {}),
       ...(discovered
         ? {
-            dockerfilePath: discovered.dockerfilePath,
-            buildContext: discovered.buildContext,
-            dockerPort: discovered.dockerPort,
-          }
+          dockerfilePath: discovered.dockerfilePath,
+          buildContext: discovered.buildContext,
+          dockerPort: discovered.dockerPort,
+        }
         : {}),
       deployment: {
         ...projectDep,
@@ -719,8 +767,12 @@ async function runDeployPipeline(
       logs: [...logs, `Deployment failed: ${errorMsg}`],
     });
 
+    // Re-read before writing: a failed pipeline must not drop what discovery
+    // already stored (the API's base path) by saving a stale copy of the record.
+    const latestOnFailure = (await getProject(projectId).catch(() => null)) || project;
     await saveProject({
-      ...project,
+      ...latestOnFailure,
+      ...(detectionRecord ? { detection: detectionRecord } : {}),
       status: 'failed',
       updatedAt: new Date().toISOString(),
       deployment: {

@@ -231,24 +231,39 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
 
   const handleCreateKey = (key: ProviderApiKey) => {
     setApiKeys((prev: ProviderApiKey[]) => [key, ...prev]);
-    onUpdateProject({ apiKeys: [key, ...apiKeys] });
   };
 
   const handleRotateKey = (keyId: string) => {
-    setApiKeys((prev: ProviderApiKey[]) =>
-      prev.map((k: ProviderApiKey) => (k.id === keyId ? { ...k, prefix: 'kly_live_' + Math.random().toString(36).slice(2, 6), lastUsed: 'Just now' } : k))
-    );
+    const key = apiKeys.find((item) => item.id === keyId);
+    if (!key) return;
+    void apiBuildService.createKey<ProviderApiKey & { secret: string }>(project.id, {
+      label: `${key.label} (rotated)`, consumer: key.consumer, plan: key.plan,
+      environment: key.prefix.startsWith('kly_test_') ? 'test' : 'live',
+    }).then((created) => apiBuildService.updateKey(project.id, keyId, { revoked: true }).then(() => {
+      setApiKeys((current) => [created, ...current.map((item) => item.id === keyId ? { ...item, revoked: true } : item)]);
+      showToast('Replacement key created and previous key revoked. Copy the new secret from the key creation flow.');
+    })).catch((e) => showToast(e instanceof Error ? e.message : 'Key rotation failed.'));
   };
 
   const handleRevokeKey = (keyId: string) => {
-    setApiKeys((prev: ProviderApiKey[]) => prev.map((k: ProviderApiKey) => (k.id === keyId ? { ...k, revoked: true } : k)));
+    void apiBuildService.updateKey<ProviderApiKey>(project.id, keyId, { revoked: true }).then((updated) => {
+      setApiKeys((prev) => prev.map((k) => k.id === keyId ? { ...k, ...updated } : k));
+      showToast('API key revoked');
+    }).catch((e) => showToast(e instanceof Error ? e.message : 'Key revocation failed.'));
   };
 
   const handleCreatePlan = async (plan: PricingPlan) => {
-    const saved = await apiBuildService.createPlan<PricingPlan>(project.id, plan);
-    const updated = [...plans, saved];
-    setPlans(updated);
-    onUpdateProject({ plans: updated });
+    try {
+      const saved = await apiBuildService.createPlan<PricingPlan>(
+        project.id,
+        plan as unknown as Record<string, unknown>,
+      );
+      const updated = [...plans, saved];
+      setPlans(updated);
+      onUpdateProject({ plans: updated });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Plan creation failed.');
+    }
   };
 
   const handleUpdatePlan = async (plan: PricingPlan) => {
@@ -258,7 +273,11 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
       (item) => item.id === plan.id || item.name === currentPlan?.name,
     );
     if (!existingPlan) throw new Error('Plan not found.');
-    const saved = await apiBuildService.updatePlan<PricingPlan>(project.id, existingPlan.id, plan);
+    const saved = await apiBuildService.updatePlan<PricingPlan>(
+      project.id,
+      existingPlan.id,
+      plan as unknown as Record<string, unknown>,
+    );
     const updated = plans.map((item) => (item.id === plan.id ? saved : item));
     setPlans(updated);
     onUpdateProject({ plans: updated });
@@ -504,6 +523,7 @@ export const WorkspaceRedesign: React.FC<WorkspaceRedesignProps> = ({
 
       {/* 4. Global Modals */}
       <CreateKeyModal
+        projectId={project.id}
         consumers={consumers}
         isOpen={isCreateKeyOpen}
         onClose={() => setIsCreateKeyOpen(false)}

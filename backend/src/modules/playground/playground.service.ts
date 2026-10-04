@@ -1,6 +1,21 @@
 import { RequestConfig, Environment, PlaygroundResponse, KeyValueItem } from './playground.types';
+import { existsSync } from 'node:fs';
 
 const TIMEOUT_MS = 30000;
+
+function resolveRequestUrl(url: string): string {
+  if (!existsSync('/.dockerenv') && !existsSync('/run/.containerenv')) return url;
+  try {
+    const parsed = new URL(url);
+    if (['localhost', '127.0.0.1', '::1'].includes(parsed.hostname)) {
+      parsed.hostname = 'host.docker.internal';
+      return parsed.toString();
+    }
+  } catch {
+    return url;
+  }
+  return url;
+}
 
 const generateId = () =>
   Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
@@ -84,6 +99,7 @@ export async function executeRequest(
   let url = config.url || '';
   if (!url) throw new Error('URL is required');
   if (environment) url = substituteVariables(url, environment.variables, environment.secrets);
+  url = resolveRequestUrl(url);
 
   const params = config.params.filter((p: KeyValueItem) => p.enabled && p.key);
   const qs: string[] = [];

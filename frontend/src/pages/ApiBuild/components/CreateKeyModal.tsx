@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { X, Key, Copy, Check, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { ProviderApiKey, ApiConsumer } from '../../../types/apibuild';
+import { apiBuildService } from '../../../services/apiBuild';
 
 interface CreateKeyModalProps {
   consumers: ApiConsumer[];
+  projectId: string;
   isOpen: boolean;
   onClose: () => void;
   onCreateKey: (key: ProviderApiKey) => void;
@@ -12,6 +14,7 @@ interface CreateKeyModalProps {
 
 export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   consumers,
+  projectId,
   isOpen,
   onClose,
   onCreateKey,
@@ -23,27 +26,26 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   const [scopes, setScopes] = useState<string[]>(['read:users', 'write:generate']);
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
-  const handleCreate = () => {
-    if (!label.trim()) return;
-    const prefix = env === 'production' ? 'kly_live_' + Math.random().toString(36).slice(2, 6) : 'kly_test_' + Math.random().toString(36).slice(2, 6);
-    const fullSecret = `${prefix}_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`;
-
-    const newKey: ProviderApiKey = {
-      id: `key-${Date.now()}`,
-      label: label.trim(),
-      prefix,
-      consumer,
-      plan: 'Pro',
-      createdAt: new Date().toISOString().slice(0, 10),
-      lastUsed: 'Never',
-      revoked: false
-    };
-
-    onCreateKey(newKey);
-    setCreatedSecret(fullSecret);
+  const handleCreate = async () => {
+    if (!label.trim() || saving) return;
+    setSaving(true); setError('');
+    try {
+      const selectedConsumer = consumers.find((c) => c.name === consumer);
+      const result = await apiBuildService.createKey<ProviderApiKey & { secret: string }>(projectId, {
+        label: label.trim(), consumer: consumer || undefined, plan: selectedConsumer?.plan || 'Free',
+        environment: env === 'production' ? 'live' : 'test',
+      });
+      onCreateKey(result);
+      setCreatedSecret(result.secret);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'API key could not be created.');
+      onShowToast('API key creation failed');
+    } finally { setSaving(false); }
   };
 
   const handleCopySecret = async () => {
@@ -76,6 +78,7 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
 
         {/* Body */}
         <div className="kly-modal-body">
+          {error && <div role="alert" style={{ color: '#fca5a5', marginBottom: 10 }}>{error}</div>}
           {createdSecret ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="kly-alert-banner" style={{ background: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.3)', color: '#a7f3d0' }}>
@@ -162,10 +165,10 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               <button className="kly-btn kly-btn-ghost" onClick={onClose}>Cancel</button>
               <button
                 className="kly-btn kly-btn-primary"
-                disabled={!label.trim()}
+                disabled={!label.trim() || saving}
                 onClick={handleCreate}
               >
-                Create API Key
+                {saving ? 'Creating…' : 'Create API Key'}
               </button>
             </>
           )}

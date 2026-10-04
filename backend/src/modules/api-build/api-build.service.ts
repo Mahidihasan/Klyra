@@ -1028,9 +1028,9 @@ export async function recordUsage(projectId: string, bucket: { requests: number;
  * Analytics — aggregated from endpoints, logs and usage. Never fabricated.
  * ======================================================================== */
 
-export async function computeAnalytics(projectId: string) {
+export async function computeAnalytics(projectId: string, range: '24h' | '7d' | '30d' = '7d') {
   const endpoints = await listEndpoints(projectId);
-  const usage = await listUsage(projectId, '7d');
+  const usage = await listUsage(projectId, range);
   const logs = await listLogs(projectId, { limit: 200 });
   const total = usage.reduce((t, b) => t + b.total, 0);
   const success = usage.reduce((t, b) => t + b.success, 0);
@@ -1044,7 +1044,7 @@ export async function computeAnalytics(projectId: string) {
   const successRate = total > 0 ? Math.round((success / total) * 1000) / 10 : 100;
   const errorRate = total > 0 ? Math.round((errors / total) * 10000) / 100 : 0;
   return {
-    timeRange: '7d' as const,
+    timeRange: range,
     traffic: usage,
     totals: { total, success, errors, rateLimited, avgLatency, p95, successRate, errorRate },
     endpoints: {

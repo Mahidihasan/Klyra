@@ -6,7 +6,6 @@ import {
   Copy,
   Trash2,
   Code,
-  BookOpen,
   History,
   Sliders,
   X,
@@ -20,15 +19,10 @@ import {
   AlertCircle,
   Clock,
   Server,
-  Zap,
-  Crown,
   ArrowLeft,
   MoreVertical,
   Sparkles,
-  Wrench,
-  Bug,
   FileCode2,
-  Compass,
   Bot,
   Loader2,
   PanelRightClose,
@@ -102,16 +96,10 @@ import {
   isPlaceholderBody,
   toEnvVarName,
 } from '../../utils/playground';
-import {
-  buildPlaygroundContext,
-  getActionPrompt,
-  chatWithGemini,
-  inspectRequest,
-  GeminiMessage,
-} from '../../services/gemini';
+import { buildPlaygroundContext, inspectRequest } from '../../services/aiChat';
+import { useAiChat, AiChatEntry } from '../../hooks/useAiChat';
 import {
   PlaygroundAction,
-  PlaygroundActionName,
   AiFinding,
 } from '../../types/playground';
 import {
@@ -123,6 +111,7 @@ import {
   getPinnedItems,
   syncItemFromTab,
   createItemFromTab,
+  serializeTabConfig,
   migrateLegacyToItems,
 } from '../../utils/playgroundWorkspace';
 import { ApiProject } from '../../types/api';
@@ -143,13 +132,6 @@ interface PlaygroundProps {
   onPrefillConsumed?: () => void;
 }
 
-type AiMsg = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string | React.ReactNode;
-  action?: AiAction;
-};
-
 const METHOD_COLORS: Record<string, string> = {
   GET: '#22c55e',
   POST: '#a78bfa',
@@ -158,30 +140,6 @@ const METHOD_COLORS: Record<string, string> = {
   DELETE: '#ef4444',
   HEAD: '#6366f1',
   OPTIONS: '#8b5cf6',
-};
-
-const AI_ACTIONS: Array<{ id: AiAction; icon: typeof Zap; label: string }> = [
-  { id: 'generate-request', icon: Zap, label: 'Generate Request' },
-  { id: 'explain-request', icon: BookOpen, label: 'Explain Request' },
-  { id: 'diagnose-error', icon: Bug, label: 'Diagnose Error' },
-  { id: 'fix-request', icon: Wrench, label: 'Fix Request' },
-  { id: 'explain-response', icon: FileCode2, label: 'Explain Response' },
-  { id: 'generate-code', icon: Code, label: 'Generate Code' },
-  { id: 'recommend-endpoint', icon: Compass, label: 'Recommend Endpoint' },
-  { id: 'suggest-improvements', icon: Sparkles, label: 'Suggest Improvements' },
-  { id: 'ask-ai', icon: Bot, label: 'Ask AI' },
-];
-
-const ACTION_LABELS: Record<AiAction, string> = {
-  'generate-request': 'Generate Request',
-  'explain-request': 'Explain Request',
-  'fix-request': 'Fix Request',
-  'diagnose-error': 'Diagnose Error',
-  'explain-response': 'Explain Response',
-  'generate-code': 'Generate Code',
-  'recommend-endpoint': 'Recommend Endpoint',
-  'suggest-improvements': 'Suggest Improvements',
-  'ask-ai': 'Ask AI',
 };
 
 const BanIcon = ({ size = 16 }: { size?: number }) => (
@@ -411,10 +369,13 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
   const isAnySearch = apiSearch.length > 0;
   const activeWorkspaceLabel = activeWorkspace?.name || 'Workspace';
 
-  // AI state
-  const [aiMessages, setAiMessages] = useState<AiMsg[]>([]);
+  // AI state - the conversation itself lives in useAiChat (history, loading,
+  // cancellation and error handling); the panel only renders what it returns.
   const [aiInput, setAiInput] = useState('');
-  const [isAiThinking, setIsAiThinking] = useState(false);
+  const aiChat = useAiChat({
+    getContext: () => buildPlaygroundContext(config, response, activeEnvironment?.name, envVariables),
+    applyAction: (action) => applyPlaygroundAction(action),
+  });
   const [responseRequest, setResponseRequest] = useState<RequestConfig | null>(null);
   const [copilotAnalysis, setCopilotAnalysis] = useState<CopilotResponseAnalysis | null>(null);
   const [copilotSuggestions, setCopilotSuggestions] = useState<CopilotSuggestion[]>([]);
@@ -507,6 +468,14 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
     onConfirm: () => void;
   } | null>(null);
 
+  // Save-to-Files feedback: the Save button used to stay completely silent
+  // (success and failure looked identical), so the outcome is surfaced here.
+  const [isSavingTab, setIsSavingTab] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<{
+    tone: 'ok' | 'error';
+    text: string;
+  } | null>(null);
+
   // Derive active tab
   const activeTab = useMemo(
     () => openTabs.find((t) => t.tabId === activeTabId) || null,
@@ -585,6 +554,27 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
     }
   };
 
+  /**
+   * OpenAPI path parameters are part of the URL rather than query rows. The
+   * documented example fills them in so an imported request can run immediately;
+   * otherwise a readable `{{placeholder}}` stays for the user (or the active
+   * environment) to provide. Import and target matching must resolve paths the
+   * same way, or "Test in Playground" opens the first endpoint of the folder
+   * instead of the endpoint the button was pressed on.
+   */
+  const resolveEndpointPath = (
+    path: string,
+    parameters?: PlaygroundOpenEndpoint['parameters'],
+  ): string => {
+    let resolved = path.startsWith('/') ? path : `/${path}`;
+    for (const param of parameters || []) {
+      if (String(param.in || '').toLowerCase() !== 'path') continue;
+      const value = String(param.example || '').trim() || `{{${param.name}}}`;
+      resolved = resolved.split(`{${param.name}}`).join(value);
+    }
+    return resolved;
+  };
+
   // Import an API project's complete endpoint catalog into the workspace tree
   // as a folder named after the project. Fired when the Playground is opened
   // from the ApiBuild workspace ("Open API Tester Playground" button, or
@@ -661,15 +651,9 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
       let nextOrder = getNextOrder(workspaceItems, folderId);
       for (const ep of catalog) {
         const method = (ep.method || 'GET').toUpperCase();
-        let endpointPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
-        // OpenAPI path parameters are part of the URL rather than query rows.
-        // Fill documented examples so imported requests can run immediately;
-        // leave a readable placeholder when the spec provides no example.
-        for (const param of ep.parameters || []) {
-          if (String(param.in || '').toLowerCase() !== 'path') continue;
-          const value = String(param.example || '').trim() || `{{${param.name}}}`;
-          endpointPath = endpointPath.split(`{${param.name}}`).join(value);
-        }
+        // Path parameters are resolved with their documented examples (or a
+        // readable placeholder) so imported requests can run immediately.
+        const endpointPath = resolveEndpointPath(ep.path, ep.parameters);
         const epPath = endpointPath;
         const epUrl = apiUrl ? `${apiUrl}${epPath}` : epPath;
         const key = `${method} ${epUrl.replace(/\/+$/, '')}`;
@@ -739,11 +723,21 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
       }
 
       // Open the requested endpoint (when the caller named one) or the first
-      // endpoint of the folder in the editor, ready to send.
+      // endpoint of the folder in the editor, ready to send. The requested
+      // endpoint is located through the same path resolution the import used,
+      // so a parameterized operation (`/pet/{petId}`) still opens its own item.
       const targetMethod = (target?.method || '').toUpperCase();
       const targetPath = (target?.path || '').trim();
-      const targetUrl = targetPath
-        ? `${apiUrl}${targetPath.startsWith('/') ? targetPath : `/${targetPath}`}`.replace(
+      const targetEntry = targetMethod && targetPath
+        ? catalog.find(
+            (ep) =>
+              (ep.method || '').toUpperCase() === targetMethod &&
+              resolveEndpointPath(ep.path, ep.parameters) ===
+                resolveEndpointPath(targetPath, ep.parameters),
+          )
+        : undefined;
+      const targetUrl = targetEntry
+        ? `${apiUrl}${resolveEndpointPath(targetEntry.path, targetEntry.parameters)}`.replace(
             /\/+$/,
             '',
           )
@@ -1144,7 +1138,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
   const handleSendRequest = async () => {
     if (!config.url.trim() || hasBlockingRequestIssue) return;
     responseAnalysisId.current += 1;
-    setAiMessages([]);
+    aiChat.clear();
     setAiInput('');
     setCopilotAnalysis(null);
     setCopilotSuggestions([]);
@@ -1184,8 +1178,14 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
 
   // Core handlers
   const handleMethodChange = (method: HttpMethod) => setConfig((prev) => ({ ...prev, method }));
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-    setConfig((prev) => ({ ...prev, name: e.target.value }));
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const name = e.target.value;
+    setConfig((prev) => ({ ...prev, name }));
+    // Keep the tab label in step with the field being typed in. Only the label
+    // moves: `config` stays the draft, so the dirty check keeps comparing the
+    // draft against the last saved config.
+    setOpenTabs((prev) => prev.map((t) => (t.tabId === activeTabId ? { ...t, name } : t)));
+  };
   const handleAuthChange = (auth: AuthConfig) => setConfig((prev) => ({ ...prev, auth }));
   const handleBodyTypeChange = (type: BodyType) =>
     setConfig((prev) => ({ ...prev, body: { ...prev.body, type } }));
@@ -1596,7 +1596,12 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
   };
 
   const handleRenameTab = (tabId: string, name: string) => {
-    setOpenTabs((prev) => prev.map((t) => (t.tabId === tabId ? { ...t, name } : t)));
+    // Renaming a tab renames the request it holds: the label and the saved
+    // baseline move together, so no tab is left falsely marked as dirty.
+    setOpenTabs((prev) =>
+      prev.map((t) => (t.tabId === tabId ? { ...t, name, config: { ...t.config, name } } : t)),
+    );
+    if (tabId === activeTabId) setConfig((prev) => ({ ...prev, name }));
   };
 
   // =========================================================
@@ -1751,45 +1756,113 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
   // =========================================================
   // SAVE / DISCARD
   // =========================================================
+  /**
+   * Persist the request that is currently in the editor into Files (the
+   * workspace tree).
+   *
+   * The live `config` is the source of truth. A tab only refreshes its stored
+   * `config` when another tab is selected, so building the saved item from the
+   * tab snapshot persisted a stale request (an empty "Untitled Request") and
+   * made Save look like it did nothing.
+   */
   const handleSaveTab = async () => {
-    if (!activeTab) return;
-    // If tab has an itemId, update the workspace item
-    if (activeTab.itemId) {
-      try {
-        const updated = await playgroundApi.updateWorkspaceItem(activeTab.itemId, {
-          name: config.name,
-          request: config,
+    // Saving is never a no-op: with no tab open the editor state is opened in a
+    // tab first and then saved, instead of silently returning.
+    let tab = activeTab;
+    if (!tab) {
+      const createdTab = createTabFromConfig(config);
+      setOpenTabs((prev) => [...prev, createdTab]);
+      setActiveTabId(createdTab.tabId);
+      tab = createdTab;
+    }
+    const tabId = tab.tabId;
+    const targetItemId = tab.itemId;
+
+    const savedConfig = serializeTabConfig(config);
+    const savedName = (config.name || '').trim() || 'Untitled Request';
+
+    // A brand-new request needs a File entry; an existing one is patched. The
+    // item is built up-front so the offline fallback can reuse its id.
+    const newItem = createItemFromTab(
+      { ...tab, name: savedName, config: savedConfig },
+      'request',
+      undefined,
+      getNextOrder(workspaceItems),
+    );
+
+    // Align the tab with what was saved so the dirty dot clears instead of
+    // instantly re-flagging the tab against a stale baseline.
+    const commitTab = (itemId: string) => {
+      setOpenTabs((prev) =>
+        prev.map((t) =>
+          t.tabId === tabId
+            ? { ...t, itemId, name: savedName, config: savedConfig, isDirty: false }
+            : t,
+        ),
+      );
+    };
+
+    setIsSavingTab(true);
+    setSaveFeedback(null);
+    try {
+      if (targetItemId) {
+        const updated = await playgroundApi.updateWorkspaceItem(targetItemId, {
+          name: savedName,
+          request: savedConfig,
           method: config.method,
           url: config.url,
         });
         setWorkspaceItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-      } catch (_err) {
-        setWorkspaceItems((prev) =>
-          prev.map((i) => (i.id === activeTab.itemId ? { ...i, name: config.name, request: config, method: config.method, url: config.url } : i)),
-        );
-      }
-    } else {
-      // Save as new workspace item
-      const order = getNextOrder(workspaceItems);
-      const newItem = createItemFromTab(activeTab, 'request', undefined, order);
-      try {
+        commitTab(updated.id);
+      } else {
         const saved = await playgroundApi.createWorkspaceItem(newItem);
         setWorkspaceItems((prev) => [...prev, saved]);
-        setOpenTabs((prev) =>
-          prev.map((t) => (t.tabId === activeTab.tabId ? { ...t, itemId: saved.id, isDirty: false } : t)),
-        );
-      } catch (_err) {
-        setWorkspaceItems((prev) => [...prev, newItem]);
-        setOpenTabs((prev) =>
-          prev.map((t) => (t.tabId === activeTab.tabId ? { ...t, itemId: newItem.id, isDirty: false } : t)),
-        );
+        commitTab(saved.id);
+        // Reveal the new file where it actually lives.
+        setWorkspaceTab('apis');
       }
+      setSaveFeedback({ tone: 'ok', text: `"${savedName}" saved to Files` });
+    } catch (err) {
+      // Keep the work in the tree when the server is unreachable, but report it
+      // instead of leaving the user with a button that appears to do nothing.
+      console.error('[playground] saving the request to Files failed:', err);
+      if (targetItemId) {
+        setWorkspaceItems((prev) =>
+          prev.map((i) =>
+            i.id === targetItemId
+              ? {
+                  ...i,
+                  name: savedName,
+                  request: savedConfig,
+                  method: config.method,
+                  url: config.url,
+                }
+              : i,
+          ),
+        );
+        commitTab(targetItemId);
+      } else {
+        setWorkspaceItems((prev) => [...prev, newItem]);
+        commitTab(newItem.id);
+      }
+      setSaveFeedback({
+        tone: 'error',
+        text: 'Could not reach the server — kept locally only',
+      });
+    } finally {
+      setIsSavingTab(false);
     }
-    // Mark tab as clean
-    setOpenTabs((prev) =>
-      prev.map((t) => (t.tabId === activeTab.tabId ? { ...t, isDirty: false } : t)),
-    );
   };
+
+  // Clear the save confirmation after a moment so the topbar stays quiet.
+  useEffect(() => {
+    if (!saveFeedback) return;
+    const timeoutId = window.setTimeout(
+      () => setSaveFeedback(null),
+      saveFeedback.tone === 'error' ? 6000 : 2500,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [saveFeedback]);
 
   const handleDiscardTab = () => {
     if (!activeTab) return;
@@ -1853,15 +1926,6 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
     };
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
-  };
-
-  // Convert AiMsg[] to GeminiMessage[] for the API
-  const aiMessagesToGemini = (msgs: AiMsg[]): GeminiMessage[] => {
-    return msgs
-      .filter((m): m is { id: string; role: 'user' | 'assistant'; content: string; action?: AiAction } =>
-        typeof m.content === 'string',
-      )
-      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
   };
 
   const mergeKvItems = (
@@ -2204,121 +2268,32 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
     return resultLines.join(' ');
   };
 
+  // Guards against a double click on "Fix" applying the same change twice.
+  const applyingSuggestionRef = useRef<Set<string>>(new Set());
+
   const applyCopilotSuggestion = async (suggestion: CopilotSuggestion) => {
-    if (!suggestion.action) return;
-    const confirmation = await applyPlaygroundAction(suggestion.action);
-    setCopilotSuggestions((prev) => prev.filter((item) => item.id !== suggestion.id));
-    setAiMessages((prev) => [
-      ...prev,
-      { id: generateId(), role: 'assistant', content: renderAiResponseCard(confirmation, 'Fix applied') },
-    ]);
+    if (!suggestion.action || applyingSuggestionRef.current.has(suggestion.id)) return;
+    applyingSuggestionRef.current.add(suggestion.id);
+    try {
+      const confirmation = await applyPlaygroundAction(suggestion.action);
+      setCopilotSuggestions((prev) => prev.filter((item) => item.id !== suggestion.id));
+      aiChat.pushNotice(confirmation, 'Fix applied');
+    } finally {
+      applyingSuggestionRef.current.delete(suggestion.id);
+    }
   };
 
   const rejectCopilotSuggestion = (id: string) => {
     setCopilotSuggestions((prev) => prev.filter((item) => item.id !== id));
   };
 
-  // Send a message to Gemini and handle the action-oriented response
-  const sendToGemini = async (userContent: string, action: AiAction) => {
-    setIsAiThinking(true);
-    setIsRightExpanded(true);
-    try {
-      const context = buildPlaygroundContext(
-        config,
-        response,
-        activeEnvironment?.name,
-        envVariables,
-      );
-      const actionPrompt = getActionPrompt(action);
-      const messages: GeminiMessage[] = [
-        ...aiMessagesToGemini(aiMessages),
-        { role: 'user', content: actionPrompt ? `${actionPrompt}\n\n${userContent}` : userContent },
-      ];
-      const reply = await chatWithGemini(messages, context);
-
-      if (reply.type === 'action' && reply.action) {
-        const messageId = generateId();
-        const proposal: CopilotSuggestion = {
-          id: `copilot-chat-${Date.now()}`,
-          problem: 'Copilot identified a request change that may help.',
-          why: 'It is based on the current request and response context.',
-          fix: 'Apply the proposed change to the current request.',
-          action: reply.action,
-        };
-        setAiMessages((prev) => [
-          ...prev,
-          {
-            id: messageId,
-            role: 'assistant',
-            content: renderCopilotSuggestion(
-              proposal,
-              () => setAiMessages((messages) => messages.filter((message) => message.id !== messageId)),
-              () => setAiMessages((messages) => messages.filter((message) => message.id !== messageId)),
-            ),
-          },
-        ]);
-      } else {
-        setAiMessages((prev) => [
-          ...prev,
-          {
-            id: generateId(),
-            role: 'assistant',
-            content: renderAiResponseCard(reply.text || 'No response from AI.', 'Copilot'),
-          },
-        ]);
-      }
-    } catch (err: any) {
-      const errorMsg = err.message || 'AI request failed';
-      // Check if it's a key-not-configured error
-      const isConfigError = errorMsg.includes('not configured') || errorMsg.includes('GEMINI_API_KEY');
-      setAiMessages((prev) => [
-        ...prev,
-        {
-          id: generateId(),
-          role: 'assistant',
-          content: renderAiResponseCard(
-            isConfigError
-              ? 'Gemini API is not configured. Set the GEMINI_API_KEY environment variable in the backend .env file to enable AI features.'
-              : errorMsg,
-            'Error',
-          ),
-          action,
-        },
-      ]);
-    } finally {
-      setIsAiThinking(false);
-    }
-  };
-
-  // Retry sending the last message
-  const retryLastAiMessage = () => {
-    const lastUserMsg = [...aiMessages].reverse().find((m) => m.role === 'user');
-    if (lastUserMsg && typeof lastUserMsg.content === 'string') {
-      // Remove the last error assistant message and retry
-      setAiMessages((prev) => prev.slice(0, -1));
-      sendToGemini(lastUserMsg.content, lastUserMsg.action || 'ask-ai');
-    }
-  };
-
-  // AI actions
-  const runAiAction = (action: AiAction) => {
-    const content = ACTION_LABELS[action];
-    setAiMessages((prev) => [
-      ...prev,
-      { id: generateId(), role: 'user', content, action },
-    ]);
-    sendToGemini(content, action);
-  };
-
   const sendAiMessage = () => {
-    if (!aiInput.trim()) return;
     const content = aiInput.trim();
-    setAiMessages((prev) => [
-      ...prev,
-      { id: generateId(), role: 'user', content, action: 'ask-ai' },
-    ]);
+    // Empty input never reaches the API.
+    if (!content) return;
     setAiInput('');
-    sendToGemini(content, 'ask-ai');
+    setIsRightExpanded(true);
+    aiChat.send(content, 'ask-ai');
   };
 
   // Render helpers
@@ -3003,14 +2978,14 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
   };
 
   const handleAiShortcut = (label: string, action: AiAction) => {
-    setAiMessages((prev) => [...prev, { id: generateId(), role: 'user', content: label, action }]);
-    sendToGemini(label, action);
+    setIsRightExpanded(true);
+    aiChat.send(label, action);
   };
 
   // Auto-scroll AI chat
   useEffect(() => {
     aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [aiMessages, isAiThinking]);
+  }, [aiChat.messages, aiChat.isThinking]);
 
   // =========================================================
   // RIGHT AI SIDEBAR (Chat-based AI Copilot)
@@ -3076,6 +3051,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
     suggestion: CopilotSuggestion,
     onReject?: () => void,
     onApplied?: () => void,
+    onApply?: (suggestion: CopilotSuggestion) => Promise<void>,
   ) => (
     <div className="pg-copilot-suggestion">
       <div className="pg-copilot-suggestion-row">
@@ -3094,7 +3070,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
         <button
           className="pg-copilot-fix"
           onClick={async () => {
-            await applyCopilotSuggestion(suggestion);
+            await (onApply ? onApply(suggestion) : applyCopilotSuggestion(suggestion));
             onApplied?.();
           }}
           disabled={!suggestion.action}
@@ -3108,6 +3084,32 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
       </div>
     </div>
   );
+
+  // Renders one AI conversation row with the existing card / suggestion UI.
+  const renderAiChatEntry = (entry: AiChatEntry) => {
+    if (entry.role === 'user') {
+      return entry.text;
+    }
+    if (entry.kind === 'error') {
+      return renderAiResponseCard(entry.text, 'Error');
+    }
+    if (entry.kind === 'action') {
+      const proposal: CopilotSuggestion = {
+        id: `copilot-chat-${entry.id}`,
+        problem: 'Copilot identified a request change that may help.',
+        why: 'It is based on the current request and response context.',
+        fix: 'Apply the proposed change to the current request.',
+        action: entry.action,
+      };
+      return renderCopilotSuggestion(
+        proposal,
+        () => aiChat.dismissProposal(entry.id),
+        () => aiChat.dismissProposal(entry.id),
+        async () => aiChat.applyProposal(entry.id, entry.action),
+      );
+    }
+    return renderAiResponseCard(entry.text, entry.label);
+  };
 
   const renderResponseCopilot = () => {
     if (!response || !copilotAnalysis) return null;
@@ -3194,7 +3196,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
             {renderResponseCopilot()}
 
             {/* Empty state */}
-            {aiMessages.length === 0 && !copilotAnalysis && (
+            {aiChat.messages.length === 0 && !copilotAnalysis && (
               <div className="pg-ai-empty">
                 <Sparkles size={20} />
                 <p>
@@ -3204,17 +3206,17 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
             )}
 
             {/* AI conversation */}
-            {aiMessages.map((msg) => (
+            {aiChat.messages.map((msg) => (
               <div
                 key={msg.id}
                 className={`pg-ai-msg pg-ai-${msg.role}`}
               >
-                {msg.content}
+                {renderAiChatEntry(msg)}
               </div>
             ))}
 
             {/* Thinking */}
-            {isAiThinking && (
+            {aiChat.isThinking && (
               <div className="pg-ai-msg pg-ai-assistant">
                 <Loader2 size={13} className="pg-spin" />
                 Thinking...
@@ -3238,7 +3240,7 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
 
             <button
               className="pg-ai-chip"
-              onClick={() => setAiMessages([])}
+              onClick={() => aiChat.clear()}
               title="Clear conversation"
             >
               <X size={10} />
@@ -3337,8 +3339,25 @@ export const PlaygroundPage: React.FC<PlaygroundProps> = ({
             <X size={14} /> <span>Discard</span>
           </button>
         )}
-        <button className="pg-btn pg-btn-ghost pg-btn-sm" onClick={handleSaveTab} title="Save">
-          <Save size={14} /> <span>Save</span>
+        {saveFeedback && (
+          <span
+            className={`pg-save-hint ${saveFeedback.tone}`}
+            role="status"
+            aria-live="polite"
+            title={saveFeedback.text}
+          >
+            {saveFeedback.tone === 'ok' ? <Check size={12} /> : <AlertCircle size={12} />}
+            <span>{saveFeedback.text}</span>
+          </span>
+        )}
+        <button
+          className="pg-btn pg-btn-ghost pg-btn-sm"
+          onClick={handleSaveTab}
+          disabled={isSavingTab}
+          title="Save this request to Files"
+        >
+          {isSavingTab ? <Loader2 size={14} className="pg-spin" /> : <Save size={14} />}
+          <span>{isSavingTab ? 'Saving…' : 'Save'}</span>
         </button>
         <button
           className="pg-btn pg-btn-ghost pg-btn-sm"

@@ -54,13 +54,15 @@ services:
       - ./.env.development
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgresql://${POSTGRES_USER:-api_marketplace}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-api_marketplace_dev}
       REDIS_URL: redis://default:${REDIS_PASSWORD:-secret}@redis:6379
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./backend/src:/app/src
       - ./backend/scripts:/app/scripts
       - ./backend/package.json:/app/package.json
       - ./infrastructure/database:/infrastructure/database
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,6 +86,8 @@ services:
       NODE_ENV: development
       # Vite dev-server proxy target: the backend Compose service, not localhost
       VITE_PROXY_TARGET: http://backend:4000
+      # Inside the container the backend is reachable by service name, not localhost.
+      KLYRA_API_PROXY_TARGET: http://backend:4000
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/package.json:/app/package.json
@@ -106,15 +110,14 @@ services:
       - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       - backend
-      - frontend
     networks:
       - api-marketplace-network
 
 networks:
   api-marketplace-network:
     driver: bridge
+
   klyra-api-network:
-    name: klyra-api-network
     driver: bridge
 
 volumes:

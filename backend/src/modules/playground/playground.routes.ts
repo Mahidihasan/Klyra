@@ -6,7 +6,7 @@ import { playgroundStore as playgroundDbStore } from './playground.storage';
 import { executeRequest } from './playground.service';
 import { ExecuteRequestPayload } from './playground.types';
 import { WorkspaceItem } from './playground.workspace';
-import { chatWithGemini, inspectRequest } from './playground.ai';
+import { AiChatError, chatWithGemini, inspectRequest, toAiChatError } from './playground.ai';
 
 const router = Router();
 
@@ -459,19 +459,36 @@ router.post('/workspace-items/:id/duplicate', async (req: Request, res: Response
   }
 });
 
-// ============ Gemini AI Chat (action-oriented) ============
+// ============ AI Copilot chat ============
+// Wire contract (kept in sync with frontend/src/services/aiChat.ts):
+//   request : { conversation: [{ role: 'user' | 'assistant', content: string }], playgroundContext?: object }
+//             (`messages` is still accepted for backwards compatibility)
+//   success : { success: true, type: 'text', text } | { success: true, type: 'action', action }
+//   failure : { success: false, error: { code, message } }
 router.post('/ai/chat', async (req: Request, res: Response) => {
+  const body = (req.body || {}) as Record<string, unknown>;
+  const conversation = body.conversation ?? body.messages;
+
+  if (!Array.isArray(conversation) || conversation.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'invalid_request', message: 'A conversation with at least one user message is required.' },
+    });
+  }
+
   try {
-    const { messages, playgroundContext } = req.body;
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'Messages array is required' });
+    const result = await chatWithGemini(conversation, (body.playgroundContext as Record<string, unknown>) || {});
+    // Structured result - the Playground executes actions on the live request state.
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof AiChatError) {
+      console.error(`[playground-ai] chat failed (${err.code}): ${err.message}`);
+      return res.status(err.status).json({ success: false, error: { code: err.code, message: err.message } });
     }
-    const result = await chatWithGemini(messages, playgroundContext || {});
-    // Return structured action result - the Playground executes actions on request state
-    res.json(result);
-  } catch (err: any) {
-    const status = err.message?.includes('not configured') ? 503 : 500;
-    res.status(status).json({ error: err.message || 'AI chat failed' });
+    // Unexpected failure: log it for the operator, tell the user nothing internal.
+    console.error('[playground-ai] unexpected chat failure', err);
+    const fallback = toAiChatError(err);
+    return res.status(fallback.status).json({ success: false, error: { code: fallback.code, message: fallback.message } });
   }
 });
 

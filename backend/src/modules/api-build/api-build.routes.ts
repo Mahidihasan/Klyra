@@ -75,7 +75,10 @@ import {
 import {
   buildGatewayUrl,
   containerNameFor,
+  gatewaySlugFromUrl,
+  isKlyraGatewayUrl,
   normalizeDeploymentSource,
+  resolveDeploymentUpstream,
   sanitizeProjectForClient,
   slugFromProjectId,
   slugOfProject,
@@ -704,7 +707,10 @@ router.post('/projects/:id/usage', async (req, res) => {
   ok(res, { recorded: true }, 201);
 });
 router.get('/projects/:id/analytics', async (req, res) => {
-  ok(res, await computeAnalytics(req.params.id));
+  const range = ['24h', '7d', '30d'].includes(String(req.query.range))
+    ? String(req.query.range) as '24h' | '7d' | '30d'
+    : '7d';
+  ok(res, await computeAnalytics(req.params.id, range));
 });
 router.get('/projects/:id/insights', async (req, res) => {
   ok(res, await computeInsights(req.params.id));
@@ -770,6 +776,47 @@ router.post('/detect', async (req, res) => {
       });
     }
     return fail(res, 400, 'MISSING_URL', 'Provide a base URL or an OpenAPI URL.');
+  }
+  // A base URL that addresses Klyra's own gateway (`/api/gateway/{slug}`) is not
+  // an upstream origin: probing it makes THIS backend the origin, so the API's
+  // own base path can never be confirmed and anything served outside the probed
+  // root is unreachable. Resolve the project behind the slug and probe the
+  // deployment's real origin instead. This is also the path the Playground uses
+  // to heal a project whose detection record predates base-path detection.
+  if (isKlyraGatewayUrl(baseUrl)) {
+    try {
+      const slug = gatewaySlugFromUrl(baseUrl);
+      const projects = await listProjects();
+      const record = projects.find(
+        (entry) => slugOfProject(entry) === slug || String(entry.id) === slug,
+      );
+      const upstream = record ? resolveDeploymentUpstream(record) : '';
+      if (record && upstream) {
+        const detection = await detectUpstream(upstream, openApiUrl);
+        const upstreamOrigin = upstream.replace(/\/+$/, '');
+        // The deployment origin is a container address. Report the spec location
+        // the caller can actually reach (through this gateway) instead, so no
+        // internal host/port leaks into the project record or the UI.
+        const publicFoundAt =
+          detection.foundAt && detection.foundAt.startsWith(upstreamOrigin)
+            ? `${baseUrl}${detection.foundAt.slice(upstreamOrigin.length)}`
+            : detection.foundAt;
+        // Persist the base path: the Playground builds every request URL as
+        // gateway URL + base path + operation path.
+        if (detection.found && detection.basePath) {
+          const storedDetection =
+            record.detection && typeof record.detection === 'object'
+              ? (record.detection as Record<string, unknown>)
+              : {};
+          await updateProject(String(record.id), {
+            detection: { ...storedDetection, basePath: detection.basePath },
+          }).catch(() => undefined);
+        }
+        return ok(res, { ...detection, baseUrl, foundAt: publicFoundAt });
+      }
+    } catch {
+      // Fall through to the generic probe below — detection never fails hard.
+    }
   }
   ok(res, await detectUpstream(baseUrl, openApiUrl));
 });

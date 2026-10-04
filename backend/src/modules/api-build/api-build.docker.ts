@@ -203,7 +203,9 @@ export interface RunOptions {
 }
 
 function isContainerNameConflict(message: string): boolean {
-  return /conflict.*container name|container name .*already in use/i.test(message);
+  // Docker Desktop and Engine versions vary the wording and punctuation here
+  // (for example, `Conflict. The container name "/x" is already in use`).
+  return /container\s+name[^\r\n]*(?:already\s+in\s+use|in\s+use)|conflict[^\r\n]*name[^\r\n]*in\s+use/i.test(message);
 }
 
 function conflictFallbackName(name: string): string {
@@ -245,7 +247,11 @@ export async function runContainer(opts: RunOptions): Promise<{ hostPort?: numbe
     let hostPort = portBase();
     let lastError = '';
     let containerName = opts.name;
-    for (let attempt = 0; attempt < 10; attempt += 1, hostPort += 1) {
+    const attemptedNames = new Set<string>([containerName]);
+    // Failed `docker run -p` starts can leave a container in `created` state.
+    // Remove that exact failed attempt before trying the next host port, or
+    // the next iteration only reports a name conflict and burns another slot.
+    for (let attempt = 0; attempt < 50; attempt += 1, hostPort += 1) {
       const result = await runDocker([
         ...runArgs(containerName),
         '-p',
@@ -261,8 +267,15 @@ export async function runContainer(opts: RunOptions): Promise<{ hostPort?: numbe
       lastError = result.stderr;
       if (isContainerNameConflict(result.stderr)) {
         await reportContainerNameConflict(containerName, result.stderr, opts.log);
+        if (await removeCreatedContainer(containerName, opts.log)) {
+          opts.log(`[docker] removed stale created container ${containerName} before retrying host port ${hostPort + 1}`);
+          continue;
+        }
         const previous = containerName;
-        containerName = conflictFallbackName(opts.name);
+        do {
+          containerName = conflictFallbackName(opts.name);
+        } while (attemptedNames.has(containerName));
+        attemptedNames.add(containerName);
         opts.log(`[docker] retrying with unique container name ${containerName} (instead of ${previous})`);
         continue;
       }
@@ -270,6 +283,18 @@ export async function runContainer(opts: RunOptions): Promise<{ hostPort?: numbe
         !/address already in use|port is already allocated|bind for .* failed/i.test(result.stderr)
       ) {
         break;
+      }
+      if (!(await removeCreatedContainer(containerName, opts.log))) {
+        // If Docker left a running or otherwise non-removable container behind,
+        // preserve it and move this attempt to a fresh name.
+        const previous = containerName;
+        do {
+          containerName = conflictFallbackName(opts.name);
+        } while (attemptedNames.has(containerName));
+        attemptedNames.add(containerName);
+        opts.log(`[docker] could not clean failed container ${previous}; retrying with ${containerName}`);
+      } else {
+        opts.log(`[docker] removed failed container ${containerName} after host port ${hostPort} was unavailable`);
       }
       opts.log(`[docker] host port ${hostPort} busy — retrying with ${hostPort + 1}`);
     }
@@ -279,7 +304,8 @@ export async function runContainer(opts: RunOptions): Promise<{ hostPort?: numbe
   // Production: the backend itself is containerized — no host port at all. The
   // API container is reachable only through the internal Docker network.
   let containerName = opts.name;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const attemptedNames = new Set<string>([containerName]);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     const result = await runDocker([...runArgs(containerName), opts.image]);
     if (result.code === 0) {
       opts.log(
@@ -287,17 +313,38 @@ export async function runContainer(opts: RunOptions): Promise<{ hostPort?: numbe
       );
       return { containerName };
     }
-    if (!isContainerNameConflict(result.stderr) || attempt === 2) {
+    if (!isContainerNameConflict(result.stderr) || attempt === 9) {
       throw new Error(
         `docker run failed: ${result.stderr.trim().split('\n').slice(-3).join(' ') || 'unknown error'}`,
       );
     }
     await reportContainerNameConflict(containerName, result.stderr, opts.log);
     const previous = containerName;
-    containerName = conflictFallbackName(opts.name);
+    do {
+      containerName = conflictFallbackName(opts.name);
+    } while (attemptedNames.has(containerName));
+    attemptedNames.add(containerName);
     opts.log(`[docker] retrying with unique container name ${containerName} (instead of ${previous})`);
   }
   throw new Error(`docker run failed: could not allocate a unique container name for ${opts.name}`);
+}
+
+/**
+ * `docker run` creates the container before publishing its host port. If port
+ * binding fails, Docker may leave that container behind in `created` state.
+ * Only remove that exact name when it is not running; never disturb a live API.
+ */
+async function removeCreatedContainer(name: string, log: DeployLog): Promise<boolean> {
+  try {
+    const state = await inspectContainer(name);
+    if (!state) return true;
+    if (state.running || state.status !== 'created') return false;
+    await removeContainer(name);
+    return true;
+  } catch (error) {
+    log(`[docker] unable to remove failed container ${name}: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
 }
 
 export async function removeContainer(name: string): Promise<void> {

@@ -28,6 +28,25 @@ export interface DetectedEndpoint {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | 'TRACE';
   path: string;
   description?: string;
+  /**
+   * Operation shape the backend reads from the specification during detection.
+   * Carrying it here means a detection payload can pre-fill the Playground with
+   * the inputs an endpoint really needs (path/query/header parameters and a
+   * sample body) instead of a request that cannot succeed.
+   */
+  parameters?: {
+    name: string;
+    in: string;
+    type?: string;
+    required?: boolean;
+    description?: string;
+    example?: string;
+  }[];
+  requestBody?: {
+    contentType?: string;
+    schema?: string;
+    sampleBody?: string;
+  };
 }
 
 export interface DetectionResult {

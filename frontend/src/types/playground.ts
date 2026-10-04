@@ -256,13 +256,6 @@ export interface AiFinding {
   actionArgs?: Record<string, unknown>;
 }
 
-export interface AiActionResult {
-  type: 'action' | 'text';
-  action?: PlaygroundAction;
-  text?: string;
-  findings?: AiFinding[];
-}
-
 // =========================================================
 // WORKSPACE SIDEBAR TYPES
 // =========================================================
